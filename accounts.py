@@ -1,12 +1,13 @@
 import requests
-from loguru import logger  # Import loguru for logging
+from loguru import logger
+from pydantic import ValidationError
+from models import AccountHash, Transaction, TransferItem
 from read_token import get_access_token
 from utils import convert_to_iso8601
 
 
 class AccountsTrading:
     def __init__(self):
-        # Initialize access token during class instantiation
         self.access_token = get_access_token()
         self.account_hash_value = None
         self.base_url = "https://api.schwabapi.com/trader/v1"
@@ -24,9 +25,10 @@ class AccountsTrading:
             logger.info("Retrieved account numbers successfully.")
             try:
                 response_data = response.json()
-                self.account_hash_value = response_data[0].get("hashValue")
+                account_hash = AccountHash(**response_data[0])  # Validate with Pydantic
+                self.account_hash_value = account_hash.hashValue
                 logger.info(f"Account Hash Value: {self.account_hash_value}")
-            except (IndexError, KeyError, ValueError) as e:
+            except (IndexError, ValidationError) as e:
                 logger.error(f"Error parsing account hash value: {e}")
         else:
             logger.error(f"Error getting account hash: {response.status_code} - {response.text}")
@@ -39,7 +41,6 @@ class AccountsTrading:
             logger.error("Account hash value is not set.")
             return None
 
-        # Convert input dates to ISO 8601 format
         start_date_iso = convert_to_iso8601(start_date)
         end_date_iso = convert_to_iso8601(end_date)
 
@@ -49,50 +50,41 @@ class AccountsTrading:
 
         if response.status_code == 200:
             logger.info("Transactions retrieved successfully.")
-            return response.json()
+            try:
+                transactions = [Transaction(**txn) for txn in response.json()]  # Validate with Pydantic
+                return transactions
+            except ValidationError as e:
+                logger.error(f"Error parsing transactions: {e}")
+                return None
         else:
             logger.error(f"Error getting transactions: {response.status_code} - {response.text}")
             return None
 
-    def parse_transaction(self, transaction):
+    def parse_transaction(self, transaction: Transaction):
         """
         Parse and log details of a single transaction.
         """
-        activity_id = transaction.get("activityId")
-        time = transaction.get("time")
-        account_number = transaction.get("accountNumber")
-        transaction_type = transaction.get("type")
-        net_amount = transaction.get("netAmount")
-        transfer_items = transaction.get("transferItems", [])
+        logger.info(f"Activity ID: {transaction.activityId}")
+        logger.info(f"Time: {transaction.time}")
+        logger.info(f"Account Number: {transaction.accountNumber}")
+        logger.info(f"Transaction Type: {transaction.type}")
+        logger.info(f"Net Amount: {transaction.netAmount}")
 
-        logger.info(f"Activity ID: {activity_id}")
-        logger.info(f"Time: {time}")
-        logger.info(f"Account Number: {account_number}")
-        logger.info(f"Transaction Type: {transaction_type}")
-        logger.info(f"Net Amount: {net_amount}")
-
-        # Parse transfer items
-        for item in transfer_items:
+        for item in transaction.transferItems:
             self.parse_transfer_item(item)
 
-    def parse_transfer_item(self, item):
+    def parse_transfer_item(self, item: TransferItem):
         """
         Parse and log details of a single transfer item.
         """
-        instrument = item.get("instrument", {})
-        asset_type = instrument.get("assetType")
-        symbol = instrument.get("symbol")
-        description = instrument.get("description")
-        amount = item.get("amount")
-        cost = item.get("cost")
-        fee_type = item.get("feeType")
-
-        logger.info(f"  Asset Type: {asset_type}")
-        logger.info(f"  Symbol: {symbol}")
-        logger.info(f"  Description: {description}")
-        logger.info(f"  Amount: {amount}")
-        logger.info(f"  Cost: {cost}")
-        logger.info(f"  Fee Type: {fee_type}")
+        instrument = item.instrument
+        if instrument:
+            logger.info(f"  Asset Type: {instrument.assetType}")
+            logger.info(f"  Symbol: {instrument.symbol}")
+            logger.info(f"  Description: {instrument.description}")
+            logger.info(f"  Amount: {instrument.amount}")
+            logger.info(f"  Cost: {instrument.cost}")
+            logger.info(f"  Fee Type: {instrument.feeType}")
 
     def get_transactions(self, start_date, end_date, transaction_type=None):
         """
