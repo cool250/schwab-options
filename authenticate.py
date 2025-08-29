@@ -4,12 +4,9 @@ import base64
 import requests
 import webbrowser
 from loguru import logger
-from dotenv import load_dotenv
 
-from utils import get_app_credentials
+from utils import get_app_credentials, TOKEN_FILE_PATH
 
-# Load environment variables from .env file
-load_dotenv()
 
 def construct_init_auth_url() -> tuple[str, str, str, str]:
     # Get app credentials from the utility function
@@ -79,8 +76,7 @@ def main():
     logger.debug(init_tokens_dict)
 
     # Convert and save as JSON
-    file_path = "token.json"
-    with open(file_path, 'w') as json_file:
+    with open(TOKEN_FILE_PATH, 'w') as json_file:
         logger.debug(init_tokens_dict)
         json.dump(init_tokens_dict, json_file, indent=4)
 

@@ -1,7 +1,8 @@
 import json
+from utils import TOKEN_FILE_PATH
 
 # Define the file path as a constant
-FILE_PATH = "token.json"
+FILE_PATH = TOKEN_FILE_PATH
 
 def save_dict_to_file(data: dict) -> None:
     """

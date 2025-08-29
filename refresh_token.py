@@ -3,13 +3,10 @@ import os
 import base64
 import requests
 from loguru import logger
-from dotenv import load_dotenv  # Import dotenv to load environment variables
 
 from read_token import get_response_token
 from utils import get_app_credentials
 
-# Load environment variables from .env file
-load_dotenv()
 
 def refresh_tokens():
     logger.info("Initializing...")

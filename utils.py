@@ -7,6 +7,7 @@ from loguru import logger
 
 # Load environment variables from .env file
 load_dotenv()
+TOKEN_FILE_PATH = "token.json"
 
 def get_app_credentials():
     """
