@@ -6,18 +6,19 @@ import webbrowser
 from loguru import logger
 from dotenv import load_dotenv
 
+from utils import get_app_credentials
+
 # Load environment variables from .env file
 load_dotenv()
 
 def construct_init_auth_url() -> tuple[str, str, str, str]:
-    app_key = os.getenv("APP_KEY")
-    app_secret = os.getenv("APP_SECRET")
-    app_callback_url = os.getenv("APP_CALLBACK_URL")
-
-    if not app_key or not app_secret or not app_callback_url:
-        logger.error("Missing environment variables. Check your .env file.")
-        raise ValueError("Environment variables APP_KEY, APP_SECRET, or APP_CALLBACK_URL are missing.")
-
+    # Get app credentials from the utility function
+    try:
+        app_key, app_secret, app_callback_url = get_app_credentials()
+    except ValueError as e:
+        logger.error(e)
+        raise
+    
     auth_url = f"https://api.schwabapi.com/v1/oauth/authorize?response_type=code&client_id={app_key}&redirect_uri={app_callback_url}"
 
     logger.info("Click to authenticate:")

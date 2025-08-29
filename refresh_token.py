@@ -1,19 +1,25 @@
 import json
 import os
-from flask import Request
 import base64
 import requests
 from loguru import logger
+from dotenv import load_dotenv  # Import dotenv to load environment variables
 
 from read_token import get_response_token
+from utils import get_app_credentials
 
+# Load environment variables from .env file
+load_dotenv()
 
 def refresh_tokens():
     logger.info("Initializing...")
 
-    app_key = "Li6cHgVMldtne0pGZezXOYJDgZADm0fG"
-    app_secret = "AcYsWMPemzwIbTnD"
-    app_callback_url = "https://127.0.0.1"
+    # Get app credentials from the utility function
+    try:
+        app_key, app_secret, app_callback_url = get_app_credentials()
+    except ValueError as e:
+        logger.error(e)
+        return None
 
     # Read the refresh token value from the token.json file
     file_path = "token.json"
@@ -50,7 +56,6 @@ def refresh_tokens():
     logger.debug(refresh_token_dict)
 
     # Convert and save as JSON
-    file_path = "token.json"
     with open(file_path, 'w') as json_file:
         logger.debug(refresh_token_dict)
         json.dump(refresh_token_dict, json_file, indent=4)
@@ -60,4 +65,4 @@ def refresh_tokens():
     return "Done!"
 
 if __name__ == "__main__":
-  refresh_tokens()
+    refresh_tokens()

@@ -1,5 +1,28 @@
 from datetime import datetime
+import os
 
+from dotenv import load_dotenv
+from loguru import logger
+
+
+# Load environment variables from .env file
+load_dotenv()
+
+def get_app_credentials():
+    """
+    Retrieve app credentials from environment variables.
+    Returns:
+        tuple: A tuple containing app_key, app_secret, and app_callback_url.
+    """
+    app_key = os.getenv("APP_KEY")
+    app_secret = os.getenv("APP_SECRET")
+    app_callback_url = os.getenv("APP_CALLBACK_URL")
+
+    if not app_key or not app_secret or not app_callback_url:
+        logger.error("Missing environment variables. Check your .env file.")
+        raise ValueError("Environment variables APP_KEY, APP_SECRET, or APP_CALLBACK_URL are missing.")
+
+    return app_key, app_secret, app_callback_url
 
 def convert_to_iso8601(date_string: str) -> str:
         """
