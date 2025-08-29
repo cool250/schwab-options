@@ -3,7 +3,7 @@ from loguru import logger
 from pydantic import ValidationError
 from models import AccountHash, Transaction, TransferItem
 from read_token import get_access_token
-from utils import convert_to_iso8601
+from utils.utils import convert_to_iso8601
 
 
 class AccountsTrading:

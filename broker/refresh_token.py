@@ -5,7 +5,7 @@ import requests
 from loguru import logger
 
 from read_token import get_response_token
-from utils import get_app_credentials
+from utils.utils import get_app_credentials
 
 
 def refresh_tokens():
@@ -54,7 +54,6 @@ def refresh_tokens():
 
     # Convert and save as JSON
     with open(file_path, 'w') as json_file:
-        logger.debug(refresh_token_dict)
         json.dump(refresh_token_dict, json_file, indent=4)
 
     logger.info("Token dict refreshed.")

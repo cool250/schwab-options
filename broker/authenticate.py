@@ -5,7 +5,7 @@ import requests
 import webbrowser
 from loguru import logger
 
-from utils import get_app_credentials, TOKEN_FILE_PATH
+from utils.utils import get_app_credentials, TOKEN_FILE_PATH
 
 
 def construct_init_auth_url() -> tuple[str, str, str, str]:
@@ -58,7 +58,7 @@ def retrieve_tokens(headers, payload) -> dict:
     return init_tokens_dict
 
 
-def main():
+def get_access_token():
     app_key, app_secret, app_callback_url, cs_auth_url = construct_init_auth_url()
     webbrowser.open(cs_auth_url)
 
@@ -83,7 +83,3 @@ def main():
     logger.info("Token dict refreshed.")
 
     return "Done!"
-
-
-if __name__ == "__main__":
-    main()

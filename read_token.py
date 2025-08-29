@@ -1,5 +1,5 @@
 import json
-from utils import TOKEN_FILE_PATH
+from utils.utils import TOKEN_FILE_PATH
 
 # Define the file path as a constant
 FILE_PATH = TOKEN_FILE_PATH
