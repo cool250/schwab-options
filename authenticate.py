@@ -1,16 +1,22 @@
-import json
 import os
+import json
 import base64
 import requests
 import webbrowser
 from loguru import logger
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
 
 def construct_init_auth_url() -> tuple[str, str, str, str]:
-    
-    app_key = "Li6cHgVMldtne0pGZezXOYJDgZADm0fG"
-    app_secret = "AcYsWMPemzwIbTnD"
-    app_callback_url = "https://127.0.0.1"
+    app_key = os.getenv("APP_KEY")
+    app_secret = os.getenv("APP_SECRET")
+    app_callback_url = os.getenv("APP_CALLBACK_URL")
+
+    if not app_key or not app_secret or not app_callback_url:
+        logger.error("Missing environment variables. Check your .env file.")
+        raise ValueError("Environment variables APP_KEY, APP_SECRET, or APP_CALLBACK_URL are missing.")
 
     auth_url = f"https://api.schwabapi.com/v1/oauth/authorize?response_type=code&client_id={app_key}&redirect_uri={app_callback_url}"
 

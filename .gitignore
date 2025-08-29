@@ -63,3 +63,4 @@ coverage.xml
 .env.*
 
 .python-version
+token.json
