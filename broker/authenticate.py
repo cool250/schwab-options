@@ -5,7 +5,7 @@ import requests
 import webbrowser
 from loguru import logger
 
-from utils.utils import get_app_credentials, TOKEN_FILE_PATH
+from utils import get_app_credentials, TOKEN_FILE_PATH
 
 
 def construct_init_auth_url() -> tuple[str, str, str, str]:

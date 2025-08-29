@@ -4,8 +4,7 @@ import base64
 import requests
 from loguru import logger
 
-from utils.read_token import get_response_token
-from utils.utils import get_app_credentials
+from utils import get_app_credentials, get_response_token
 
 
 def refresh_tokens():
