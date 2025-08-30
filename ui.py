@@ -22,10 +22,8 @@ st.title("Short PUT Options Exposure")
 
 st.write("This application displays the total exposure for short PUT options.")
 
-logger.info("Fetching exposure data...")
+logger.debug("Fetching exposure data...")
 data = fetch_exposure()
-logger.info(f"Logging data in Streamlit: {data}")
-
 
 # Directly use the data dictionary for display
 if data:

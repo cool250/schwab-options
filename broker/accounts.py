@@ -27,7 +27,7 @@ class AccountsTrading:
         response = requests.get(url, headers=self.headers)
 
         if response.status_code == 200:
-            logger.info("Retrieved account numbers successfully.")
+            logger.debug("Retrieved account numbers successfully.")
             try:
                 response_data = response.json()
                 account_hash = AccountHash(**response_data[0])  # Validate with Pydantic
@@ -99,7 +99,7 @@ class AccountsTrading:
 
             # Populate the SecuritiesAccount model
             securities_account = SecuritiesAccount(**securities_account_data)
-            logger.info(f"Positions : {securities_account.model_dump_json()}")
+            logger.debug(f"Positions : {securities_account.model_dump_json()}")
 
             log_positions_with_short_quantity(securities_account)
             self.calculate_total_exposure_for_short_puts(securities_account)
@@ -117,7 +117,7 @@ class AccountsTrading:
             securities_account (SecuritiesAccount): The SecuritiesAccount object containing positions.
         """
         if not securities_account.positions:
-            logger.info("No positions available to calculate exposure.")
+            logger.debug("No positions available to calculate exposure.")
             return {}
 
         exposure_by_symbol = {}
@@ -129,7 +129,7 @@ class AccountsTrading:
                 if symbol and len(symbol) > 15 and symbol[-9] == "P":
                     strike_price = float(symbol[13:21]) / 1000  # Extract strike price
                     ticker = symbol[:6].strip()  # Extract ticker symbol
-                    logger.info(f"Processing Ticker: {ticker}, Strike Price: {strike_price}")
+                    logger.debug(f"Processing Ticker: {ticker}, Strike Price: {strike_price}")
 
                     if ticker not in exposure_by_symbol:
                         exposure_by_symbol[ticker] = 0
@@ -138,16 +138,16 @@ class AccountsTrading:
                         # Calculate exposure for short PUT options
                         exposure = strike_price * position.shortQuantity * 100  # Assuming 100 shares per option contract
                         exposure_by_symbol[ticker] += exposure
-                        logger.info(f"Short Exposure for {ticker}: {exposure}")
+                        logger.debug(f"Short Exposure for {ticker}: {exposure}")
 
                     if position.longQuantity and position.longQuantity > 0:
                         # Reduce exposure for long PUT options
                         exposure = strike_price * position.longQuantity * 100  # Assuming 100 shares per option contract
                         exposure_by_symbol[ticker] -= exposure
-                        logger.info(f"Long Exposure for {ticker}: {exposure}")
+                        logger.debug(f"Long Exposure for {ticker}: {exposure}")
 
         for ticker, exposure in exposure_by_symbol.items():
-            logger.info(f"Total Exposure for {ticker}: {exposure}")
+            logger.debug(f"Total Exposure for {ticker}: {exposure}")
 
         return exposure_by_symbol
        
