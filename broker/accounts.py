@@ -116,8 +116,8 @@ class AccountsTrading:
 
             # Populate the SecuritiesAccount model
             securities_account = SecuritiesAccount(**securities_account_data)
-            logger.info("Successfully populated SecuritiesAccount model.")
-            self.log_securities_account(securities_account)
+            logger.info(f"Positions : {securities_account.model_dump_json()}")
+            # self.log_securities_account(securities_account)
             return securities_account
         else:
             logger.error(f"Error getting account position: {response.status_code} - {response.text}")
