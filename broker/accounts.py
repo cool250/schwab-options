@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from model.models import AccountHash, SecuritiesAccount, Activity
 from utils import get_access_token, convert_to_iso8601
 from .refresh_token import refresh_tokens
-from .logging_methods import log_transactions, log_securities_account, log_positions_with_short_quantity
+from .logging_methods import log_transactions
 
 
 class AccountsTrading:
@@ -100,9 +100,6 @@ class AccountsTrading:
             # Populate the SecuritiesAccount model
             securities_account = SecuritiesAccount(**securities_account_data)
             logger.debug(f"Positions : {securities_account.model_dump_json()}")
-
-            log_positions_with_short_quantity(securities_account)
-            self.calculate_total_exposure_for_short_puts(securities_account)
             return securities_account
         else:
             logger.error(f"Error getting account position: {response.status_code} - {response.text}")
@@ -150,4 +147,51 @@ class AccountsTrading:
             logger.debug(f"Total Exposure for {ticker}: {exposure}")
 
         return exposure_by_symbol
-       
+    
+    def get_option_positions_details(self, securities_account: SecuritiesAccount):
+        """
+        Extract details for each option position including ticker, strike price, exposure, and expiration date.
+
+        Args:
+            securities_account (SecuritiesAccount): The SecuritiesAccount object containing positions.
+
+        Returns:
+            dict: A dictionary with details for each option position.
+        """
+        if not securities_account.positions:
+            logger.debug("No positions available to extract option details.")
+            return {}
+
+        option_positions_details = []
+        for position in securities_account.positions:
+            if position.instrument and position.instrument.assetType == "OPTION":
+                symbol = position.instrument.symbol
+
+                # Parse the symbol to extract details
+                if symbol and len(symbol) > 15:
+                    try:
+                        strike_price = float(symbol[13:21]) / 1000  # Extract strike price
+                        ticker = symbol[:6].strip()  # Extract ticker symbol
+                        expiration_date = f"{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"  # Extract expiration date
+                        quantity = position.longQuantity if position.longQuantity else position.shortQuantity
+
+                        exposure = 0
+                        if position.shortQuantity and position.shortQuantity > 0:
+                            # Calculate exposure for short options
+                            exposure += strike_price * position.shortQuantity * 100  # Assuming 100 shares per option contract
+                        if position.longQuantity and position.longQuantity > 0:
+                            # Calculate exposure for long options
+                            exposure -= strike_price * position.longQuantity * 100  # Assuming 100 shares per option contract
+
+                        option_positions_details.append({
+                            "ticker": ticker,
+                            "strike_price": strike_price,
+                            "exposure": exposure,
+                            "expiration_date": expiration_date,
+                            "quantity": quantity
+                        })
+                        logger.debug(f"Option Position: {ticker}, Strike: {strike_price}, Exposure: {exposure}, Expiration: {expiration_date}, Quantity: {quantity}")
+                    except ValueError as e:
+                        logger.error(f"Error parsing option symbol {symbol}: {e}")
+
+        return option_positions_details
