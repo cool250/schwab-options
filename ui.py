@@ -1,6 +1,8 @@
 import streamlit as st
 from broker.accounts import AccountsTrading
 from loguru import logger
+import pandas as pd
+
 
 # Initialize the AccountsTrading class
 accounts_trading = AccountsTrading()
@@ -20,9 +22,7 @@ def fetch_exposure():
 # Streamlit UI
 st.title("Short PUT Options Exposure")
 
-st.write("This application displays the total exposure for short PUT options.")
-
-logger.debug("Fetching exposure data...")
+logger.info("Fetching exposure data...")
 data = fetch_exposure()
 
 # Directly use the data dictionary for display
@@ -31,8 +31,11 @@ if data:
     if isinstance(total_exposure_data, dict):
         # Display the data in a table format
         st.subheader("Exposure by Ticker")
-        exposure_table = [{"Ticker": ticker, "Exposure": f"${exposure:,.2f}"} for ticker, exposure in total_exposure_data.items()]
-        st.table(exposure_table)
+        # Improved table format with Streamlit's dataframe feature
+        exposure_table = pd.DataFrame(
+            [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in total_exposure_data.items()]
+        )
+        st.dataframe(exposure_table.style.format({"Exposure ($)": "${:,.2f}"}))
     else:
         st.error("Invalid format for total_exposure data.")
 else:
