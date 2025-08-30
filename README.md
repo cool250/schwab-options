@@ -28,3 +28,23 @@ Before you begin, ensure you have the following installed:
    ```bash
    git clone https://github.com/your-username/schwab-options.git
    cd schwab-options
+   ```
+
+---
+
+## How to Start the API and UI Layers
+
+### Start the FastAPI Server
+
+1. Navigate to the project directory and run the following command to start the FastAPI server:
+   ```bash
+   uvicorn api:app --reload
+   ```
+2. The API will be available at `http://127.0.0.1:8000`.
+
+### Start the Streamlit UI
+1. Navigate to the project directory and run the following command to start the Streamlit UI:
+   ```bash
+   streamlit run ui.py
+   ```
+2. The UI will be available in your browser at the URL provided by Streamlit (usually `http://localhost:8501`).
