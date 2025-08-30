@@ -52,7 +52,7 @@ def fetch_option_positions_details():
     return puts, calls
 
 # Streamlit UI
-st.title("Short PUT Options Exposure")
+st.title("Options Positions")
 
 logger.info("Fetching exposure data...")
 data = fetch_overall_exposure()
@@ -60,36 +60,36 @@ data = fetch_overall_exposure()
 # Directly use the data dictionary for display
 if data:
     # Display the data in a table format
-    st.header("Exposure by Ticker")
-    # Improved table format with Streamlit's dataframe feature
     exposure_table = pd.DataFrame(
         [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in data.items()]
     )
+    total_exposure_value = sum(data.values())
+    st.header(f"Exposure by Ticker (Total: ${total_exposure_value})")
     st.dataframe(exposure_table.set_index(exposure_table.columns[0]))
 
 else:
     st.error("No data received or invalid data structure.")
-
-
 
 option_positions = fetch_option_positions_details()
 if option_positions:
     puts, calls = option_positions
 
 if puts:
-    st.header("Put Positions")
+
     # Display the data in a table format
     details_table = pd.DataFrame(puts).reset_index(drop=True)
     if 'expiration_date' in details_table.columns:
         details_table = details_table.sort_values(by='expiration_date')
+    st.header("Put Positions")
     st.dataframe(details_table.set_index(details_table.columns[0]))
 else:
     st.error("No option positions details found.")
 
 if calls:
-    st.header("Call Positions")
+    
     # Display the data in a table format
     details_table = pd.DataFrame(calls).reset_index(drop=True)
     if 'expiration_date' in details_table.columns:
         details_table = details_table.sort_values(by='expiration_date')
+    st.header("Call Positions")
     st.dataframe(details_table.set_index(details_table.columns[0]))
