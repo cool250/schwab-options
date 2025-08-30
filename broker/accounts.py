@@ -1,7 +1,7 @@
 import requests
 from loguru import logger
 from pydantic import ValidationError
-from model.models import AccountHash, Transaction, TransferItem
+from model.models import AccountHash, SecuritiesAccount, Transaction, TransferItem
 from utils import get_access_token, convert_to_iso8601
 
 
@@ -96,7 +96,32 @@ class AccountsTrading:
         else:
             logger.error("No transactions to display.")
 
+    def get_positions(self):
+        """
+        Fetch and log the account balance.
+        """
+        if not self.account_hash_value:
+            logger.error("Account hash value is not set.")
+            return None
 
-if __name__ == "__main__":
-    acct = AccountsTrading()
-    acct.get_transactions("2024-03-28", "2024-04-01", transaction_type="TRADE")
+        url = f"{self.base_url}/accounts/{self.account_hash_value}"
+        response = requests.get(url, headers=self.headers)
+
+        if response.status_code == 200:
+            logger.info("Account position retrieved successfully.")
+            # Parse the response JSON
+            response_data = response.json()
+
+            # Extract the securitiesAccount data
+            securities_account_data = response_data.get("securitiesAccount")
+            if not securities_account_data:
+                logger.error("Missing 'securitiesAccount' in the API response.")
+                return None
+
+            # Populate the SecuritiesAccount model
+            securities_account = SecuritiesAccount(**securities_account_data)
+            logger.info("Successfully populated SecuritiesAccount model.")
+            return securities_account
+        else:
+            logger.error(f"Error getting account position: {response.status_code} - {response.text}")
+            return None

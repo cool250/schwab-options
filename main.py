@@ -8,4 +8,5 @@ if __name__ == "__main__":
     # refresh_tokens()
 
     acct = AccountsTrading()
-    acct.get_transactions("2025-08-26", "2025-08-28", transaction_type="TRADE")
+    # acct.get_transactions("2025-08-26", "2025-08-28", transaction_type="TRADE")
+    acct.get_positions()
