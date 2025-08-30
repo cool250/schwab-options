@@ -1,7 +1,8 @@
+from typing import List
 import requests
 from loguru import logger
 from pydantic import ValidationError
-from model.models import AccountHash, SecuritiesAccount, Transaction, TransferItem
+from model.models import AccountHash, SecuritiesAccount, Activity
 from utils import get_access_token, convert_to_iso8601
 
 
@@ -50,7 +51,10 @@ class AccountsTrading:
         if response.status_code == 200:
             logger.info("Transactions retrieved successfully.")
             try:
-                transactions = [Transaction(**txn) for txn in response.json()]  # Validate with Pydantic
+                response_data = response.json()
+                transactions = [Activity(**item) for item in response_data]  # Validate with Pydantic
+                self.log_transactions(transactions)
+                logger.info(f"Total Transactions Fetched: {len(transactions)}")
                 return transactions
             except ValidationError as e:
                 logger.error(f"Error parsing transactions: {e}")
@@ -58,43 +62,35 @@ class AccountsTrading:
         else:
             logger.error(f"Error getting transactions: {response.status_code} - {response.text}")
             return None
+    
+    # Function to log transactions
+    def log_transactions(self, transactions: List[Activity]):
+        """
+        Log details of transactions represented as Pydantic objects.
 
-    def parse_transaction(self, transaction: Transaction):
+        Args:
+            transactions (List[Activity]): List of Activity Pydantic objects.
         """
-        Parse and log details of a single transaction.
-        """
-        logger.info(f"Activity ID: {transaction.activityId}")
-        logger.info(f"Time: {transaction.time}")
-        logger.info(f"Account Number: {transaction.accountNumber}")
-        logger.info(f"Transaction Type: {transaction.type}")
-        logger.info(f"Net Amount: {transaction.netAmount}")
+        for transaction in transactions:
+            logger.info(f"Transaction: {transaction.dict()}")  # Log the entire object as a dictionary
 
-        for item in transaction.transferItems:
-            self.parse_transfer_item(item)
+            # Log specific fields
+            logger.info(f"Activity ID: {transaction.activityId}")
+            logger.info(f"Account Number: {transaction.accountNumber}")
+            logger.info(f"Type: {transaction.type}")
+            logger.info(f"Status: {transaction.status}")
+            logger.info(f"Net Amount: {transaction.netAmount}")
 
-    def parse_transfer_item(self, item: TransferItem):
-        """
-        Parse and log details of a single transfer item.
-        """
-        instrument = item.instrument
-        if instrument:
-            logger.info(f"  Asset Type: {instrument.assetType}")
-            logger.info(f"  Symbol: {instrument.symbol}")
-            logger.info(f"  Description: {instrument.description}")
-            logger.info(f"  Amount: {instrument.amount}")
-            logger.info(f"  Cost: {instrument.cost}")
-            logger.info(f"  Fee Type: {instrument.feeType}")
-
-    def get_transactions(self, start_date, end_date, transaction_type=None):
-        """
-        Fetch and log transactions for the given date range and transaction type.
-        """
-        transactions = self.fetch_transactions(start_date, end_date, transaction_type)
-        if transactions:
-            for transaction in transactions:
-                self.parse_transaction(transaction)
-        else:
-            logger.error("No transactions to display.")
+            # Log transfer items if available
+            if transaction.transferItems:
+                for item in transaction.transferItems:
+                    if item.instrument:
+                        logger.info(f"  Instrument Symbol: {item.instrument.symbol}")
+                        logger.info(f"  Instrument Description: {item.instrument.description}")
+                    logger.info(f"  Amount: {item.amount}")
+                    logger.info(f"  Cost: {item.cost}")
+                    logger.info(f"  Fee Type: {item.feeType}")
+                    logger.info(f"  Position Effect: {item.positionEffect}")
 
     def get_positions(self):
         """
@@ -104,7 +100,7 @@ class AccountsTrading:
             logger.error("Account hash value is not set.")
             return None
 
-        url = f"{self.base_url}/accounts/{self.account_hash_value}"
+        url = f"{self.base_url}/accounts/{self.account_hash_value}?fields=positions"
         response = requests.get(url, headers=self.headers)
 
         if response.status_code == 200:
@@ -121,7 +117,52 @@ class AccountsTrading:
             # Populate the SecuritiesAccount model
             securities_account = SecuritiesAccount(**securities_account_data)
             logger.info("Successfully populated SecuritiesAccount model.")
+            self.log_securities_account(securities_account)
             return securities_account
         else:
             logger.error(f"Error getting account position: {response.status_code} - {response.text}")
             return None
+        
+    # Function to log securities_account object and its nested data
+    def log_securities_account(self, securities_account: SecuritiesAccount):
+        """
+        Log details of a SecuritiesAccount object, including nested data.
+
+        Args:
+            securities_account (SecuritiesAccount): The SecuritiesAccount object to log.
+        """
+        # Log top-level fields
+        logger.info(f"Account Number: {securities_account.accountNumber}")
+        logger.info(f"Round Trips: {securities_account.roundTrips}")
+        logger.info(f"Is Day Trader: {securities_account.isDayTrader}")
+
+        # Log initial balances if available
+        if securities_account.initialBalances:
+            logger.info("Initial Balances:")
+            logger.info(f"  Cash Balance: {securities_account.initialBalances.cashBalance}")
+            logger.info(f"  Equity: {securities_account.initialBalances.equity}")
+            logger.info(f"  Margin Balance: {securities_account.initialBalances.marginBalance}")
+
+        # Log current balances if available
+        if securities_account.currentBalances:
+            logger.info("Current Balances:")
+            logger.info(f"  Equity: {securities_account.currentBalances.equity}")
+            logger.info(f"  Margin Balance: {securities_account.currentBalances.marginBalance}")
+
+        # Log positions if available
+        if securities_account.positions:
+            logger.info("Positions:")
+            for position in securities_account.positions:
+                logger.info(f"  Short Quantity: {position.shortQuantity}")
+                logger.info(f"  Average Price: {position.averagePrice}")
+                logger.info(f"  Current Day Profit/Loss: {position.currentDayProfitLoss}")
+                logger.info(f"  Long Quantity: {position.longQuantity}")
+                logger.info(f"  Market Value: {position.marketValue}")
+                if position.instrument:
+                    logger.info("  Instrument:")
+                    logger.info(f"    CUSIP: {position.instrument.cusip}")
+                    logger.info(f"    Symbol: {position.instrument.symbol}")
+                    logger.info(f"    Description: {position.instrument.description}")
+                    logger.info(f"    Instrument ID: {position.instrument.instrumentId}")
+                    logger.info(f"    Net Change: {position.instrument.netChange}")
+                    logger.info(f"    Type: {position.instrument.type}") 
