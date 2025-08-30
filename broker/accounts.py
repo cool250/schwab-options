@@ -148,27 +148,28 @@ class AccountsTrading:
 
         return exposure_by_symbol
     
-    def get_option_positions_details(self, securities_account: SecuritiesAccount):
+    def get_option_details(self, securities_account: SecuritiesAccount, option_type: str):
         """
         Extract details for each option position including ticker, strike price, exposure, and expiration date.
 
         Args:
             securities_account (SecuritiesAccount): The SecuritiesAccount object containing positions.
+            option_type (str): The type of option to filter ('P' for PUT, 'C' for CALL).
 
         Returns:
-            dict: A dictionary with details for each option position.
+            list: A list of dictionaries with details for each option position.
         """
         if not securities_account.positions:
             logger.debug("No positions available to extract option details.")
-            return {}
+            return []
 
         option_positions_details = []
         for position in securities_account.positions:
             if position.instrument and position.instrument.assetType == "OPTION":
                 symbol = position.instrument.symbol
 
-                # Parse the symbol to extract details
-                if symbol and len(symbol) > 15:
+                # Parse the option symbol to extract details
+                if symbol and len(symbol) > 15 and symbol[-9] == option_type:
                     try:
                         strike_price = float(symbol[13:21]) / 1000  # Extract strike price
                         ticker = symbol[:6].strip()  # Extract ticker symbol
@@ -176,22 +177,52 @@ class AccountsTrading:
                         quantity = position.longQuantity if position.longQuantity else position.shortQuantity
 
                         exposure = 0
-                        if position.shortQuantity and position.shortQuantity > 0:
-                            # Calculate exposure for short options
-                            exposure += strike_price * position.shortQuantity * 100  # Assuming 100 shares per option contract
-                        if position.longQuantity and position.longQuantity > 0:
-                            # Calculate exposure for long options
-                            exposure -= strike_price * position.longQuantity * 100  # Assuming 100 shares per option contract
+                        if option_type == "P":  # Calculate exposure only for PUT options
+                            if position.shortQuantity and position.shortQuantity > 0:
+                                # Calculate exposure for short options
+                                exposure += strike_price * position.shortQuantity * 100  # Assuming 100 shares per option contract
+                            if position.longQuantity and position.longQuantity > 0:
+                                # Calculate exposure for long options
+                                exposure -= strike_price * position.longQuantity * 100  # Assuming 100 shares per option contract
 
-                        option_positions_details.append({
+                        option_details = {
                             "ticker": ticker,
+                            "symbol": symbol,
                             "strike_price": strike_price,
-                            "exposure": exposure,
                             "expiration_date": expiration_date,
                             "quantity": quantity
-                        })
-                        logger.debug(f"Option Position: {ticker}, Strike: {strike_price}, Exposure: {exposure}, Expiration: {expiration_date}, Quantity: {quantity}")
+                        }
+                        if option_type == "P":
+                            option_details["exposure"] = exposure
+
+                        option_positions_details.append(option_details)
+                        logger.debug(f"Option Position: {ticker}, Strike: {strike_price}, Expiration: {expiration_date}, Quantity: {quantity}, Exposure: {exposure if option_type == 'P' else 'N/A'}")
                     except ValueError as e:
                         logger.error(f"Error parsing option symbol {symbol}: {e}")
 
         return option_positions_details
+
+    def get_puts(self, securities_account: SecuritiesAccount):
+        """
+        Extract details for PUT option positions.
+
+        Args:
+            securities_account (SecuritiesAccount): The SecuritiesAccount object containing positions.
+
+        Returns:
+            list: A list of dictionaries with details for each PUT option position.
+        """
+        return self.get_option_details(securities_account, option_type="P")
+
+    def get_calls(self, securities_account: SecuritiesAccount):
+        """
+        Extract details for CALL option positions.
+
+        Args:
+            securities_account (SecuritiesAccount): The SecuritiesAccount object containing positions.
+
+        Returns:
+            list: A list of dictionaries with details for each CALL option position.
+        """
+        return self.get_option_details(securities_account, option_type="C")
+

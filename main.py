@@ -12,6 +12,6 @@ if __name__ == "__main__":
     # # acct.fetch_transactions("2025-08-26", "2025-08-28", transaction_type="TRADE")
     securities_account = acct.get_positions()
     if securities_account is not None:
-        option_positions_details = acct.get_option_positions_details(securities_account)
+        option_positions_details = acct.get_puts(securities_account)
     else:
         option_positions_details = None
