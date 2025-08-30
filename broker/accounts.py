@@ -105,33 +105,6 @@ class AccountsTrading:
             logger.error(f"Error getting account position: {response.status_code} - {response.text}")
             return None
 
-    def calculate_total_exposure_for_short_puts(self, securities_account: SecuritiesAccount):
-        """
-        Calculate and log the total exposure for short PUT option positions at the symbol level, 
-        considering long PUT options to reduce the exposure.
-
-        Args:
-            securities_account (SecuritiesAccount): The SecuritiesAccount object containing positions.
-        """
-        puts = self.get_puts(securities_account)
-        exposure_by_symbol = {}
-
-        for put in puts:
-            ticker = put["ticker"]
-            strike_price = put["strike_price"]
-            quantity = put["quantity"]
-            exposure = put.get("exposure", 0)
-
-            if ticker not in exposure_by_symbol:
-                exposure_by_symbol[ticker] = 0
-
-            exposure_by_symbol[ticker] += exposure
-            logger.debug(f"Processed PUT for {ticker}: Strike Price: {strike_price}, Quantity: {quantity}, Exposure: {exposure}")
-
-        for ticker, total_exposure in exposure_by_symbol.items():
-            logger.debug(f"Total Exposure for {ticker}: {total_exposure}")
-
-        return exposure_by_symbol
     
     def get_option_details(self, securities_account: SecuritiesAccount, option_type: str):
         """
@@ -210,4 +183,32 @@ class AccountsTrading:
             list: A list of dictionaries with details for each CALL option position.
         """
         return self.get_option_details(securities_account, option_type="C")
+    
+    def calculate_total_exposure_for_short_puts(self, securities_account: SecuritiesAccount):
+        """
+        Calculate and log the total exposure for short PUT option positions at the symbol level, 
+        considering long PUT options to reduce the exposure.
+
+        Args:
+            securities_account (SecuritiesAccount): The SecuritiesAccount object containing positions.
+        """
+        puts = self.get_puts(securities_account)
+        exposure_by_symbol = {}
+
+        for put in puts:
+            ticker = put["ticker"]
+            strike_price = put["strike_price"]
+            quantity = put["quantity"]
+            exposure = put.get("exposure", 0)
+
+            if ticker not in exposure_by_symbol:
+                exposure_by_symbol[ticker] = 0
+
+            exposure_by_symbol[ticker] += exposure
+            logger.debug(f"Processed PUT for {ticker}: Strike Price: {strike_price}, Quantity: {quantity}, Exposure: {exposure}")
+
+        for ticker, total_exposure in exposure_by_symbol.items():
+            logger.debug(f"Total Exposure for {ticker}: {total_exposure}")
+
+        return exposure_by_symbol
 
