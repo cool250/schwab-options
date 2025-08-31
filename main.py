@@ -18,16 +18,21 @@ def account():
 def market():
     data = MarketData()
     # stock_data = data.get_price_history("AAPL", 'year', 1)
-    stock_data = data.get_price("ENPH  250919C00045000,AAPL")
-    if stock_data:
-        for symbol, asset in stock_data.root.items():
-            if asset.quote and asset.quote.closePrice is not None:
-                logger.info(f"Symbol: {symbol}, Close Price: {asset.quote.closePrice}")
     
+    
+    # stock_data = data.get_price("ENPH  250919C00045000,AAPL")
+    # if stock_data:
+    #     for symbol, asset in stock_data.root.items():
+    #         if asset.quote and asset.quote.closePrice is not None:
+    #             logger.info(f"Symbol: {symbol}, Close Price: {asset.quote.closePrice}")
+    
+    option_chain = data.get_chain("AAPL", "2025-09-02", "2025-10-04")
+    if option_chain and option_chain.symbol:
+        logger.info(f"Option Chain for {option_chain.symbol} retrieved with {len(option_chain.callExpDateMap) + len(option_chain.putExpDateMap)} expiration dates.")
 
 if __name__ == "__main__":
     # get_access_token()
-    refresh_tokens()
+    # refresh_tokens()
 
     # account()
 

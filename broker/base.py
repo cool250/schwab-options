@@ -3,6 +3,7 @@ from loguru import logger
 import requests
 from broker.refresh_token import refresh_tokens
 from utils.read_token import get_access_token
+import json
 
 
 class APIClient:
@@ -31,9 +32,17 @@ class APIClient:
         try:
             if url is None:
                 url = self.base_url
+            logger.info(f"Making API request to {url} with params: {params}")
             response = requests.get(url, headers=self.headers, params=params)
+            logger.info(f"Received response with status code {response.status_code}")
             if response.status_code == 200:
-                return response.json()
+                try:
+                    response_data = response.json()
+                    logger.debug(f"Response JSON: {json.dumps(response_data) }")
+                    return response_data
+                except ValueError as e:
+                    logger.error(f"Error decoding JSON response: {str(e)}")
+                    return None
             elif response.status_code == 401:
                 logger.warning("Token expired. Refreshing token and retrying...")
                 self._update_access_token()

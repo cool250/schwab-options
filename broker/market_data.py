@@ -48,17 +48,17 @@ class MarketData(APIClient):
         response_data = self._fetch_data(self.base_url, params)
         return response_data
 
-    def get_chain(self, symbol, start_date, end_date):
+    def get_chain(self, symbol, from_date, to_date, strike_count=10, contract_type="ALL"):
         """
         Fetch options chain for the given symbol and parse it using the Pydantic model.
         """
         
         params = {
             "symbol": symbol,
-            "strategy": "SINGLE",
-            "strike": 10,
-            "startDate": start_date,
-            "endDate": end_date
+            "strikeCount": strike_count,
+            "contractType": contract_type,
+            "fromDate": from_date,
+            "toDate": to_date
         }
 
         
@@ -67,7 +67,7 @@ class MarketData(APIClient):
         if response_data:
             try:
                 option_chain = OptionChainResponse(**response_data)
-                logger.debug(f"Positions: {option_chain.model_dump_json()}")
+                # logger.debug(f"Positions: {option_chain.model_dump_json()}")
                 return option_chain
             except ValidationError as e:
                 logger.error(f"Error parsing option chain: {e}")
