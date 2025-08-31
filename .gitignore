@@ -65,3 +65,4 @@ coverage.xml
 .python-version
 token.json
 test-data.json
+market-data.json

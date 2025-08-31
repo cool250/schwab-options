@@ -163,7 +163,8 @@ class AccountsTrading:
                             "symbol": symbol,
                             "strike_price": strike_price,
                             "expiration_date": expiration_date,
-                            "quantity": quantity
+                            "quantity": quantity,
+                            "trade_price": position.averagePrice
                         }
                         if option_type == "P":
                             option_details["exposure"] = exposure

@@ -24,9 +24,12 @@ from broker.accounts import AccountsTrading
 from loguru import logger
 import pandas as pd
 
+from broker.market_data import MarketData
+
 
 # Initialize the AccountsTrading class
 accounts_trading = AccountsTrading()
+market_data = MarketData()
 securities_account = accounts_trading.get_positions()
 
 def fetch_overall_exposure():
@@ -48,8 +51,37 @@ def fetch_option_positions_details():
         return None
 
     puts = accounts_trading.get_puts(securities_account)
+    puts = get_price_position(puts)
+    
     calls = accounts_trading.get_calls(securities_account)
+    calls = get_price_position(calls)
+
     return puts, calls
+
+def get_price_position(options):
+    """
+    Fetch the price position for the given puts and calls.
+    """
+    price_positions = [option.get("symbol") for option in options if option.get("symbol")]
+    logger.debug(f"Option symbols: {price_positions}")
+    
+    if not price_positions:
+        return options
+
+    quote_string = ", ".join(price_positions)
+    quotes = market_data.get_stock_quote(quote_string)
+
+    quote_data = {
+        symbol: asset.quote.closePrice
+        for symbol, asset in quotes.root.items()
+        if asset.quote and asset.quote.closePrice is not None
+    }
+
+    for option in options:
+        symbol = option.get("symbol")
+        option["current_price"] = quote_data.get(symbol, 0)
+
+    return options
 
 def get_balances():
     """
@@ -65,6 +97,8 @@ def get_balances():
 # Streamlit UI
 st.title("Positions")
 balance = get_balances()
+
+
 if balance:
     margin_balance = balance.get('margin', None)
     if margin_balance is not None:
