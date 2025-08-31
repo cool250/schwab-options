@@ -25,7 +25,7 @@ class APIClient:
             "Accept": "application/json"
         }
 
-    def _fetch_data(self, url=None, params=None):
+    def _fetch_data(self, url=None, params=None, attempt=1, max_retries=3):
         """Helper method to fetch data from the API."""
         try:
             if url is None:
@@ -37,6 +37,9 @@ class APIClient:
                 logger.warning("Token expired. Refreshing token and retrying...")
                 self._update_access_token()
                 return self._fetch_data(url, params)
+            elif attempt < max_retries:
+                logger.warning(f"Retrying... (Attempt {attempt + 1}/{max_retries})")
+                return self._fetch_data(url, params, attempt + 1)
             else:
                 logger.error(f"Error fetching data: {response.status_code} - {response.text}")
                 return None

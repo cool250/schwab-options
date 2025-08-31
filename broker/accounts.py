@@ -31,9 +31,6 @@ class AccountsTrading(APIClient):
                 logger.info(f"Account Hash Value: {self.account_hash_value}")
             except (IndexError, ValidationError) as e:
                 logger.error(f"Error parsing account hash value: {e}")
-        elif attempt <= max_retries:
-            logger.warning("Token expired. Refreshing token and retrying...")
-            self.get_account_number_hash_value(attempt + 1, max_retries)
         else:
             logger.error("Failed to retrieve account hash value after retries.")
 
