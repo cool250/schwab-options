@@ -73,13 +73,13 @@ def render():
         puts, calls = option_positions
 
         if puts:
-            st.header("Put Positions")
+            st.header("Put")
             display_ui_table(puts, "expiration_date")
         else:
             handle_error("No PUT option positions found.")
 
         if calls:
-            st.header("Call Positions")
+            st.header("Call")
             display_ui_table(calls, "expiration_date")
         else:
             handle_error("No CALL option positions found.")
