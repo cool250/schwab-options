@@ -1,3 +1,4 @@
+import time
 from loguru import logger
 import requests
 from broker.refresh_token import refresh_tokens
@@ -38,6 +39,7 @@ class APIClient:
                 self._update_access_token()
                 return self._fetch_data(url, params)
             elif attempt < max_retries:
+                time.sleep(2 ** attempt)  # Exponential backoff
                 logger.warning(f"Retrying... (Attempt {attempt + 1}/{max_retries})")
                 return self._fetch_data(url, params, attempt + 1)
             else:

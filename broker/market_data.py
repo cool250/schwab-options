@@ -1,11 +1,15 @@
 from loguru import logger
 from model.market_models import StockQuotes
+from model.option_models import OptionChainResponse
 from pydantic import ValidationError
 from broker.base import APIClient
 
+
+
+
 class MarketData(APIClient):
     def __init__(self):
-        super().__init__("https://api.schwabapi.com/marketdata/v1/quotes")
+        super().__init__("https://api.schwabapi.com/marketdata/v1")
         self.headers = {
             "Authorization": f"Bearer {self.access_token}",
             "Accept": "application/json"
@@ -19,7 +23,8 @@ class MarketData(APIClient):
             "symbols": symbol,
             "fields": "quote"
         }
-        response_data = self._fetch_data(params=params)
+        url = f"{self.base_url}/quotes"
+        response_data = self._fetch_data(url, params)
         if response_data:
             try:
                 stock_quotes = StockQuotes(**response_data)
@@ -43,3 +48,35 @@ class MarketData(APIClient):
         response_data = self._fetch_data(self.base_url, params)
         return response_data
 
+    def get_chain(self, symbol, start_date, end_date):
+        """
+        Fetch options chain for the given symbol and parse it using the Pydantic model.
+        """
+        
+        params = {
+            "symbol": symbol,
+            "strategy": "SINGLE",
+            "strike": 10,
+            "startDate": start_date,
+            "endDate": end_date
+        }
+
+        
+        url = f"{self.base_url}/chains"
+        response_data = self._fetch_data(url, params)
+        if response_data:
+            try:
+                option_chain = OptionChainResponse(**response_data)
+                logger.debug(f"Positions: {option_chain.model_dump_json()}")
+                return option_chain
+            except ValidationError as e:
+                logger.error(f"Error parsing option chain: {e}")
+        return None
+
+    def get_put_chain(self, option_chain: OptionChainResponse):
+        """
+        Fetch the put options chain for the given symbol and parse it using the Pydantic model.
+        """
+        if option_chain and option_chain.symbol:
+            logger.info(f"Put Option Chain for {option_chain.symbol} retrieved with {len(option_chain.putExpDateMap)} expiration dates.")
+        return None
