@@ -73,10 +73,3 @@ class MarketData(APIClient):
                 logger.error(f"Error parsing option chain: {e}")
         return None
 
-    def get_put_chain(self, option_chain: OptionChainResponse):
-        """
-        Fetch the put options chain for the given symbol and parse it using the Pydantic model.
-        """
-        if option_chain and option_chain.symbol:
-            logger.info(f"Put Option Chain for {option_chain.symbol} retrieved with {len(option_chain.putExpDateMap)} expiration dates.")
-        return None

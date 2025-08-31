@@ -25,6 +25,7 @@ from loguru import logger
 import pandas as pd
 
 from broker.market_data import MarketData
+from service.position import PositionService
 
 
 # Set Streamlit page configuration to increase table width
@@ -33,6 +34,7 @@ st.set_page_config(layout="wide")
 # Initialize the AccountsTrading class
 accounts_trading = AccountsTrading()
 market_data = MarketData()
+service = PositionService()
 
 # Fetch the securities account
 securities_account = accounts_trading.get_positions()
@@ -46,68 +48,17 @@ def display_table(data, sort_column):
     """
     Helper function to display a sorted table.
     """
-    table = pd.DataFrame(data).reset_index(drop=True)
+    table = pd.DataFrame(data)
     if sort_column in table.columns:
         table = table.sort_values(by=sort_column)
     st.dataframe(table.set_index(table.columns[0]))
 
-def fetch_overall_exposure():
-    """
-    Fetch the total exposure for short PUT options directly using AccountsTrading.
-    """
-    if not securities_account:
-        return handle_error("Securities account not found.")
-    return accounts_trading.calculate_total_exposure_for_short_puts(securities_account)
-
-def fetch_option_positions_details():
-    """
-    Fetch option positions details directly using AccountsTrading.
-    """
-    if not securities_account:
-        return handle_error("Securities account not found.")
-
-    puts = get_current_price(accounts_trading.get_puts(securities_account))
-    calls = get_current_price(accounts_trading.get_calls(securities_account))
-    return puts, calls
-
-def get_current_price(options):
-    """
-    Fetch the price position for the given options.
-    """
-    price_positions = [option.get("symbol") for option in options if option.get("symbol")]
-
-    if not price_positions: # should ideally not be empty
-        return options
-
-    # Pass all symbols to market data as comma separated values
-    quotes = market_data.get_price(", ".join(price_positions))
-    quote_data = {}
-    if quotes and hasattr(quotes, "root"):
-        quote_data = {
-            symbol: asset.quote.closePrice
-            for symbol, asset in quotes.root.items()
-            if asset.quote and asset.quote.closePrice is not None
-        }
-
-    for option in options:
-        current_price = quote_data.get(option.get("symbol"), 0)
-        option["current_price"] = f"${current_price:,.2f}"
-
-    return options
-
-def get_balances():
-    """
-    Fetch account balances directly using AccountsTrading.
-    """
-    if not securities_account:
-        return handle_error("Securities account not found.")
-    return accounts_trading.get_balances(securities_account)
-
 # Streamlit UI
 st.title("Positions")
 
+option_positions, exposure, balance = service.populate_positions()
+
 # Display balances
-balance = get_balances()
 if balance:
     margin_balance = balance.get("margin")
     if margin_balance is not None:
@@ -116,20 +67,16 @@ if balance:
         handle_error("Margin balance not found in account balances.")
 
 # Display overall exposure
-data = fetch_overall_exposure()
-if data:
+if exposure:
     exposure_table = pd.DataFrame(
-        [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in data.items()]
+        [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in exposure.items()]
     )
-    st.subheader(f"Exposure by Ticker (Total: ${sum(data.values()):,.2f})")
-    st.dataframe(exposure_table.set_index("Ticker"))
+    st.subheader(f"Exposure by Ticker (Total: ${sum(exposure.values()):,.2f})")
+    display_table(exposure_table, "ticker")
 else:
     handle_error("No data received or invalid data structure.")
 
-
-
 # Display option positions
-option_positions = fetch_option_positions_details()
 if option_positions:
     puts, calls = option_positions
 

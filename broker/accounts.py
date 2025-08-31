@@ -1,5 +1,6 @@
 from loguru import logger
 from pydantic import ValidationError
+from typing import Optional
 from broker.base import APIClient
 from model.account_models import AccountHash, SecuritiesAccount, Activity
 from utils import convert_to_iso8601
@@ -10,7 +11,7 @@ from .logging_methods import log_transactions
 class AccountsTrading(APIClient):
     def __init__(self):
         super().__init__("https://api.schwabapi.com/trader/v1")
-        self.account_hash_value = None
+        self.account: Optional[SecuritiesAccount] = None
         self.get_account_number_hash_value()
 
     def get_account_number_hash_value(self, attempt=1, max_retries=3):
@@ -29,6 +30,14 @@ class AccountsTrading(APIClient):
                 logger.error(f"Error parsing account hash value: {e}")
         else:
             logger.error("Failed to retrieve account hash value after retries.")
+
+    def get_account(self):
+        if not self.account:
+            self.account = self.get_positions()
+            if self.account is None:
+                logger.error("Failed to retrieve account positions. Account is None.")
+                raise ValueError("Failed to retrieve account positions. Account is None.")
+        return self.account
 
     def fetch_transactions(self, start_date, end_date, transaction_type=None):
         """
@@ -75,20 +84,19 @@ class AccountsTrading(APIClient):
             if securities_account_data:
                 try:
                     securities_account = SecuritiesAccount(**securities_account_data)
-                    logger.debug(f"Positions: {securities_account.model_dump_json()}")
+                    self.account = securities_account 
                     return securities_account
                 except ValidationError as e:
                     logger.error(f"Error parsing securities account: {e}")
         logger.error("Failed to retrieve positions.")
         return None
 
-    def get_balances(self, securities_account: SecuritiesAccount):
+    def get_balances(self):
         """
         Fetch and log the account balances.
         """
-        if not securities_account:
-            logger.error("Securities account is not available.")
-            return None
+
+        securities_account: SecuritiesAccount = self.get_account()
 
         balances = {
             "margin": securities_account.initialBalances.margin if securities_account.initialBalances else None
@@ -96,20 +104,18 @@ class AccountsTrading(APIClient):
         logger.debug(f"Account Balances: {balances}")
         return balances
     
-    def get_option_details(self, securities_account: SecuritiesAccount, option_type: str):
+    def get_option_details(self, option_type: str):
         """
         Extract details for each option position including ticker, strike price, exposure, and expiration date.
 
         Args:
-            securities_account (SecuritiesAccount): The SecuritiesAccount object containing positions.
+            option_type (str): The type of option to filter ('P' for PUT, 'C' for CALL).
             option_type (str): The type of option to filter ('P' for PUT, 'C' for CALL).
 
         Returns:
             list: A list of dictionaries with details for each option position.
         """
-        if not securities_account.positions:
-            logger.debug("No positions available to extract option details.")
-            return []
+        securities_account: SecuritiesAccount = self.get_account()
 
         def parse_option_symbol(symbol):
             try:
@@ -150,7 +156,7 @@ class AccountsTrading(APIClient):
                         option_positions_details.append(option_details)
         return option_positions_details
 
-    def get_puts(self, securities_account: SecuritiesAccount):
+    def get_puts(self):
         """
         Extract details for PUT option positions.
 
@@ -160,9 +166,9 @@ class AccountsTrading(APIClient):
         Returns:
             list: A list of dictionaries with details for each PUT option position.
         """
-        return self.get_option_details(securities_account, option_type="P")
+        return self.get_option_details(option_type="P")
 
-    def get_calls(self, securities_account: SecuritiesAccount):
+    def get_calls(self):
         """
         Extract details for CALL option positions.
 
@@ -172,9 +178,9 @@ class AccountsTrading(APIClient):
         Returns:
             list: A list of dictionaries with details for each CALL option position.
         """
-        return self.get_option_details(securities_account, option_type="C")
-    
-    def calculate_total_exposure_for_short_puts(self, securities_account: SecuritiesAccount):
+        return self.get_option_details(option_type="C")
+
+    def calculate_total_exposure_for_short_puts(self):
         """
         Calculate and log the total exposure for short PUT option positions at the symbol level, 
         considering long PUT options to reduce the exposure.
@@ -182,7 +188,7 @@ class AccountsTrading(APIClient):
         Args:
             securities_account (SecuritiesAccount): The SecuritiesAccount object containing positions.
         """
-        puts = self.get_puts(securities_account)
+        puts = self.get_puts()
         exposure_by_symbol = {}
 
         for put in puts:
