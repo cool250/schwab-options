@@ -3,47 +3,39 @@ from typing import List
 import requests
 from loguru import logger
 from pydantic import ValidationError
+from broker.base import APIClient
 from model.account_models import AccountHash, SecuritiesAccount, Activity
 from utils import get_access_token, convert_to_iso8601
 from .refresh_token import refresh_tokens
 from .logging_methods import log_transactions
 
 
-class AccountsTrading:
+
+class AccountsTrading(APIClient):
     def __init__(self):
-        self.access_token = get_access_token()
+        super().__init__("https://api.schwabapi.com/trader/v1")
         self.account_hash_value = None
-        self.base_url = "https://api.schwabapi.com/trader/v1"
-        self.headers = {"Authorization": f"Bearer {self.access_token}"}
         self.get_account_number_hash_value()
 
     def get_account_number_hash_value(self, attempt=1, max_retries=3):
         """
         Fetch and set the account hash value from the API.
         """
-        delay = 10
-
         url = f"{self.base_url}/accounts/accountNumbers"
-        response = requests.get(url, headers=self.headers)
+        response_data = self._fetch_data(url)
 
-        if response.status_code == 200:
-            logger.debug("Retrieved account numbers successfully.")
+        if response_data:
             try:
-                response_data = response.json()
-                account_hash = AccountHash(**response_data[0])  # Validate with Pydantic
+                account_hash = AccountHash(**response_data[0])
                 self.account_hash_value = account_hash.hashValue
                 logger.info(f"Account Hash Value: {self.account_hash_value}")
             except (IndexError, ValidationError) as e:
                 logger.error(f"Error parsing account hash value: {e}")
-        elif response.status_code == 401:  # Unauthorized (likely due to expired token)
-            if attempt <= max_retries:
-                logger.warning("Refresh token expired. Refreshing token and retrying...")
-                refresh_tokens()
-                self.access_token = get_access_token()  # Reload the new access token
-                self.headers = {"Authorization": f"Bearer {self.access_token}"}  # Update headers
-                return self.get_account_number_hash_value(attempt=attempt + 1, max_retries=max_retries)  # Retry the request
+        elif attempt <= max_retries:
+            logger.warning("Token expired. Refreshing token and retrying...")
+            self.get_account_number_hash_value(attempt + 1, max_retries)
         else:
-            logger.error(f"Error getting account hash: {response.status_code} - {response.text}")
+            logger.error("Failed to retrieve account hash value after retries.")
 
     def fetch_transactions(self, start_date, end_date, transaction_type=None):
         """
@@ -58,12 +50,11 @@ class AccountsTrading:
 
         url = f"{self.base_url}/accounts/{self.account_hash_value}/transactions"
         params = {"startDate": start_date_iso, "endDate": end_date_iso, "types": transaction_type}
-        response = requests.get(url, headers=self.headers, params=params)
+        response_data = self._fetch_data(url, params)
 
-        if response.status_code == 200:
+        if response_data:
             logger.info("Transactions retrieved successfully.")
             try:
-                response_data = response.json()
                 transactions = [Activity(**item) for item in response_data]  # Validate with Pydantic
                 log_transactions(transactions)
                 logger.info(f"Total Transactions Fetched: {len(transactions)}")
@@ -85,26 +76,19 @@ class AccountsTrading:
 
         url = f"{self.base_url}/accounts/{self.account_hash_value}"
         params = {"fields": "positions"}
-        response = requests.get(url, headers=self.headers, params=params)
+        response_data = self._fetch_data(url, params)
 
-        if response.status_code == 200:
-            logger.info("Account position retrieved successfully.")
-            # Parse the response JSON
-            response_data = response.json()
-
-            # Extract the securitiesAccount data
+        if response_data:
             securities_account_data = response_data.get("securitiesAccount")
-            if not securities_account_data:
-                logger.error("Missing 'securitiesAccount' in the API response.")
-                return None
-
-            # Populate the SecuritiesAccount model
-            securities_account = SecuritiesAccount(**securities_account_data)
-            logger.debug(f"Positions : {securities_account.model_dump_json()}")
-            return securities_account
-        else:
-            logger.error(f"Error getting account position: {response.status_code} - {response.text}")
-            return None
+            if securities_account_data:
+                try:
+                    securities_account = SecuritiesAccount(**securities_account_data)
+                    logger.debug(f"Positions: {securities_account.model_dump_json()}")
+                    return securities_account
+                except ValidationError as e:
+                    logger.error(f"Error parsing securities account: {e}")
+        logger.error("Failed to retrieve positions.")
+        return None
 
     def get_balances(self, securities_account: SecuritiesAccount):
         """
@@ -114,7 +98,6 @@ class AccountsTrading:
             logger.error("Securities account is not available.")
             return None
 
-        logger.info("Fetching account balances...")
         balances = {
             "margin": securities_account.initialBalances.margin if securities_account.initialBalances else None
         }
@@ -136,19 +119,24 @@ class AccountsTrading:
             logger.debug("No positions available to extract option details.")
             return []
 
+        def parse_option_symbol(symbol):
+            try:
+                strike_price = float(symbol[13:21]) / 1000
+                ticker = symbol[:6].strip()
+                expiration_date = f"{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"
+                return ticker, strike_price, expiration_date
+            except ValueError as e:
+                logger.error(f"Error parsing option symbol {symbol}: {e}")
+                return None, None, None
+
         option_positions_details = []
         for position in securities_account.positions:
             if position.instrument and position.instrument.assetType == "OPTION":
                 symbol = position.instrument.symbol
-
-                # Parse the option symbol to extract details
                 if symbol and len(symbol) > 15 and symbol[-9] == option_type:
-                    try:
-                        strike_price = float(symbol[13:21]) / 1000  # Extract strike price
-                        ticker = symbol[:6].strip()  # Extract ticker symbol
-                        expiration_date = f"{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"  # Extract expiration date
-                        quantity = position.longQuantity if position.longQuantity else position.shortQuantity
-
+                    ticker, strike_price, expiration_date = parse_option_symbol(symbol)
+                    if ticker:
+                        quantity = position.longQuantity or position.shortQuantity
                         exposure = 0
                         if option_type == "P":  # Calculate exposure only for PUT options
                             if position.shortQuantity and position.shortQuantity > 0:
@@ -161,19 +149,15 @@ class AccountsTrading:
                         option_details = {
                             "ticker": ticker,
                             "symbol": symbol,
-                            "strike_price": strike_price,
+                            "strike_price": f"${strike_price:,.2f}",
                             "expiration_date": expiration_date,
                             "quantity": quantity,
-                            "trade_price": position.averagePrice
+                            "trade_price": f"${position.averagePrice:,.2f}" if position.averagePrice else None
                         }
                         if option_type == "P":
-                            option_details["exposure"] = exposure
-
+                            option_details["exposure"] = exposure                        
+                        
                         option_positions_details.append(option_details)
-                        logger.debug(f"Option Position: {ticker}, Strike: {strike_price}, Expiration: {expiration_date}, Quantity: {quantity}, Exposure: {exposure if option_type == 'P' else 'N/A'}")
-                    except ValueError as e:
-                        logger.error(f"Error parsing option symbol {symbol}: {e}")
-
         return option_positions_details
 
     def get_puts(self, securities_account: SecuritiesAccount):
@@ -213,18 +197,9 @@ class AccountsTrading:
 
         for put in puts:
             ticker = put["ticker"]
-            strike_price = put["strike_price"]
-            quantity = put["quantity"]
             exposure = put.get("exposure", 0)
+            exposure_by_symbol[ticker] = exposure_by_symbol.get(ticker, 0) + exposure
 
-            if ticker not in exposure_by_symbol:
-                exposure_by_symbol[ticker] = 0
-
-            exposure_by_symbol[ticker] += exposure
-            logger.debug(f"Processed PUT for {ticker}: Strike Price: {strike_price}, Quantity: {quantity}, Exposure: {exposure}")
-
-        for ticker, total_exposure in exposure_by_symbol.items():
-            logger.debug(f"Total Exposure for {ticker}: {total_exposure}")
-
+        logger.debug(f"Total Exposure: {exposure_by_symbol}")
         return exposure_by_symbol
 

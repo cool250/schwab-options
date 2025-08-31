@@ -33,56 +33,65 @@ st.set_page_config(layout="wide")
 # Initialize the AccountsTrading class
 accounts_trading = AccountsTrading()
 market_data = MarketData()
+
+# Fetch the securities account
 securities_account = accounts_trading.get_positions()
+
+# Helper function to handle errors and return data
+def handle_error(message):
+    st.error(message)
+    return None
+
+def display_table(data, sort_column):
+    """
+    Helper function to display a sorted table.
+    """
+    table = pd.DataFrame(data).reset_index(drop=True)
+    if sort_column in table.columns:
+        table = table.sort_values(by=sort_column)
+    st.dataframe(table.set_index(table.columns[0]))
 
 def fetch_overall_exposure():
     """
     Fetch the total exposure for short PUT options directly using AccountsTrading.
     """
     if not securities_account:
-        st.error("Securities account not found.")
-        return None
-    total_exposure = accounts_trading.calculate_total_exposure_for_short_puts(securities_account)
-    return total_exposure
+        return handle_error("Securities account not found.")
+    return accounts_trading.calculate_total_exposure_for_short_puts(securities_account)
 
 def fetch_option_positions_details():
     """
     Fetch option positions details directly using AccountsTrading.
     """
     if not securities_account:
-        st.error("Securities account not found.")
-        return None
+        return handle_error("Securities account not found.")
 
-    puts = accounts_trading.get_puts(securities_account)
-    puts = get_price_position(puts)
-    
-    calls = accounts_trading.get_calls(securities_account)
-    calls = get_price_position(calls)
-
+    puts = get_current_price(accounts_trading.get_puts(securities_account))
+    calls = get_current_price(accounts_trading.get_calls(securities_account))
     return puts, calls
 
-def get_price_position(options):
+def get_current_price(options):
     """
-    Fetch the price position for the given puts and calls.
+    Fetch the price position for the given options.
     """
     price_positions = [option.get("symbol") for option in options if option.get("symbol")]
-    logger.debug(f"Option symbols: {price_positions}")
-    
-    if not price_positions:
+
+    if not price_positions: # should ideally not be empty
         return options
 
-    quote_string = ", ".join(price_positions)
-    quotes = market_data.get_stock_quote(quote_string)
-
-    quote_data = {
-        symbol: asset.quote.closePrice
-        for symbol, asset in quotes.root.items()
-        if asset.quote and asset.quote.closePrice is not None
-    }
+    # Pass all symbols to market data as comma separated values
+    quotes = market_data.get_price(", ".join(price_positions))
+    quote_data = {}
+    if quotes and hasattr(quotes, "root"):
+        quote_data = {
+            symbol: asset.quote.closePrice
+            for symbol, asset in quotes.root.items()
+            if asset.quote and asset.quote.closePrice is not None
+        }
 
     for option in options:
-        symbol = option.get("symbol")
-        option["current_price"] = quote_data.get(symbol, 0)
+        current_price = quote_data.get(option.get("symbol"), 0)
+        option["current_price"] = f"${current_price:,.2f}"
 
     return options
 
@@ -91,59 +100,47 @@ def get_balances():
     Fetch account balances directly using AccountsTrading.
     """
     if not securities_account:
-        st.error("Securities account not found.")
-        return None
-
-    balances = accounts_trading.get_balances(securities_account)
-    return balances
+        return handle_error("Securities account not found.")
+    return accounts_trading.get_balances(securities_account)
 
 # Streamlit UI
 st.title("Positions")
+
+# Display balances
 balance = get_balances()
-
-
 if balance:
-    margin_balance = balance.get('margin', None)
+    margin_balance = balance.get("margin")
     if margin_balance is not None:
         st.subheader(f"Margin Balance: ${margin_balance:,.2f}")
     else:
-        st.error("Margin balance not found in account balances.")
-logger.info("Fetching exposure data...")
-data = fetch_overall_exposure()
+        handle_error("Margin balance not found in account balances.")
 
-# Directly use the data dictionary for display
+# Display overall exposure
+data = fetch_overall_exposure()
 if data:
-    # Display the data in a table format
     exposure_table = pd.DataFrame(
         [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in data.items()]
     )
-    total_exposure_value = sum(data.values())
-    st.header(f"Exposure by Ticker (Total: ${total_exposure_value})")
-    st.dataframe(exposure_table.set_index(exposure_table.columns[0]))
-
+    st.subheader(f"Exposure by Ticker (Total: ${sum(data.values()):,.2f})")
+    st.dataframe(exposure_table.set_index("Ticker"))
 else:
-    st.error("No data received or invalid data structure.")
+    handle_error("No data received or invalid data structure.")
 
+
+
+# Display option positions
 option_positions = fetch_option_positions_details()
 if option_positions:
     puts, calls = option_positions
 
-if puts:
+    if puts:
+        st.header("Put Positions")
+        display_table(puts, "expiration_date")
+    else:
+        handle_error("No PUT option positions found.")
 
-    # Display the data in a table format
-    details_table = pd.DataFrame(puts).reset_index(drop=True)
-    if 'expiration_date' in details_table.columns:
-        details_table = details_table.sort_values(by='expiration_date')
-    st.header("Put Positions")
-    st.dataframe(details_table.set_index(details_table.columns[0]))
-else:
-    st.error("No option positions details found.")
-
-if calls:
-    
-    # Display the data in a table format
-    details_table = pd.DataFrame(calls).reset_index(drop=True)
-    if 'expiration_date' in details_table.columns:
-        details_table = details_table.sort_values(by='expiration_date')
-    st.header("Call Positions")
-    st.dataframe(details_table.set_index(details_table.columns[0]))
+    if calls:
+        st.header("Call Positions")
+        display_table(calls, "expiration_date")
+    else:
+        handle_error("No CALL option positions found.")

@@ -18,7 +18,7 @@ def account():
 def market():
     data = MarketData()
     # stock_data = data.get_price_history("AAPL", 'year', 1)
-    stock_data = data.get_stock_quote("ENPH  250919C00045000,AAPL")
+    stock_data = data.get_price("ENPH  250919C00045000,AAPL")
     if stock_data:
         for symbol, asset in stock_data.root.items():
             if asset.quote and asset.quote.closePrice is not None:
