@@ -27,6 +27,9 @@ import pandas as pd
 from broker.market_data import MarketData
 
 
+# Set Streamlit page configuration to increase table width
+st.set_page_config(layout="wide")
+
 # Initialize the AccountsTrading class
 accounts_trading = AccountsTrading()
 market_data = MarketData()
