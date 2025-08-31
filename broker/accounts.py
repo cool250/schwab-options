@@ -52,16 +52,15 @@ class AccountsTrading(APIClient):
         if response_data:
             logger.info("Transactions retrieved successfully.")
             try:
-                transactions = [Activity(**item) for item in response_data]  # Validate with Pydantic
+                transactions = [Activity(**item) for item in response_data]
                 log_transactions(transactions)
                 logger.info(f"Total Transactions Fetched: {len(transactions)}")
                 return transactions
             except ValidationError as e:
                 logger.error(f"Error parsing transactions: {e}")
                 return None
-        else:
-            logger.error(f"Error getting transactions: {response.status_code} - {response.text}")
-            return None
+        logger.error("Failed to retrieve transactions.")
+        return None
     
     def get_positions(self):
         """
@@ -135,14 +134,6 @@ class AccountsTrading(APIClient):
                     if ticker:
                         quantity = position.longQuantity or position.shortQuantity
                         exposure = 0
-                        if option_type == "P":  # Calculate exposure only for PUT options
-                            if position.shortQuantity and position.shortQuantity > 0:
-                                # Calculate exposure for short options
-                                exposure += strike_price * position.shortQuantity * 100  # Assuming 100 shares per option contract
-                            if position.longQuantity and position.longQuantity > 0:
-                                # Calculate exposure for long options
-                                exposure -= strike_price * position.longQuantity * 100  # Assuming 100 shares per option contract
-
                         option_details = {
                             "ticker": ticker,
                             "symbol": symbol,
@@ -151,9 +142,15 @@ class AccountsTrading(APIClient):
                             "quantity": quantity,
                             "trade_price": f"${position.averagePrice:,.2f}" if position.averagePrice else None
                         }
-                        if option_type == "P":
-                            option_details["exposure"] = exposure                        
-                        
+                        if option_type == "P":  # Calculate exposure only for PUT options
+                            if position.shortQuantity and position.shortQuantity > 0:
+                                # Calculate exposure for short options
+                                exposure += strike_price * position.shortQuantity * 100  # Assuming 100 shares per option contract
+                            if position.longQuantity and position.longQuantity > 0:
+                                # Calculate exposure for long options
+                                exposure -= strike_price * position.longQuantity * 100  # Assuming 100 shares per option contract
+                            option_details["exposure"] = exposure
+
                         option_positions_details.append(option_details)
         return option_positions_details
 
