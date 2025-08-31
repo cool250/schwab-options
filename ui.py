@@ -68,11 +68,9 @@ if balance:
 
 # Display overall exposure
 if exposure:
-    exposure_table = pd.DataFrame(
-        [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in exposure.items()]
-    )
+    exposure_list = [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in exposure.items()] # convert dict to list of dicts
     st.subheader(f"Exposure by Ticker (Total: ${sum(exposure.values()):,.2f})")
-    display_table(exposure_table, "ticker")
+    display_table(exposure_list, "Ticker")
 else:
     handle_error("No data received or invalid data structure.")
 
