@@ -1,5 +1,3 @@
-import requests
-from utils import get_access_token
 from loguru import logger
 from model.market_models import StockQuotes
 from pydantic import ValidationError
