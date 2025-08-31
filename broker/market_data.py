@@ -30,12 +30,14 @@ class MarketData:
             return None
 
     def get_price_history(self, symbol, period_type='day', period=2, frequency_type='daily'):
+        """
+        """
         params = {
             'symbol': symbol,
             'periodType': period_type,
-            'period': period
-            # 'frequencyType': frequency_type,
-            # 'frequency': 1
+            'period': period,
+            'frequencyType': frequency_type,
+            'frequency': 1
         }
         
         try:

@@ -3,7 +3,7 @@ from typing import List
 import requests
 from loguru import logger
 from pydantic import ValidationError
-from model.models import AccountHash, SecuritiesAccount, Activity
+from model.account_models import AccountHash, SecuritiesAccount, Activity
 from utils import get_access_token, convert_to_iso8601
 from .refresh_token import refresh_tokens
 from .logging_methods import log_transactions
@@ -83,8 +83,9 @@ class AccountsTrading:
             logger.error("Account hash value is not set.")
             return None
 
-        url = f"{self.base_url}/accounts/{self.account_hash_value}?fields=positions"
-        response = requests.get(url, headers=self.headers)
+        url = f"{self.base_url}/accounts/{self.account_hash_value}"
+        params = {"fields": "positions"}
+        response = requests.get(url, headers=self.headers, params=params)
 
         if response.status_code == 200:
             logger.info("Account position retrieved successfully.")
