@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from broker.accounts import AccountsTrading
-from model.models import SecuritiesAccount
+from model.account_models import SecuritiesAccount
 
 app = FastAPI()
 

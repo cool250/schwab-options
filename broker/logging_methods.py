@@ -1,5 +1,5 @@
 from loguru import logger
-from model.models import SecuritiesAccount
+from model.account_models import SecuritiesAccount
 
 def log_transactions(transactions):
     """
