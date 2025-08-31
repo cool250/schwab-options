@@ -106,6 +106,20 @@ class AccountsTrading:
             logger.error(f"Error getting account position: {response.status_code} - {response.text}")
             return None
 
+    def get_balances(self, securities_account: SecuritiesAccount):
+        """
+        Fetch and log the account balances.
+        """
+        if not securities_account:
+            logger.error("Securities account is not available.")
+            return None
+
+        logger.info("Fetching account balances...")
+        balances = {
+            "margin": securities_account.initialBalances.margin if securities_account.initialBalances else None
+        }
+        logger.debug(f"Account Balances: {balances}")
+        return balances
     
     def get_option_details(self, securities_account: SecuritiesAccount, option_type: str):
         """

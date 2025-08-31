@@ -64,3 +64,4 @@ coverage.xml
 
 .python-version
 token.json
+test-data.json

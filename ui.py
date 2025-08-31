@@ -51,9 +51,26 @@ def fetch_option_positions_details():
     calls = accounts_trading.get_calls(securities_account)
     return puts, calls
 
-# Streamlit UI
-st.title("Options Positions")
+def get_balances():
+    """
+    Fetch account balances directly using AccountsTrading.
+    """
+    if not securities_account:
+        st.error("Securities account not found.")
+        return None
 
+    balances = accounts_trading.get_balances(securities_account)
+    return balances
+
+# Streamlit UI
+st.title("Positions")
+balance = get_balances()
+if balance:
+    margin_balance = balance.get('margin', None)
+    if margin_balance is not None:
+        st.subheader(f"Margin Balance: ${margin_balance:,.2f}")
+    else:
+        st.error("Margin balance not found in account balances.")
 logger.info("Fetching exposure data...")
 data = fetch_overall_exposure()
 
