@@ -33,12 +33,12 @@ class PositionService:
 
     def get_current_price(self, options):
         """Fetch the current price for the given options."""
-        price_positions = [option.get("symbol") for option in options if option.get("symbol")]
+        ticker_list = [option.get("symbol") for option in options if option.get("symbol")]
 
-        if not price_positions:
+        if not ticker_list:
             return options
 
-        quotes = self.market_data.get_price(", ".join(price_positions))
+        quotes = self.market_data.get_price(", ".join(ticker_list))
         quote_data = {
             symbol: asset.quote.closePrice
             for symbol, asset in getattr(quotes, "root", {}).items()
