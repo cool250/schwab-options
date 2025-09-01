@@ -25,7 +25,7 @@ class OptionChainService:
                 best_price: The price of the best option.
                 Returns None if no suitable option is found.
         """
-        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=25, contract_type="PUT")
+        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type="PUT")
         if not option_chain or not option_chain.putExpDateMap:
             return None
 

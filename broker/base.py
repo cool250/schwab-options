@@ -22,10 +22,6 @@ class APIClient:
         """Refresh and update the access token."""
         refresh_tokens()
         self.access_token = get_access_token()
-        self.headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Accept": "application/json"
-        }
 
     def _fetch_data(self, url=None, params=None, attempt=1, max_retries=3):
         """Helper method to fetch data from the API."""
@@ -43,13 +39,14 @@ class APIClient:
                 except ValueError as e:
                     logger.error(f"Error decoding JSON response: {str(e)}")
                     return None
-            elif response.status_code == 401:
-                logger.warning("Token expired. Refreshing token and retrying...")
+            elif response.status_code == 401 and attempt < max_retries:
+                logger.warning(f"Token expired. Refreshing token and retrying...{attempt + 1}/{max_retries}")
                 self._update_access_token()
+                time.sleep(2 ** attempt)  # Exponential backoff
                 return self._fetch_data(url, params)
             elif attempt < max_retries:  # Retry for other errors
-                time.sleep(2 ** attempt)  # Exponential backoff
                 logger.warning(f"Retrying... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(2 ** attempt)  # Exponential backoff
                 return self._fetch_data(url, params, attempt + 1)
             else:
                 logger.error(f"Error fetching data: {response.status_code} - {response.text}")

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from unittest import result
+import pytz
 import streamlit as st
 from service.option_chain import OptionChainService
 
@@ -14,8 +15,9 @@ def render():
     strike_price = st.number_input("Enter Strike Price:")
 
     # Date range inputs
-    from_date = datetime.now().strftime("%Y-%m-%d")
-    to_date = (datetime.now() + timedelta(days=8)).strftime("%Y-%m-%d")
+    et_timezone = pytz.timezone("US/Eastern")
+    from_date = (datetime.now(et_timezone)).strftime("%Y-%m-%d")
+    to_date = (datetime.now(et_timezone) + timedelta(days=8)).strftime("%Y-%m-%d")
 
     # Button to trigger analysis
     if st.button("Analyze"):

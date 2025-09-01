@@ -28,7 +28,6 @@ class MarketData(APIClient):
         if response_data:
             try:
                 stock_quotes = StockQuotes(**response_data)
-                logger.debug(f"Successfully fetched stock quotes: {stock_quotes.model_dump_json()}")
                 return stock_quotes
             except ValidationError as e:
                 logger.error(f"Error parsing stock quotes: {e}")

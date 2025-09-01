@@ -2,14 +2,16 @@ from datetime import datetime, timedelta
 from service.option_chain import OptionChainService
 from broker.authenticate import get_access_token
 from broker.market_data import MarketData
+import pytz
 
 def chain():
     # Create an instance of OptionChainService
     service = OptionChainService()
 
     # Example usage of OptionChainService
-    current_date = datetime.now().strftime("%Y-%m-%d")
-    future_date = (datetime.now() + timedelta(days=8)).strftime("%Y-%m-%d")
+    et_timezone = pytz.timezone("US/Eastern")
+    current_date = (datetime.now(et_timezone)).strftime("%Y-%m-%d")
+    future_date = (datetime.now(et_timezone) + timedelta(days=8)).strftime("%Y-%m-%d")
     print(f"From Date: {current_date}, To Date: {future_date}")
     result = service.highest_return_puts("SPY", 644, current_date, future_date)
     
