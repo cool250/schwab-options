@@ -43,7 +43,7 @@ def display_ui_table(data, sort_column):
     table = pd.DataFrame(data)
     if sort_column in table.columns:
         table = table.sort_values(by=sort_column)
-    st.dataframe(table.set_index(table.columns[0]))
+    st.table(table.set_index(table.columns[0]))
 
 
 option_positions, exposure, balance = service.populate_positions()

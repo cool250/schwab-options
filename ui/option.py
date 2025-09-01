@@ -10,9 +10,12 @@ def render():
     # Streamlit app title
     st.subheader("Options Chain Analyzer")
 
+    # Create two columns
+    col1_input, col2_input = st.columns(2)
+
     # User input for ticker symbol and strike price
-    ticker = st.text_input("Enter Ticker Symbol:")
-    strike_price = st.number_input("Enter Strike Price:")
+    ticker = col1_input.text_input("Enter Ticker Symbol:")
+    strike_price = col2_input.number_input("Enter Strike Price:")
 
     # Date range inputs
     et_timezone = pytz.timezone("US/Eastern")
