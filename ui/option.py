@@ -7,7 +7,7 @@ from service.option_chain import OptionChainService
 option_chain_service = OptionChainService()
 def render():
     # Streamlit app title
-    st.title("Options Chain Analyzer")
+    st.subheader("Options Chain Analyzer")
 
     # User input for ticker symbol and strike price
     ticker = st.text_input("Enter Ticker Symbol:")

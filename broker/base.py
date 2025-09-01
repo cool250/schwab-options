@@ -47,7 +47,7 @@ class APIClient:
                 logger.warning("Token expired. Refreshing token and retrying...")
                 self._update_access_token()
                 return self._fetch_data(url, params)
-            elif attempt < max_retries:
+            elif attempt < max_retries:  # Retry for other errors
                 time.sleep(2 ** attempt)  # Exponential backoff
                 logger.warning(f"Retrying... (Attempt {attempt + 1}/{max_retries})")
                 return self._fetch_data(url, params, attempt + 1)
