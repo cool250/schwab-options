@@ -62,7 +62,7 @@ def render():
     # Display overall exposure
     if exposure:
         exposure_list = [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in exposure.items()] # convert dict to list of dicts
-        st.subheader("Exposure by Ticker")
+        st.subheader("Exposure")
         st.text(f"Total Exposure: ${sum(exposure.values()):,.2f}")
         display_ui_table(exposure_list, "Ticker")
     else:
@@ -73,13 +73,13 @@ def render():
         puts, calls = option_positions
 
         if puts:
-            st.header("Put")
+            st.subheader("Put")
             display_ui_table(puts, "expiration_date")
         else:
             handle_error("No PUT option positions found.")
 
         if calls:
-            st.header("Call")
+            st.subheader("Call")
             display_ui_table(calls, "expiration_date")
         else:
             handle_error("No CALL option positions found.")

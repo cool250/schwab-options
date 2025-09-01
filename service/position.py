@@ -85,7 +85,10 @@ class PositionService:
                 if symbol and len(symbol) > 15 and symbol[-9] == option_type:
                     ticker, strike_price, expiration_date = parse_option_symbol(symbol)
                     if ticker:
-                        quantity = position.longQuantity or position.shortQuantity
+                        if position.longQuantity and position.longQuantity > 0:
+                            quantity = position.longQuantity
+                        elif position.shortQuantity and position.shortQuantity > 0:
+                            quantity = -position.shortQuantity
                         exposure = self._calculate_exposure(option_type, position, strike_price)
                         option_details = {
                             "ticker": ticker,
