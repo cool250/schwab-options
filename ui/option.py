@@ -1,14 +1,16 @@
 from datetime import datetime, timedelta
-from unittest import result
 import pytz
 import streamlit as st
 from service.option_chain import OptionChainService
 
 # Initialize the OptionChainService
 option_chain_service = OptionChainService()
+
 def render():
     # Streamlit app title
+    
     st.subheader("Options Chain Analyzer")
+
     with st.form("input_form"):
         # Create two columns
         col1_input, col2_input = st.columns(2)
@@ -21,17 +23,17 @@ def render():
         from_date = col1_input.date_input("From Date:", value=datetime.now(pytz.timezone("US/Eastern")))
         to_date = col2_input.date_input("To Date:", value=datetime.now(pytz.timezone("US/Eastern")) + timedelta(days=8))
 
-        get_expirations = st.form_submit_button("Get All Expiration Dates")
-           
-    max_return = st.button("Max Returns")
+        # Convert date objects to strings in the required format
+        from_date_str = from_date.strftime("%Y-%m-%d")
+        to_date_str = to_date.strftime("%Y-%m-%d")
+
+        col1_button, col2_button = st.columns(2)
+        get_expirations_button = col1_button.form_submit_button("Get All Expiration Dates")
+        max_return_button = col2_button.form_submit_button("Analyze")
     # Button to trigger analysis
-    if max_return:
+    if max_return_button:
         if ticker and strike_price > 0:
             with st.spinner("Fetching data..."):
-                # Convert date objects to strings in the required format
-                from_date_str = from_date.strftime("%Y-%m-%d")
-                to_date_str = to_date.strftime("%Y-%m-%d")
-
                 result = option_chain_service.highest_return_puts(
                     symbol=ticker,
                     strike=strike_price,
@@ -53,13 +55,9 @@ def render():
             st.error("Please provide valid inputs.")
 
     # Button to fetch all expiration dates
-    if get_expirations:
+    if get_expirations_button:
         if ticker and strike_price > 0:
             with st.spinner("Fetching data..."):
-                # Convert date objects to strings in the required format
-                from_date_str = from_date.strftime("%Y-%m-%d")
-                to_date_str = to_date.strftime("%Y-%m-%d")
-
                 results = option_chain_service.get_all_expiration_dates(
                     symbol=ticker,
                     strike=strike_price,
@@ -75,3 +73,5 @@ def render():
                 st.error("No data found for the given inputs.")
         else:
             st.error("Please provide valid inputs.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
