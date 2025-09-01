@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import pandas as pd
 import pytz
 import streamlit as st
 from service.option_chain import OptionChainService
@@ -66,9 +67,15 @@ def render():
                 )
 
             if results:
-                st.write("### Expiration Dates and Returns")
-                for result in results:
-                    st.write(f"Expiration Date: {result['expiration_date']}, Price: ${result['price']:.2f}, Annualized Return: {result['annualized_return']:.2f}%")
+                # Display results in a table
+                st.write("### Expiration and Returns")
+                data = {
+                    "Expiration": [result['expiration_date'] for result in results],
+                    "Price ($)": [f"{result['price']:.2f}" for result in results],
+                    "Annualized Return (%)": [f"{result['annualized_return']:.2f}" for result in results]
+                }
+                table = pd.DataFrame(data)
+                st.table(table.set_index(table.columns[0]))
             else:
                 st.error("No data found for the given inputs.")
         else:

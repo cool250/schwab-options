@@ -20,7 +20,7 @@ class PositionService:
         self.market_data = MarketData()
         self.accounts_trading = AccountsTrading()
 
-    def fetch_option_positions_details(self):
+    def get_option_positions_details(self):
         """Fetch option positions details including current prices."""
         puts = self._get_options_with_prices("P")
         calls = self._get_options_with_prices("C")
@@ -53,9 +53,9 @@ class PositionService:
 
     def populate_positions(self):
         """Populate option positions with current prices, total exposure, and account balances."""
-        self.accounts_trading.fetch_positions()
-        option_positions = self.fetch_option_positions_details()
-        total_exposure = self.fetch_total_exposure()
+        self.accounts_trading.get_account()
+        option_positions = self.get_option_positions_details()
+        total_exposure = self.get_total_exposure()
         account_balances = self.get_balances()
 
         return option_positions, total_exposure, account_balances
@@ -115,7 +115,7 @@ class PositionService:
        
         return exposure
 
-    def fetch_total_exposure(self):
+    def get_total_exposure(self):
         """Calculate and log the total exposure for short PUT option positions."""
         puts = self.get_option_details("P")
         exposure_by_symbol = {}
