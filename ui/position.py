@@ -53,9 +53,17 @@ def render():
 
     # Display balances
     if balance:
-        margin_balance = balance.get("margin")
-        if margin_balance is not None:
-            st.text(f"Margin Balance: ${margin_balance:,.2f}")
+        margin = balance.get("margin")
+        mutualFundValue = balance.get("mutualFundValue")
+        account = balance.get("account")
+        # Display balances in a single row as columns
+        col1, col2, col3 = st.columns(3)
+        if margin is not None:
+            col1.metric("Margin Balance", f"${margin:,.2f}")
+        if mutualFundValue is not None:
+            col2.metric("Mutual Fund", f"${mutualFundValue:,.2f}")
+        if account is not None:
+            col3.metric("Account Value", f"${account:,.2f}")
         else:
             handle_error("Margin balance not found in account balances.")
 
@@ -79,7 +87,7 @@ def render():
     if exposure:
         exposure_list = [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in exposure.items()] # convert dict to list of dicts
         st.subheader("Exposure")
-        st.text(f"Total Exposure: ${sum(exposure.values()):,.2f}")
+        st.metric(label="Total Exposure", value=f"${sum(exposure.values()):,.2f}")
         display_ui_table(exposure_list, "Ticker")
     else:
         handle_error("No data received or invalid data structure.")
