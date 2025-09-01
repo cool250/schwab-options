@@ -11,8 +11,8 @@ class TestAccountsTrading(unittest.TestCase):
 
     def test_get_positions(self):
         """Test the get_positions method."""
-        self.accounts_trading.get_positions = MagicMock(return_value=self.mock_securities_account)
-        result = self.accounts_trading.get_positions()
+        self.accounts_trading.fetch_positions = MagicMock(return_value=self.mock_securities_account)
+        result = self.accounts_trading.fetch_positions()
         self.assertEqual(result, self.mock_securities_account)
 
     def test_calculate_total_exposure_for_short_puts(self):
