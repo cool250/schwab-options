@@ -90,11 +90,11 @@ class PositionService:
                         option_details = {
                             "ticker": ticker,
                             "symbol": symbol,
-                            "strike_price": f"${strike_price:,.2f}",
+                            "strike_price": f"${strike_price:,.0f}",
                             "expiration_date": expiration_date,
-                            "quantity": quantity,
-                            "trade_price": f"${position.averagePrice:,.2f}" if position.averagePrice else None,
+                            "quantity": f"{quantity:,.0f}",
                             "exposure": exposure,
+                            "trade_price": f"${position.averagePrice:,.2f}",
                         }
                         option_positions_details.append(option_details)
         return option_positions_details
@@ -102,11 +102,12 @@ class PositionService:
     def _calculate_exposure(self, option_type, position, strike_price):
         """Calculate exposure for PUT options."""
         exposure = 0
-        if option_type == "P":
-            if position.shortQuantity and position.shortQuantity > 0:
-                exposure += strike_price * position.shortQuantity * 100
-            if position.longQuantity and position.longQuantity > 0:
-                exposure -= strike_price * position.longQuantity * 100
+      
+        if position.shortQuantity and position.shortQuantity > 0:
+            exposure += strike_price * position.shortQuantity * 100
+        if position.longQuantity and position.longQuantity > 0:
+            exposure -= strike_price * position.longQuantity * 100
+       
         return exposure
 
     def fetch_total_exposure(self):

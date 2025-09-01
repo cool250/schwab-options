@@ -28,8 +28,8 @@ def render():
         to_date_str = to_date.strftime("%Y-%m-%d")
 
         col1_button, col2_button = st.columns(2)
-        get_expirations_button = col1_button.form_submit_button("Get All Expiration Dates")
-        max_return_button = col2_button.form_submit_button("Analyze")
+        get_expirations_button = col1_button.form_submit_button("Expiration Dates")
+        max_return_button = col2_button.form_submit_button("Max Return")
     # Button to trigger analysis
     if max_return_button:
         if ticker and strike_price > 0:
