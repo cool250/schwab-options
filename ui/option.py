@@ -42,3 +42,23 @@ def render():
                 st.error("Unexpected result format or no data found.")
         else:
             st.error("Please provide valid inputs.")
+
+    # Button to fetch all expiration dates
+    if st.button("Get All Expiration Dates"):
+        if ticker and strike_price > 0:
+            with st.spinner("Fetching data..."):
+                results = option_chain_service.get_all_expiration_dates(
+                    symbol=ticker,
+                    strike=strike_price,
+                    from_date=from_date,
+                    to_date=to_date
+                )
+
+            if results:
+                st.write("### Expiration Dates and Returns")
+                for result in results:
+                    st.write(f"Expiration Date: {result['expiration_date']}, Price: ${result['price']:.2f}, Annualized Return: {result['annualized_return']:.2f}%")
+            else:
+                st.error("No data found for the given inputs.")
+        else:
+            st.error("Please provide valid inputs.")

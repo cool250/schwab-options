@@ -7,7 +7,7 @@ class OptionChainService:
     def __init__(self):
         self.market_data = MarketData()
 
-    def highest_return_puts(self, symbol: str, strike: float, from_date: str, to_date: str, use_mid_price: bool = True):
+    def highest_return_puts(self, symbol: str, strike: float, from_date: str, to_date: str):
         """
         Finds the put option with the highest annualized return for a given symbol and strike price.
 
@@ -16,7 +16,6 @@ class OptionChainService:
             strike (float): The strike price to filter options.
             from_date (str): The start date for option chain data (format: 'YYYY-MM-DD').
             to_date (str): The end date for option chain data (format: 'YYYY-MM-DD').
-            use_mid_price (bool, optional): If True, use the mid price (average of bid and ask); otherwise, use the mark price if available. Defaults to True.
 
         Returns:
             tuple: (max_return (float), best_expiration_date (str), best_price (float))
@@ -26,32 +25,87 @@ class OptionChainService:
                 Returns None if no suitable option is found.
         """
         option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type="PUT")
-        if not option_chain or not option_chain.putExpDateMap:
+
+        def process_option(option, exp_date):
+            annualized_return = self._calculate_annualized_return(option.mark, strike, option.daysToExpiration)
+            return {
+                "annualized_return": annualized_return,
+                "expiration_date": exp_date,
+                "price": option.mark
+            }
+
+        results = self._process_option_chain(option_chain, strike, process_option)
+        if not results:
             return None
 
-        max_return = float('-inf')
-        best_expiration_date = None
-        best_price = float('-inf')
+        best_option = max(results, key=lambda x: x["annualized_return"], default=None)
+        if not best_option:
+            return None
 
-        now = datetime.now()
+        return best_option["annualized_return"], best_option["expiration_date"], best_option["price"]
 
-        logger.info(f"Total expiration dates in putExpDateMap: {len(option_chain.putExpDateMap)}")
+    def get_all_expiration_dates(self, symbol: str, strike: float, from_date: str, to_date: str):
+        """
+        Get all expiration dates for a given strike price along with their prices and returns.
+
+        Parameters:
+            symbol (str): The ticker symbol for the underlying asset.
+            strike (float): The strike price to filter options.
+            from_date (str): The start date for option chain data (format: 'YYYY-MM-DD').
+            to_date (str): The end date for option chain data (format: 'YYYY-MM-DD').
+
+        Returns:
+            list: A list of dictionaries containing expiration date, price, and annualized return.
+        """
+        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type="PUT")
+
+        def process_option(option, exp_date):
+            annualized_return = self._calculate_annualized_return(option.mark, strike, option.daysToExpiration)
+            return {
+                "expiration_date": exp_date,
+                "price": option.mark,
+                "annualized_return": annualized_return
+            }
+
+        return self._process_option_chain(option_chain, strike, process_option)
+
+    def _process_option_chain(self, option_chain, strike: float, process_function):
+        """
+        Generic method to process an option chain for a given strike price.
+
+        Parameters:
+            option_chain: The option chain data.
+            strike (float): The strike price to filter options.
+            process_function (callable): A function to process each valid option.
+
+        Returns:
+            list: A list of processed results.
+        """
+        if not option_chain or not option_chain.putExpDateMap:
+            logger.warning("No option chain data found or putExpDateMap is empty.")
+            return []
+
+        results = []
+
         for exp_date, strikes in option_chain.putExpDateMap.items():
-            logger.info(f"Total strikes for expiration date {exp_date}: {len(strikes)}")
             for strike_price, options in strikes.items():
                 if float(strike_price) == strike:
                     for option in options:
-                        price = (option.bid + option.ask) / 2 if use_mid_price else option.mark
-                        days = option.daysToExpiration
-                        if days == 0:
+                        if option.mark is None or option.daysToExpiration is None:
+                            logger.debug("Skipping option with invalid data.")
                             continue
-                        simple_return = price / strike  # Calculate return as a percentage
-                        annualized_return = simple_return * (365 / days) * 100  # Annualize the return
-                        annualized_return = round(annualized_return, 2)  # Format as percentage with 2 decimal places
-                        if annualized_return > max_return:
-                            max_return = annualized_return
-                            best_expiration_date = exp_date
-                            best_price = price
 
-        return max_return, best_expiration_date, best_price
+                        result = process_function(option, exp_date)
+                        if result:
+                            results.append(result)
+
+        return results
+
+    def _calculate_annualized_return(self, price: float, strike: float, days: int) -> float:
+        """Calculate the annualized return for an option."""
+        if days == 0:
+            return float('-inf')
+        simple_return = price / strike
+        annualized_return = simple_return * (365 / days) * 100
+        return round(annualized_return, 2)
 
