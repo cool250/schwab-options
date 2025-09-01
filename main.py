@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta
 from service.option_chain import OptionChainService
+from broker.authenticate import get_access_token
+from broker.market_data import MarketData
 
-def main():
+def chain():
     # Create an instance of OptionChainService
     service = OptionChainService()
 
@@ -14,5 +16,15 @@ def main():
     # result = service.highest_return_puts("SPY", 640, "2025-09-03", "2025-09-08")
     print("Options:", result)
 
+def authenticate():
+    # Implement authentication logic here
+    get_access_token()
+
+def price():
+    market_data = MarketData()
+    # Implement logic to fetch and display option prices
+    market_data.get_price("AAPL, MSFT")
+
+
 if __name__ == "__main__":
-    main()
+    chain()
