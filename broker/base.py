@@ -22,6 +22,10 @@ class APIClient:
         """Refresh and update the access token."""
         refresh_tokens()
         self.access_token = get_access_token()
+        self.headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Accept": "application/json"
+        }
 
     def _fetch_data(self, url=None, params=None, attempt=1, max_retries=3):
         """Helper method to fetch data from the API."""
@@ -43,7 +47,7 @@ class APIClient:
                 logger.warning(f"Token expired. Refreshing token and retrying...{attempt + 1}/{max_retries}")
                 self._update_access_token()
                 time.sleep(2 ** attempt)  # Exponential backoff
-                return self._fetch_data(url, params)
+                return self._fetch_data(url, params,attempt + 1)
             elif attempt < max_retries:  # Retry for other errors
                 logger.warning(f"Retrying... (Attempt {attempt + 1}/{max_retries})")
                 time.sleep(2 ** attempt)  # Exponential backoff
