@@ -67,7 +67,6 @@ class MarketData(APIClient):
         if response_data:
             try:
                 option_chain = OptionChainResponse(**response_data)
-                # logger.debug(f"Positions: {option_chain.model_dump_json()}")
                 return option_chain
             except ValidationError as e:
                 logger.error(f"Error parsing option chain: {e}")

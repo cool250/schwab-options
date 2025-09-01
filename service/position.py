@@ -4,12 +4,16 @@ from broker.market_data import MarketData
 
 class PositionService:
 
-    def fetch_option_positions_details(self, accounts_trading):
+    def __init__(self):
+        self.market_data = MarketData()
+        self.accounts_trading = AccountsTrading()
+
+    def fetch_option_positions_details(self):
         """
         Fetch option positions details directly using AccountsTrading.
         """
-        puts = self.get_current_price(accounts_trading.get_puts())
-        calls = self.get_current_price(accounts_trading.get_calls())
+        puts = self.get_current_price(self.accounts_trading.get_puts())
+        calls = self.get_current_price(self.accounts_trading.get_calls())
         return puts, calls
 
     def get_current_price(self, options):
@@ -42,27 +46,27 @@ class PositionService:
         """
         Populate option positions with current prices.
         """
-        # Initialize the AccountsTrading class
-        accounts_trading = AccountsTrading()
+        accounts_trading = self.accounts_trading
+
         # Fetch the securities account
         securities_account = accounts_trading.get_positions()
-        option_positions = self.fetch_option_positions_details(accounts_trading)
-        total_exposure = self.fetch_total_exposure(accounts_trading)
-        account_balances = self.get_balances(accounts_trading)
+        option_positions = self.fetch_option_positions_details()
+        total_exposure = self.fetch_total_exposure()
+        account_balances = self.get_balances()
 
         return option_positions, total_exposure, account_balances
-    
-    def fetch_total_exposure(self, accounts_trading):
+
+    def fetch_total_exposure(self):
         """
         Fetch the total exposure for short PUT options directly using AccountsTrading.
         """
-        return accounts_trading.calculate_total_exposure_for_short_puts()
+        return self.accounts_trading.calculate_total_exposure_for_short_puts()
 
-    def get_balances(self, accounts_trading):
+    def get_balances(self):
         """
         Fetch account balances directly using AccountsTrading.
         """
-        return accounts_trading.get_balances()
-    
+        return self.accounts_trading.get_balances()
+
 
 

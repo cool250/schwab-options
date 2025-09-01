@@ -1,5 +1,5 @@
 import streamlit as st
-import ui.position as position
+from ui import position, option
 
 st.title("Options Trading Dashboard")
 
@@ -12,4 +12,4 @@ with tab1_view:
     position.render()
 
 with tab2_view:
-    st.header("Market Data")
+    option.render()
