@@ -3,7 +3,7 @@ from datetime import datetime
 from loguru import logger
 from broker.market_data import MarketData
 
-class OptionChainService:
+class MarketService:
     def __init__(self):
         self.market_data = MarketData()
 
@@ -109,3 +109,17 @@ class OptionChainService:
         annualized_return = simple_return * (365 / days) * 100
         return round(annualized_return, 2)
 
+    def get_ticker_price(self, symbol):
+        """
+        Get the current price for a given symbol.
+
+        Parameters:
+            symbol (str): The ticker symbol for the underlying asset.
+
+        Returns:
+            float: The current price of the asset, or None if not found.
+        """
+        stock_quotes = self.market_data.get_price(symbol)
+        if stock_quotes:
+            return stock_quotes.root.get(symbol).quote.lastPrice
+        return None

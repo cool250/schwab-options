@@ -2,10 +2,10 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytz
 import streamlit as st
-from service.option_chain import OptionChainService
+from service.market import MarketService
 
-# Initialize the OptionChainService
-option_chain_service = OptionChainService()
+# Initialize the MarketDataService
+market_data_service = MarketService()
 
 def render():
     # Streamlit app title
@@ -35,7 +35,7 @@ def render():
     if max_return_button:
         if ticker and strike_price > 0:
             with st.spinner("Fetching data..."):
-                result = option_chain_service.highest_return_puts(
+                result = market_data_service.highest_return_puts(
                     symbol=ticker,
                     strike=strike_price,
                     from_date=from_date_str,
@@ -45,6 +45,8 @@ def render():
                     max_return, best_expiration_date, price = result
                 else:
                     max_return, best_expiration_date, price = None, None, None
+
+                ticker_price = market_data_service.get_ticker_price(ticker)
 
             if max_return and best_expiration_date and price:
                 st.write(f"Best Expiration Date: {best_expiration_date}")
@@ -59,16 +61,17 @@ def render():
     if get_expirations_button:
         if ticker and strike_price > 0:
             with st.spinner("Fetching data..."):
-                results = option_chain_service.get_all_expiration_dates(
+                results = market_data_service.get_all_expiration_dates(
                     symbol=ticker,
                     strike=strike_price,
                     from_date=from_date_str,
                     to_date=to_date_str
                 )
+                current = market_data_service.get_ticker_price(ticker)
 
             if results:
                 # Display results in a table
-                st.write("### Expiration and Returns")
+                st.write(f"### Expiration and Returns for {ticker} at current price {current:.2f}")
                 data = {
                     "Expiration": [result['expiration_date'] for result in results],
                     "Price ($)": [f"{result['price']:.2f}" for result in results],

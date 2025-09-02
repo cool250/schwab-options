@@ -1,14 +1,14 @@
 from datetime import datetime, timedelta
-from service.option_chain import OptionChainService
+from service.market import MarketService
 from broker.authenticate import get_access_token
 from broker.market_data import MarketData
 import pytz
 
 def chain():
-    # Create an instance of OptionChainService
-    service = OptionChainService()
+    # Create an instance of MarketDataService
+    service = MarketService()
 
-    # Example usage of OptionChainService
+    # Example usage of MarketDataService
     et_timezone = pytz.timezone("US/Eastern")
     current_date = (datetime.now(et_timezone)).strftime("%Y-%m-%d")
     future_date = (datetime.now(et_timezone) + timedelta(days=8)).strftime("%Y-%m-%d")
@@ -23,10 +23,11 @@ def authenticate():
     get_access_token()
 
 def price():
-    market_data = MarketData()
+    service = MarketService()
     # Implement logic to fetch and display option prices
-    # market_data.get_price("AAPL, MSFT")
-    market_data.get_price_history("SPY", period_type='month', frequency_type='daily')
+    price = service.get_ticker_price("SPY")
+    print("Current Price of SPY:", price)
+    # service.get_price_history("SPY", period_type='month', frequency_type='daily')
 
 
 if __name__ == "__main__":
