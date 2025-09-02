@@ -1,10 +1,9 @@
 from loguru import logger
-from model.market_models import StockQuotes
+from model.market_models import PriceHistoryResponse, StockQuotes
 from model.option_models import OptionChainResponse
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel
+from typing import List
 from broker.base import APIClient
-
-
 
 
 class MarketData(APIClient):
@@ -46,7 +45,13 @@ class MarketData(APIClient):
             "frequencyType": frequency_type,
         }
         response_data = self._fetch_data(url, params)
-        return response_data
+        if response_data:
+            try:
+                market_data_response = PriceHistoryResponse(**response_data)
+                return market_data_response
+            except ValidationError as e:
+                logger.error(f"Error parsing price history: {e}")
+        return None
 
     def get_chain(self, symbol, from_date, to_date, strike_count=10, contract_type="ALL"):
         """

@@ -26,7 +26,7 @@ def price():
     market_data = MarketData()
     # Implement logic to fetch and display option prices
     # market_data.get_price("AAPL, MSFT")
-    market_data.get_price_history("SPY", period_type='month', period=2, frequency_type='daily')
+    market_data.get_price_history("SPY", period_type='month', frequency_type='daily')
 
 
 if __name__ == "__main__":

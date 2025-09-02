@@ -1,5 +1,5 @@
 from pydantic import BaseModel, RootModel
-from typing import Optional
+from typing import List, Optional
 
 class Fundamental(BaseModel):
     avg10DaysVolume: Optional[float] = None
@@ -60,3 +60,16 @@ class Asset(BaseModel):
 
 class StockQuotes(RootModel):
     root: dict[str, Asset]
+
+class Candle(BaseModel):
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    datetime: int
+
+class PriceHistoryResponse(BaseModel):
+    symbol: str
+    empty: bool
+    candles: List[Candle]
