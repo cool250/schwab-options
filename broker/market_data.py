@@ -33,18 +33,19 @@ class MarketData(APIClient):
                 logger.error(f"Error parsing stock quotes: {e}")
         return None
 
-    def get_price_history(self, symbol, period_type='day', period=2, frequency_type='daily'):
+    def get_price_history(self, symbol, period_type='day', period=2, frequency_type='minute'):
         """
         Fetch price history for the given symbol.
         """
+        url = f"{self.base_url}/pricehistory"
+
         params = {
             "symbol": symbol,
             "periodType": period_type,
             "period": period,
             "frequencyType": frequency_type,
-            "frequency": 1
         }
-        response_data = self._fetch_data(self.base_url, params)
+        response_data = self._fetch_data(url, params)
         return response_data
 
     def get_chain(self, symbol, from_date, to_date, strike_count=10, contract_type="ALL"):

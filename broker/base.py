@@ -32,7 +32,9 @@ class APIClient:
         try:
             if url is None:
                 url = self.base_url
-            logger.info(f"Making API request to {url} with params: {params}")
+        
+            full_url = requests.Request('GET', url, params=params).prepare().url
+            logger.debug(f"Full request URL: {full_url}")
             response = requests.get(url, headers=self.headers, params=params)
             logger.info(f"Received response with status code {response.status_code}")
             if response.status_code == 200:
