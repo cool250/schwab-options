@@ -31,12 +31,12 @@ class PositionService:
         options = self.get_option_details(option_type)
         return self.get_current_price(options)
 
-    def get_current_price(self, options):
+    def get_current_price(self, tickers):
         """Fetch the current price for the given options."""
-        ticker_list = [option.get("symbol") for option in options if option.get("symbol")]
+        ticker_list = [ticker.get("symbol") for ticker in tickers if ticker.get("symbol")]
 
         if not ticker_list:
-            return options
+            return tickers
 
         quotes = self.market_data.get_price(", ".join(ticker_list))
         quote_data = {
@@ -45,11 +45,11 @@ class PositionService:
             if asset.quote and asset.quote.mark is not None
         }
 
-        for option in options:
-            current_price = quote_data.get(option.get("symbol"), 0)
-            option["current_price"] = f"${current_price:,.3f}"
+        for ticker in tickers:
+            current_price = quote_data.get(ticker.get("symbol"), 0)
+            ticker["current_price"] = f"${current_price:,.3f}"
 
-        return options
+        return tickers
 
     def populate_positions(self):
         """Populate option positions with current prices, total exposure, and account balances."""
@@ -77,11 +77,11 @@ class PositionService:
                 if symbol:
                     quantity = position.longQuantity if position.longQuantity > 0 else -position.shortQuantity
                     stocks.append({
-                        "ticker": symbol,
+                        "symbol": symbol,
                         "quantity": f"{quantity:,.0f}",
                         "trade_price": f"${position.averagePrice:,.2f}",
                     })
-        logger.debug(f"Account Stocks: {stocks}")
+        stocks = self.get_current_price(stocks)
         return stocks
 
     def get_balances(self):
