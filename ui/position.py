@@ -39,7 +39,7 @@ def display_ui_table(data, sort_column):
     table = pd.DataFrame(data)
     if sort_column in table.columns:
         table = table.sort_values(by=sort_column)
-    st.table(table.set_index(table.columns[0]))
+    st.dataframe(table, hide_index=True)
 
 # Streamlit UI
 
