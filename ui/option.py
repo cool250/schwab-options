@@ -13,11 +13,13 @@ def render():
 
     with st.form("input_form"):
         # Create two columns
-        col1_input, col2_input = st.columns(2)
+        col1_input, col2_input,col3_input = st.columns(3)
 
         # User input for ticker symbol and strike price
         ticker = col1_input.text_input("Enter Ticker Symbol:")
         strike_price = col2_input.number_input("Enter Strike Price:")
+        option_type = col3_input.selectbox("Select Option Type:", ["CALL", "PUT"], index=1)
+
 
         # Date range inputs with calendar picker
         from_date = col1_input.date_input("From Date:", value=datetime.now(pytz.timezone("US/Eastern")))
@@ -34,11 +36,12 @@ def render():
     if max_return_button:
         if ticker and strike_price > 0:
             with st.spinner("Fetching data..."):
-                result = market_data_service.highest_return_puts(
+                result = market_data_service.highest_return(
                     symbol=ticker,
                     strike=strike_price,
                     from_date=from_date_str,
-                    to_date=to_date_str
+                    to_date=to_date_str,
+                    contract_type=option_type
                 )
                 if result:
                     max_return, best_expiration_date, price = result
@@ -64,13 +67,14 @@ def render():
                     symbol=ticker,
                     strike=strike_price,
                     from_date=from_date_str,
-                    to_date=to_date_str
+                    to_date=to_date_str,
+                    contract_type=option_type
                 )
                 current = market_data_service.get_ticker_price(ticker)
 
             if results:
                 # Display results in a table
-                st.write(f"### Expiration and Returns for {ticker} at current price {current:.2f}")
+                st.write(f"### {option_type} Returns for {ticker} at current price {current:.2f}")
                 data = {
                     "Expiration": [result['expiration_date'] for result in results],
                     "Price ($)": [f"{result['price']:.2f}" for result in results],

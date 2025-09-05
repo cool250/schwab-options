@@ -7,7 +7,7 @@ class MarketService:
     def __init__(self):
         self.market_data = MarketData()
 
-    def highest_return_puts(self, symbol: str, strike: float, from_date: str, to_date: str):
+    def highest_return(self, symbol: str, strike: float, from_date: str, to_date: str, contract_type="PUT"):
         """
         Finds the put option with the highest annualized return for a given symbol and strike price.
 
@@ -24,7 +24,7 @@ class MarketService:
                 best_price: The price of the best option.
                 Returns None if no suitable option is found.
         """
-        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type="PUT")
+        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
 
         def process_option(option, exp_date):
             annualized_return = self._calculate_annualized_return(option.mark, strike, option.daysToExpiration)
@@ -34,7 +34,7 @@ class MarketService:
                 "price": option.mark
             }
 
-        results = self._process_option_chain(option_chain, strike, process_option)
+        results = self._process_option_chain(option_chain, strike, process_option, contract_type)
         if not results:
             return None
 
@@ -44,7 +44,7 @@ class MarketService:
 
         return best_option["annualized_return"], best_option["expiration_date"], best_option["price"]
 
-    def get_all_expiration_dates(self, symbol: str, strike: float, from_date: str, to_date: str):
+    def get_all_expiration_dates(self, symbol: str, strike: float, from_date: str, to_date: str, contract_type="PUT"):
         """
         Get all expiration dates for a given strike price along with their prices and returns.
 
@@ -57,7 +57,7 @@ class MarketService:
         Returns:
             list: A list of dictionaries containing expiration date, price, and annualized return.
         """
-        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type="PUT")
+        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
 
         def process_option(option, exp_date):
             annualized_return = self._calculate_annualized_return(option.mark, strike, option.daysToExpiration)
@@ -67,9 +67,9 @@ class MarketService:
                 "annualized_return": annualized_return
             }
 
-        return self._process_option_chain(option_chain, strike, process_option)
+        return self._process_option_chain(option_chain, strike, process_option, contract_type)
 
-    def _process_option_chain(self, option_chain, strike: float, process_function):
+    def _process_option_chain(self, option_chain, strike: float, process_function, contract_type: str):
         """
         Generic method to process an option chain for a given strike price.
 
@@ -81,23 +81,40 @@ class MarketService:
         Returns:
             list: A list of processed results.
         """
-        if not option_chain or not option_chain.putExpDateMap:
-            logger.warning("No option chain data found or putExpDateMap is empty.")
+        if not option_chain:
+            logger.warning("No option chain data found.")
             return []
 
         results = []
 
-        for exp_date, strikes in option_chain.putExpDateMap.items():
-            for strike_price, options in strikes.items():
-                if float(strike_price) == strike:
-                    for option in options:
-                        if option.mark is None or option.daysToExpiration is None:
-                            logger.debug("Skipping option with invalid data.")
-                            continue
+        if contract_type == "PUT":
+            for exp_date, strikes in option_chain.putExpDateMap.items():
+                for strike_price, options in strikes.items():
+                    if float(strike_price) == strike:
+                        for option in options:
+                            if option.mark is None or option.daysToExpiration is None:
+                                logger.debug("Skipping option with invalid data.")
+                                continue
 
-                        result = process_function(option, exp_date)
-                        if result:
-                            results.append(result)
+                            result = process_function(option, exp_date)
+                            if result:
+                                results.append(result)
+        
+        elif contract_type == "CALL":
+            for exp_date, strikes in option_chain.callExpDateMap.items():
+                for strike_price, options in strikes.items():
+                    if float(strike_price) == strike:
+                        for option in options:
+                            if option.mark is None or option.daysToExpiration is None:
+                                logger.debug("Skipping option with invalid data.")
+                                continue
+
+                            result = process_function(option, exp_date)
+                            if result:
+                                results.append(result)
+
+        else:
+            logger.warning(f"Unknown contract type: {contract_type}")
 
         return results
 
