@@ -41,12 +41,16 @@ def display_ui_table(data, sort_column):
         table = table.sort_values(by=sort_column)
     st.table(table.set_index(table.columns[0]))
 
-
 # Streamlit UI
 
 def render():
     # The service class to provide all data
     service = PositionService()
+    
+    # Add a refresh link at the top of the page
+    if st.button("Refresh Data"):
+        st.rerun()
+
     # Fetch data from the service
     option_positions, exposure, balance = service.populate_positions()
 
