@@ -40,14 +40,14 @@ class PositionService:
 
         quotes = self.market_data.get_price(", ".join(ticker_list))
         quote_data = {
-            symbol: asset.quote.closePrice
+            symbol: asset.quote.mark
             for symbol, asset in getattr(quotes, "root", {}).items()
-            if asset.quote and asset.quote.closePrice is not None
+            if asset.quote and asset.quote.mark is not None
         }
 
         for option in options:
             current_price = quote_data.get(option.get("symbol"), 0)
-            option["current_price"] = f"${current_price:,.2f}"
+            option["current_price"] = f"${current_price:,.3f}"
 
         return options
 

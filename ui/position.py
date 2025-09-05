@@ -27,10 +27,6 @@ import pandas as pd
 from broker.market_data import MarketData
 from service.position import PositionService
 
-
-# The service class to provide all data
-service = PositionService()
-
 # Helper function to handle errors and return data
 def handle_error(message):
     st.error(message)
@@ -46,10 +42,13 @@ def display_ui_table(data, sort_column):
     st.table(table.set_index(table.columns[0]))
 
 
-option_positions, exposure, balance = service.populate_positions()
 # Streamlit UI
 
 def render():
+    # The service class to provide all data
+    service = PositionService()
+    # Fetch data from the service
+    option_positions, exposure, balance = service.populate_positions()
 
     # Display balances
     if balance:

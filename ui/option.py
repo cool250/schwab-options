@@ -4,10 +4,9 @@ import pytz
 import streamlit as st
 from service.market import MarketService
 
-# Initialize the MarketDataService
-market_data_service = MarketService()
-
 def render():
+    # Initialize the MarketDataService
+    market_data_service = MarketService()
     # Streamlit app title
     
     st.subheader("Options Chain Analyzer")
