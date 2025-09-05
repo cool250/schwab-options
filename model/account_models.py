@@ -116,14 +116,17 @@ class CurrentBalances(BaseModel):
     availableFundsNonMarginableTrade: Optional[float] = None
     buyingPower: Optional[float] = None
     buyingPowerNonMarginableTrade: Optional[float] = None
+    cashBalance: Optional[float] = None
     dayTradingBuyingPower: Optional[float] = None
     dayTradingBuyingPowerCall: Optional[float] = None
     equity: Optional[float] = None
     equityPercentage: Optional[float] = None
     longMarginValue: Optional[float] = None
+    liquidationValue: Optional[float] = None
     maintenanceCall: Optional[float] = None
     maintenanceRequirement: Optional[float] = None
     marginBalance: Optional[float] = None
+    mutualFundValue: Optional[float] = None
     regTCall: Optional[float] = None
     shortBalance: Optional[float] = None
     shortMarginValue: Optional[float] = None

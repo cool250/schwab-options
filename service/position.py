@@ -65,9 +65,9 @@ class PositionService:
         securities_account: SecuritiesAccount = self.accounts_trading.get_account()
 
         balances = {
-            "margin": securities_account.initialBalances.margin,
-            "mutualFundValue": securities_account.initialBalances.mutualFundValue,
-            "account": securities_account.initialBalances.accountValue
+            "margin": securities_account.currentBalances.cashBalance,
+            "mutualFundValue": securities_account.currentBalances.mutualFundValue,
+            "account": securities_account.currentBalances.liquidationValue
         }
         logger.debug(f"Account Balances: {balances}")
         return balances
