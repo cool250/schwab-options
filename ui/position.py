@@ -52,7 +52,7 @@ def render():
         st.rerun()
 
     # Fetch data from the service
-    option_positions, exposure, balance = service.populate_positions()
+    option_positions, exposure, balance, stocks = service.populate_positions()
 
     # Display balances
     if balance:
@@ -69,6 +69,13 @@ def render():
             col3.metric("Account Value", f"${account:,.2f}")
         else:
             handle_error("Margin balance not found in account balances.")
+
+    # Display stocks
+    if stocks:
+        st.subheader("Stocks")
+        display_ui_table(stocks, "ticker")
+    else:
+        handle_error("No stocks found.")
 
     # Display option positions
     if option_positions:

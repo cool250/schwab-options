@@ -57,8 +57,32 @@ class PositionService:
         option_positions = self.get_option_positions_details()
         total_exposure = self.get_total_exposure()
         account_balances = self.get_balances()
+        stocks = self.get_stocks()
 
-        return option_positions, total_exposure, account_balances
+        return option_positions, total_exposure, account_balances, stocks
+
+
+    def get_stocks(self):
+        """Fetch and log the account stocks."""
+        securities_account: SecuritiesAccount = self.accounts_trading.get_account()
+        stocks = []
+
+        if not securities_account.positions:
+            logger.warning("No positions found in the securities account.")
+            return []
+
+        for position in securities_account.positions:
+            if position.instrument and position.instrument.assetType in ("EQUITY","COLLECTIVE_INVESTMENT"):
+                symbol = position.instrument.symbol
+                if symbol:
+                    quantity = position.longQuantity if position.longQuantity > 0 else -position.shortQuantity
+                    stocks.append({
+                        "ticker": symbol,
+                        "quantity": f"{quantity:,.0f}",
+                        "trade_price": f"${position.averagePrice:,.2f}",
+                    })
+        logger.debug(f"Account Stocks: {stocks}")
+        return stocks
 
     def get_balances(self):
         """Fetch and log the account balances."""
