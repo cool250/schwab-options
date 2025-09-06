@@ -20,11 +20,8 @@ Usage:
 """
 
 import streamlit as st
-from broker.accounts import AccountsTrading
-from loguru import logger
 import pandas as pd
 
-from broker.market_data import MarketData
 from service.position import PositionService
 
 # Helper function to handle errors and return data
@@ -44,60 +41,60 @@ def display_ui_table(data, sort_column):
 # Streamlit UI
 
 def render():
-    # The service class to provide all data
-    service = PositionService()
+
     
-    # Add a refresh link at the top of the page
+    # # Add a refresh link at the top of the page
     if st.button("Refresh Data"):
-        st.rerun()
+        # The service class to provide all data
+        service = PositionService()
 
-    # Fetch data from the service
-    option_positions, exposure, balance, stocks = service.populate_positions()
+        # Fetch data from the service
+        option_positions, exposure, balance, stocks = service.populate_positions()
 
-    # Display balances
-    if balance:
-        margin = balance.get("margin")
-        mutualFundValue = balance.get("mutualFundValue")
-        account = balance.get("account")
-        # Display balances in a single row as columns
-        col1, col2, col3 = st.columns(3)
-        if margin is not None:
-            col1.metric("Margin Balance", f"${margin:,.2f}")
-        if mutualFundValue is not None:
-            col2.metric("Mutual Fund", f"${mutualFundValue:,.2f}")
-        if account is not None:
-            col3.metric("Account Value", f"${account:,.2f}")
+        # Display balances
+        if balance:
+            margin = balance.get("margin")
+            mutualFundValue = balance.get("mutualFundValue")
+            account = balance.get("account")
+            # Display balances in a single row as columns
+            col1, col2, col3 = st.columns(3)
+            if margin is not None:
+                col1.metric("Margin Balance", f"${margin:,.2f}")
+            if mutualFundValue is not None:
+                col2.metric("Mutual Fund", f"${mutualFundValue:,.2f}")
+            if account is not None:
+                col3.metric("Account Value", f"${account:,.2f}")
+            else:
+                handle_error("Margin balance not found in account balances.")
+
+        # Display stocks
+        if stocks:
+            st.subheader("Stocks")
+            display_ui_table(stocks, "ticker")
         else:
-            handle_error("Margin balance not found in account balances.")
+            handle_error("No stocks found.")
 
-    # Display stocks
-    if stocks:
-        st.subheader("Stocks")
-        display_ui_table(stocks, "ticker")
-    else:
-        handle_error("No stocks found.")
+        # Display option positions
+        if option_positions:
+            puts, calls = option_positions
 
-    # Display option positions
-    if option_positions:
-        puts, calls = option_positions
+            if puts:
+                st.subheader("Put")
+                display_ui_table(puts, "expiration_date")
+            else:
+                handle_error("No PUT option positions found.")
 
-        if puts:
-            st.subheader("Put")
-            display_ui_table(puts, "expiration_date")
+            if calls:
+                st.subheader("Call")
+                display_ui_table(calls, "expiration_date")
+            else:
+                handle_error("No CALL option positions found.")
+
+        # Display overall exposure
+        if exposure:
+            exposure_list = [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in exposure.items()] # convert dict to list of dicts
+            st.subheader("Exposure")
+            st.metric(label="Total Exposure", value=f"${sum(exposure.values()):,.2f}")
+            display_ui_table(exposure_list, "Ticker")
         else:
-            handle_error("No PUT option positions found.")
-
-        if calls:
-            st.subheader("Call")
-            display_ui_table(calls, "expiration_date")
-        else:
-            handle_error("No CALL option positions found.")
-
-    # Display overall exposure
-    if exposure:
-        exposure_list = [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in exposure.items()] # convert dict to list of dicts
-        st.subheader("Exposure")
-        st.metric(label="Total Exposure", value=f"${sum(exposure.values()):,.2f}")
-        display_ui_table(exposure_list, "Ticker")
-    else:
-        handle_error("No data received or invalid data structure.")
+            handle_error("No data received or invalid data structure.")
