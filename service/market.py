@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz
 
 from loguru import logger
 from broker.market_data import MarketData
@@ -57,6 +58,12 @@ class MarketService:
         Returns:
             list: A list of dictionaries containing expiration date, price, and annualized return.
         """
+        # Ensure from_date is not in the past for practical purposes from LLM
+        if from_date < datetime.now(pytz.timezone("US/Eastern")).strftime('%Y-%m-%d'):
+            logger.info("from_date is in the past. Using current date instead.")
+            from_date = datetime.now(pytz.timezone("US/Eastern")).strftime('%Y-%m-%d')
+            to_date = (datetime.now(pytz.timezone("US/Eastern")) + timedelta(days=8)).strftime('%Y-%m-%d')
+
         option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
 
         def process_option(option, exp_date):
