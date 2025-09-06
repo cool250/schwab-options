@@ -4,116 +4,119 @@ from openai import OpenAI
 import json
 
 from service.market import MarketService
+from service.position import PositionService
 
-def load_environment():
-    """Load environment variables and return the OpenAI API key."""
-    load_dotenv()
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY is not set in the environment.")
-    return api_key
+class LLMService:
+    def __init__(self):
+        self.api_key = self.load_environment()
+        self.model="gpt-4o-mini"
+        self.client = self.initialize_client(self.api_key)
 
-def initialize_client(api_key):
-    """Initialize and return the OpenAI client."""
-    return OpenAI(api_key=api_key)
+    @staticmethod
+    def load_environment():
+        """Load environment variables and return the OpenAI API key."""
+        load_dotenv()
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is not set in the environment.")
+        return api_key
 
-def define_tools():
-    """Define and return the list of tools for the model."""
-    return [
-         {
-            "type": "function",
-            "name": "get_horoscope",
-            "description": "Get today's horoscope for an astrological sign.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "sign": {
-                        "type": "string",
-                        "description": "An astrological sign like Taurus or Aquarius",
+    def initialize_client(self, api_key):
+        """Initialize and return the OpenAI client."""
+        return OpenAI(api_key=api_key)
+
+    @staticmethod
+    def define_tools():
+        """Define and return the list of tools for the model."""
+        return [
+            {
+                "type": "function",
+                "name": "get_ticker_price",
+                "description": "Get the current price for a given ticker symbol.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "The ticker symbol for the asset, e.g., AAPL, TSLA.",
+                        },
                     },
+                    "required": ["symbol"],
                 },
-                "required": ["sign"],
             },
-        },
-        {
-            "type": "function",
-            "name": "get_ticker_price",
-            "description": "Get the current price for a given ticker symbol.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "symbol": {
-                        "type": "string",
-                        "description": "The ticker symbol for the asset, e.g., AAPL, TSLA.",
-                    },
+            {
+                "type": "function",
+                "name": "get_balances",
+                "description": "Fetch and return the account balances.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
                 },
-                "required": ["symbol"],
             },
-        },
-    ]
-def get_horoscope(sign):
-    """Return a mock horoscope for the given sign."""
-    return f"{sign}: Next Tuesday you will befriend a baby otter."
+        ]
 
-def get_ticker_price(symbol):
-    """Return the current price for the given ticker symbol."""
-    market_service = MarketService()
-    price = market_service.get_ticker_price(symbol)
-    if price is not None:
-        return f"The current price of {symbol} is ${price:.2f}"
-    return f"Price for {symbol} could not be retrieved."
+    @staticmethod
+    def get_ticker_price(symbol):
+        """Return the current price for the given ticker symbol."""
+        market_service = MarketService()
+        price = market_service.get_ticker_price(symbol)
+        if price is not None:
+            return f"The current price of {symbol} is ${price:.2f}"
+        return f"Price for {symbol} could not be retrieved."
 
-def process_response(input_list, response):
-    for item in response.output:
-        if item.type != "function_call":
-            continue
+    @staticmethod
+    def get_balances():
+        position_service = PositionService()
+        balances = position_service.get_balances()
+        if balances is not None:
+            return balances
+        return "Could not retrieve account balances."
 
-        name = item.name
-        args = json.loads(item.arguments)
+    def process_response(self, input_list, response):
+        for item in response.output:
+            if item.type != "function_call":
+                continue
 
-        result = call_function(name, args)
-        input_list.append({
-            "type": "function_call_output",
-            "call_id": item.call_id,
-            "output": str(result)
-        })
+            name = item.name
+            args = json.loads(item.arguments)
 
-def call_function(name, args):
-    if name == "get_horoscope":
-        return get_horoscope(**args)
-    if name == "get_ticker_price":
-        return get_ticker_price(**args)
+            result = self.call_function(name, args)
+            input_list.append({
+                "type": "function_call_output",
+                "call_id": item.call_id,
+                "output": str(result)
+            })
 
+    def call_function(self, name, args):
+        if name == "get_ticker_price":
+            return self.get_ticker_price(**args)
+        if name == "get_balances":
+            return self.get_balances()
 
-def invoke_llm(query: str):
-    api_key = load_environment()
-    client = initialize_client(api_key)
-    tools = define_tools()
+    def invoke_llm(self, query: str):
+        tools = self.define_tools()
 
-    input_list = [
-        {"role": "user", "content": query}
-    ]
+        input_list = [
+            {"role": "user", "content": query}
+        ]
 
-    # 2. Prompt the model with tools defined
-    response = client.responses.create(
-        model="gpt-5",
-        tools=tools,
-        input=input_list,
-    )
+        # 2. Prompt the model with tools defined
+        response = self.client.responses.create(
+            model=self.model,
+            tools=tools,
+            input=input_list,
+        )
 
-    # Save function call outputs for subsequent requests
-    input_list += response.output
+        # Save function call outputs for subsequent requests
+        input_list += response.output
 
-    process_response(input_list, response)
+        self.process_response(input_list, response)
 
-    response = client.responses.create(
-        model="gpt-5",
-        instructions="Respond with the details generated by a tool.",
-        tools=tools,
-        input=input_list,
-    )
+        response = self.client.responses.create(
+            model=self.model,
+            instructions="Respond with the details generated by a tool.",
+            tools=tools,
+            input=input_list,
+        )
 
-    # 5. The model should be able to give a response!
-    # print("Final output:")
-    # print(response.model_dump_json(indent=2))
-    return response.output_text
+        return response.output_text
