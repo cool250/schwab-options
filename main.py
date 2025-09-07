@@ -2,6 +2,10 @@ from datetime import datetime, timedelta
 from service.market import MarketService
 from broker.authenticate import get_access_token
 from broker.market_data import MarketData
+from service.position import PositionService
+from service.agent import LLMService
+import asyncio
+
 import pytz
 
 def chain():
@@ -25,10 +29,21 @@ def authenticate():
 def price():
     service = MarketService()
     # Implement logic to fetch and display option prices
-    price = service.get_ticker_price("SPY")
-    print("Current Price of SPY:", price)
+    price = service.get_ticker_price("CRM")
+    print("Current Price of Ticker:", price)
     # service.get_price_history("SPY", period_type='month', frequency_type='daily')
+
+def position():
+    service = PositionService()
+    positions = service.get_positions()
+    print("Option Positions:", positions)
+
+def llm():
+    service = LLMService()
+    query = "Get the option chain for SPY PUTs with strike price around current price"
+    response = service.invoke_llm(query)
+    print("LLM Response:", response)
 
 
 if __name__ == "__main__":
-    price()
+    llm()

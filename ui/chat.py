@@ -15,10 +15,12 @@ def render():
             # Display user message in chat message container
             with st.chat_message("user"):
                 st.markdown(prompt)
-            
-            # Process user input with LLMService
-            llm_service = LLMService()
-            response = llm_service.invoke_llm(prompt)
+
+            # Add a spinner while waiting for the response
+            with st.spinner("Processing..."):
+                # Process user input with LLMService
+                llm_service = LLMService()
+                response = llm_service.invoke_llm(prompt)
 
             # Display assistant response in chat message container
             with st.chat_message("assistant"):
