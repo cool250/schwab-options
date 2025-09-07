@@ -143,9 +143,11 @@ class LLMService:
         while True:
             # 2. Prompt the model with tools defined
             response = self.client.responses.create(
+                instructions="You are a helpful financial assistant. Use the tools to fetch real-time data as needed.",
                 model=self.model,
                 tools=tools,
                 input=input_list,
+                tool_choice="auto"
             )
 
             # If model produced final text, return it

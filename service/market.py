@@ -94,31 +94,23 @@ class MarketService:
 
         results = []
 
+        def process_options(exp_date_map):
+            for exp_date, strikes in exp_date_map.items():
+                for strike_price, options in strikes.items():
+                    if float(strike_price) == strike:
+                        for option in options:
+                            if option.mark is None or option.daysToExpiration is None:
+                                logger.debug("Skipping option with invalid data.")
+                                continue
+
+                            result = process_function(option, exp_date)
+                            if result:
+                                results.append(result)
+
         if contract_type == "PUT":
-            for exp_date, strikes in option_chain.putExpDateMap.items():
-                for strike_price, options in strikes.items():
-                    if float(strike_price) == strike:
-                        for option in options:
-                            if option.mark is None or option.daysToExpiration is None:
-                                logger.debug("Skipping option with invalid data.")
-                                continue
-
-                            result = process_function(option, exp_date)
-                            if result:
-                                results.append(result)
-        
+            process_options(option_chain.putExpDateMap)
         elif contract_type == "CALL":
-            for exp_date, strikes in option_chain.callExpDateMap.items():
-                for strike_price, options in strikes.items():
-                    if float(strike_price) == strike:
-                        for option in options:
-                            if option.mark is None or option.daysToExpiration is None:
-                                logger.debug("Skipping option with invalid data.")
-                                continue
-
-                            result = process_function(option, exp_date)
-                            if result:
-                                results.append(result)
+            process_options(option_chain.callExpDateMap)
 
         else:
             logger.warning(f"Unknown contract type: {contract_type}")
