@@ -1,8 +1,12 @@
 import streamlit as st
 from service.tool_call import LLMService
+from service.agent import AgentService
 
 def render():
     st.subheader("Simple chat")
+
+    if "agent_service" not in st.session_state:
+        st.session_state.agent_service = AgentService()
 
     # Accept user input
     input_container = st.container()
@@ -18,9 +22,9 @@ def render():
 
             # Add a spinner while waiting for the response
             with st.spinner("Processing..."):
-                # Process user input with LLMService
-                llm_service = LLMService()
-                response = llm_service.invoke_llm(prompt)
+                # Process user input with AgentService
+                response = st.session_state.agent_service.invoke_llm(prompt)
+    
 
             # Display assistant response in chat message container
             with st.chat_message("assistant"):

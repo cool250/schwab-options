@@ -1,10 +1,8 @@
 from datetime import datetime, timedelta
 from service.market import MarketService
 from broker.authenticate import get_access_token
-from broker.market_data import MarketData
 from service.position import PositionService
-from service.agent import LLMService
-import asyncio
+from service.agent import AgentService
 
 import pytz
 
@@ -39,7 +37,7 @@ def position():
     print("Option Positions:", positions)
 
 def llm():
-    service = LLMService()
+    service = AgentService()
     query = "Get the option chain for SPY PUTs with strike price around current price"
     response = service.invoke_llm(query)
     print("LLM Response:", response)
