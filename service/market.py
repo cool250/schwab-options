@@ -91,7 +91,7 @@ class MarketService:
         def process_options(exp_date_map):
             for exp_date, strikes in exp_date_map.items():
                 for strike_price, options in strikes.items():
-                    if float(strike_price) == strike:
+                    if float(strike_price) in (strike-1, strike, strike+1):
                         for option in options:
                             if option.mark is None or option.daysToExpiration is None:
                                 logger.debug("Skipping option with invalid data.")

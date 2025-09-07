@@ -74,7 +74,9 @@ class AgentService:
             instructions=(
                 "You are a helpful financial assistant. Use tools to fetch real-time data as needed. "
                 "If the user does not provide a strike price for the 'get_all_expiration_dates' tool, "
-                "fetch the current price using the 'get_ticker_price' tool and use it as the strike."
+                "fetch the current price using the 'get_ticker_price' tool and use it as the strike." \
+                "When displaying an option chain, always separate Calls and Puts into two clear tables. "
+                "Ensure the tables include expiration date, strike, price, and annualized return if available."
             ),
             model=self.model,
             tools=[get_ticker_price, get_balances, get_all_expiration_dates],
