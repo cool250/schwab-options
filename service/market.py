@@ -82,7 +82,7 @@ class MarketService:
         def process_option(option, exp_date):
             annualized_return = self._calculate_annualized_return(option.mark, option.strikePrice, option.daysToExpiration)
             return {
-                "strike": option.strikePrice,
+                "strike": int(option.strikePrice),
                 "expiration_date": exp_date,
                 "price": option.mark,
                 "annualized_return": annualized_return

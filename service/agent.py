@@ -14,7 +14,16 @@ import asyncio
 
 @function_tool
 def get_ticker_price(symbol: str) -> str:
-    """Get the current price for a given ticker symbol."""
+    """
+    Get the current price for a given ticker symbol.
+
+    Args:
+        symbol (str): The ticker symbol of the stock or asset.
+
+    Returns:
+        str: A formatted string containing the current price of the ticker symbol 
+             or an error message if the price could not be retrieved.
+    """
     market_service = MarketService()
     price = market_service.get_ticker_price(symbol)
     return f"The current price of {symbol} is ${price:.2f}" if price else f"Price for {symbol} could not be retrieved."
@@ -22,24 +31,52 @@ def get_ticker_price(symbol: str) -> str:
 
 @function_tool
 def get_balances() -> str:
-    """Fetch and return the account balances."""
+    """
+    Fetch and return the account balances.
+
+    Usage examples:
+    - "Get current balance" → get_balances()
+    - "Fetch account balances" → get_balances()
+
+    This function interacts with the PositionService to retrieve account balances.
+    If balances are successfully retrieved, they are returned as a JSON-formatted string.
+    If no balances are available, an error message is returned.
+
+    Returns:
+        str: A JSON-formatted string of account balances if available, 
+             otherwise an error message indicating the failure to retrieve balances.
+    """
     position_service = PositionService()
     balances = position_service.get_balances()
     return json.dumps(balances) if balances else "Could not retrieve account balances."
 
 
 @function_tool
-def get_all_expiration_dates(symbol: str, strike: float, from_date: str, to_date: str, contract_type: str = "ALL") -> str:
+def get_options_chain(symbol: str, strike: float, from_date: str, to_date: str, contract_type: str = "ALL") -> str:
     """
-    Fetch the option chain and return all valid expiration dates for a given symbol.
-    Split the return in Calls and Puts when needed.
+    Fetch all valid expiration dates for a given option symbol within a specified date range.
 
-    Rules:
-    - 'symbol' is required.
-    - 'contract_type' is PUT if not specified.
-    - 'from_date' must not be in the past: if a past date is provided, replace it with today's date.
-    - 'to_date' must be later than 'from_date'.
-    - If 'from_date' equals today, set 'to_date' to 7–10 days after today.
+    Usage examples:
+    - "Get Option Chain for AAPL for next week around strike 150" → get_option_chain("AAPL", strike=150, from_date="2025-10-01", to_date="2023-10-08", contract_type="ALL")
+    - "Get Put Chain for TSLA for from 2025-10-01 to 2025-10-21 around strike 700" → get_option_chain("TSLA", strike=700, from_date="2025-10-01", to_date="2025-10-21", contract_type="PUT")
+
+    Args:
+        symbol (str): The ticker symbol of the option (e.g., "AAPL").
+        strike (float): The strike price of the option.
+        from_date (str): The start date of the range (format: "YYYY-MM-DD"). If in the past, it will be replaced with today's date.
+        to_date (str): The end date of the range (format: "YYYY-MM-DD"). Must be later than 'from_date'. If 'from_date' equals today, 'to_date' will be set to 7–10 days after today.
+        contract_type (str, optional): The type of option contract. Defaults to "ALL". Use "PUT" for put options or "CALL" for call options.
+
+    Returns:
+        str: A JSON string containing the expiration dates if found, or a message indicating no expiration dates were found.
+
+    Raises:
+        ValueError: If 'to_date' is earlier than 'from_date'.
+        TypeError: If any of the arguments are of an incorrect type.
+
+    Notes:
+        - The function logs the operation details for debugging purposes.
+        - The 'from_date' and 'to_date' are adjusted to ensure they conform to the rules specified.
     """
     logger.info(f"Fetching expiration dates for {symbol} at {strike}, from {from_date} to {to_date}, contract={contract_type}")
     market_service = MarketService()
@@ -79,7 +116,7 @@ class AgentService:
                 "Ensure the tables include expiration date, strike, price, and annualized return if available."
             ),
             model=self.model,
-            tools=[get_ticker_price, get_balances, get_all_expiration_dates],
+            tools=[get_ticker_price, get_balances, get_options_chain],
         )
 
     def invoke_llm(self, query: str) -> str:
