@@ -29,9 +29,10 @@ def get_balances() -> str:
 
 
 @function_tool
-def get_all_expiration_dates(symbol: str, strike: float, from_date: str, to_date: str, contract_type: str = "PUT") -> str:
+def get_all_expiration_dates(symbol: str, strike: float, from_date: str, to_date: str, contract_type: str = "ALL") -> str:
     """
     Fetch the option chain and return all valid expiration dates for a given symbol.
+    Split the return in Calls and Puts when needed.
 
     Rules:
     - 'symbol' is required.
@@ -70,7 +71,11 @@ class AgentService:
         """Initialize and return the agent."""
         return Agent(
             name="Financial Assistant",
-            instructions="You are a helpful financial assistant. Use tools to fetch real-time data as needed.",
+            instructions=(
+                "You are a helpful financial assistant. Use tools to fetch real-time data as needed. "
+                "If the user does not provide a strike price for the 'get_all_expiration_dates' tool, "
+                "fetch the current price using the 'get_ticker_price' tool and use it as the strike."
+            ),
             model=self.model,
             tools=[get_ticker_price, get_balances, get_all_expiration_dates],
         )

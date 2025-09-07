@@ -27,15 +27,7 @@ class MarketService:
         """
         option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
 
-        def process_option(option, exp_date):
-            annualized_return = self._calculate_annualized_return(option.mark, strike, option.daysToExpiration)
-            return {
-                "annualized_return": annualized_return,
-                "expiration_date": exp_date,
-                "price": option.mark
-            }
-
-        results = self._process_option_chain(option_chain, strike, process_option, contract_type)
+        results = self._process_option_chain(option_chain, strike, contract_type)
         if not results:
             return None
 
@@ -65,18 +57,9 @@ class MarketService:
             to_date = (datetime.now(pytz.timezone("US/Eastern")) + timedelta(days=8)).strftime('%Y-%m-%d')
 
         option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
+        return self._process_option_chain(option_chain, strike, contract_type)
 
-        def process_option(option, exp_date):
-            annualized_return = self._calculate_annualized_return(option.mark, strike, option.daysToExpiration)
-            return {
-                "expiration_date": exp_date,
-                "price": option.mark,
-                "annualized_return": annualized_return
-            }
-
-        return self._process_option_chain(option_chain, strike, process_option, contract_type)
-
-    def _process_option_chain(self, option_chain, strike: float, process_function, contract_type: str):
+    def _process_option_chain(self, option_chain, strike: float, contract_type: str):
         """
         Generic method to process an option chain for a given strike price.
 
@@ -94,6 +77,17 @@ class MarketService:
 
         results = []
 
+        strike = int(strike)
+
+        def process_option(option, exp_date):
+            annualized_return = self._calculate_annualized_return(option.mark, strike, option.daysToExpiration)
+            return {
+                "strike": strike,
+                "expiration_date": exp_date,
+                "price": option.mark,
+                "annualized_return": annualized_return
+            }
+
         def process_options(exp_date_map):
             for exp_date, strikes in exp_date_map.items():
                 for strike_price, options in strikes.items():
@@ -103,13 +97,16 @@ class MarketService:
                                 logger.debug("Skipping option with invalid data.")
                                 continue
 
-                            result = process_function(option, exp_date)
+                            result = process_option(option, exp_date)
                             if result:
                                 results.append(result)
 
         if contract_type == "PUT":
             process_options(option_chain.putExpDateMap)
         elif contract_type == "CALL":
+            process_options(option_chain.callExpDateMap)
+        elif contract_type == "ALL":
+            process_options(option_chain.putExpDateMap)
             process_options(option_chain.callExpDateMap)
 
         else:
