@@ -1,3 +1,4 @@
+from typing import Optional
 from loguru import logger
 from broker.accounts import AccountsTrading
 from broker.market_data import MarketData
@@ -18,7 +19,14 @@ class PositionService:
 
     def __init__(self):
         self.market_data = MarketData()
-        self.accounts_trading = AccountsTrading()
+        self.position: Optional[SecuritiesAccount] = None
+        self._initialize()
+    
+    def _initialize(self):
+        self.position = AccountsTrading().fetch_positions()
+    
+    def get_positions(self):
+        return self.position
 
     def get_option_positions_details(self):
         """Fetch option positions details including current prices."""
@@ -53,7 +61,6 @@ class PositionService:
 
     def populate_positions(self):
         """Populate option positions with current prices, total exposure, and account balances."""
-        self.accounts_trading.get_account()
         option_positions = self.get_option_positions_details()
         total_exposure = self.get_total_exposure()
         account_balances = self.get_balances()
@@ -64,7 +71,11 @@ class PositionService:
 
     def get_stocks(self):
         """Fetch and log the account stocks."""
-        securities_account: SecuritiesAccount = self.accounts_trading.get_account()
+        if self.position is None:
+            logger.warning("Position is not initialized.")
+            return []
+        securities_account: SecuritiesAccount = self.position
+
         stocks = []
 
         if not securities_account.positions:
@@ -86,7 +97,10 @@ class PositionService:
 
     def get_balances(self):
         """Fetch and log the account balances."""
-        securities_account: SecuritiesAccount = self.accounts_trading.get_account()
+        if self.position is None:
+            logger.warning("Position is not initialized.")
+            return []
+        securities_account: SecuritiesAccount = self.position
 
         balances = {
             "margin": securities_account.currentBalances.cashBalance,
@@ -98,7 +112,10 @@ class PositionService:
 
     def get_option_details(self, option_type: str):
         """Extract details for each option position based on the option type."""
-        securities_account: SecuritiesAccount = self.accounts_trading.get_account()
+        if self.position is None:
+            logger.warning("Position is not initialized.")
+            return []
+        securities_account: SecuritiesAccount = self.position
         option_positions_details = []
 
         if not securities_account.positions:

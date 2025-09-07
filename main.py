@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from service.market import MarketService
+from service.transactions import TransactionService
 from broker.authenticate import get_access_token
 from service.position import PositionService
 from service.agent import AgentService
@@ -34,7 +35,10 @@ def price():
 def position():
     service = PositionService()
     positions = service.get_positions()
-    print("Option Positions:", positions)
+
+def transaction():
+    service = TransactionService()
+    transactions = service.get_transaction_history("2025-03-01", "2025-03-02")
 
 def llm():
     service = AgentService()
@@ -44,4 +48,5 @@ def llm():
 
 
 if __name__ == "__main__":
-    llm()
+    transaction()
+    # position()

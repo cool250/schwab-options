@@ -11,7 +11,6 @@ from .logging_methods import log_transactions
 class AccountsTrading(APIClient):
     def __init__(self):
         super().__init__("https://api.schwabapi.com/trader/v1")
-        self.account: Optional[SecuritiesAccount] = None
         self.account_hash_value: Optional[str] = None
         self._initialize_account_hash()
 
@@ -31,41 +30,9 @@ class AccountsTrading(APIClient):
         except (IndexError, ValidationError) as e:
             logger.error(f"Error parsing account hash value: {e}")
 
-    def get_account(self):
+    def fetch_positions(self):
+
         """Retrieve the account details, fetching positions if necessary."""
-        if not self.account:
-            self.account = self._fetch_positions()
-            if self.account is None:
-                logger.error("Failed to retrieve account positions. Account is None.")
-                raise ValueError("Failed to retrieve account positions. Account is None.")
-        return self.account
-
-    def fetch_transactions(self, start_date, end_date, transaction_type=None):
-        """Fetch transactions for the given date range and transaction type."""
-
-        start_date_iso = convert_to_iso8601(start_date)
-        end_date_iso = convert_to_iso8601(end_date)
-
-        url = f"{self.base_url}/accounts/{self.account_hash_value}/transactions"
-        params = {"startDate": start_date_iso, "endDate": end_date_iso, "types": transaction_type}
-        response_data = super()._fetch_data(url, params)
-
-        if not response_data:
-            logger.error("Failed to retrieve transactions.")
-            return None
-
-        try:
-            transactions = [Activity(**item) for item in response_data]
-            log_transactions(transactions)
-            logger.info(f"Total Transactions Fetched: {len(transactions)}")
-            return transactions
-        except ValidationError as e:
-            logger.error(f"Error parsing transactions: {e}")
-            return None
-
-    def _fetch_positions(self):
-        """Fetch and log the account balance and positions."""
-
         url = f"{self.base_url}/accounts/{self.account_hash_value}"
         params = {"fields": "positions"}
         response_data = super()._fetch_data(url, params)
@@ -81,11 +48,30 @@ class AccountsTrading(APIClient):
 
         try:
             securities_account = SecuritiesAccount(**securities_account_data)
-            self.account = securities_account
+            self.position = securities_account
             return securities_account
         except ValidationError as e:
             logger.error(f"Error parsing securities account: {e}")
             return None
 
+    def fetch_transactions(self, start_date, end_date, transaction_type="TRADE"):
+        """Fetch transactions for the given date range and transaction type."""
 
+        start_date_iso = convert_to_iso8601(start_date)
+        end_date_iso = convert_to_iso8601(end_date)
 
+        url = f"{self.base_url}/accounts/{self.account_hash_value}/transactions"
+        params = {"startDate": start_date_iso, "endDate": end_date_iso, "types": transaction_type}
+        response_data = super()._fetch_data(url, params)
+
+        if not response_data:
+            logger.error("Failed to retrieve transactions.")
+            return None
+
+        try:
+            transactions = [Activity(**item) for item in response_data]
+            # log_transactions(transactions)
+            return transactions
+        except ValidationError as e:
+            logger.error(f"Error parsing transactions: {e}")
+            return None

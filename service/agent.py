@@ -52,19 +52,24 @@ def get_balances() -> str:
 
 
 @function_tool
-def get_options_chain(symbol: str, strike: float, from_date: str, to_date: str, contract_type: str = "ALL") -> str:
+def get_options_chain(symbol: str, strike: float, start_date: str, end_date: str, contract_type: str = "ALL") -> str:
     """
     Fetch all valid expiration dates for a given option symbol within a specified date range.
+    Always pass start_date more than today's date.
 
     Usage examples:
-    - "Get Option Chain for AAPL for next week around strike 150" → get_option_chain("AAPL", strike=150, from_date="2025-10-01", to_date="2023-10-08", contract_type="ALL")
-    - "Get Put Chain for TSLA for from 2025-10-01 to 2025-10-21 around strike 700" → get_option_chain("TSLA", strike=700, from_date="2025-10-01", to_date="2025-10-21", contract_type="PUT")
+    - "Get Options Chain for AAPL around strike 150" → start_date=today, end_date=+30 days
+    - "Show Put Chain for TSLA for from 2025-10-01 to 2025-10-21 around strike 700" → get_options_chain("TSLA", strike=700, start_date="2025-10-01", end_date="2025-10-21", contract_type="PUT")
 
     Args:
         symbol (str): The ticker symbol of the option (e.g., "AAPL").
         strike (float): The strike price of the option.
-        from_date (str): The start date of the range (format: "YYYY-MM-DD"). If in the past, it will be replaced with today's date.
-        to_date (str): The end date of the range (format: "YYYY-MM-DD"). Must be later than 'from_date'. If 'from_date' equals today, 'to_date' will be set to 7–10 days after today.
+        start_date (str): 
+            The start date of the range (format: "YYYY-MM-DD"). 
+            Must be **today or a future date**. If the user does not specify, default to today's date.
+        end_date (str): 
+            The end date of the range (format: "YYYY-MM-DD"). 
+            Must also be today or later. If the user does not specify, default to one month from today.
         contract_type (str, optional): The type of option contract. Defaults to "ALL". Use "PUT" for put options or "CALL" for call options.
 
     Returns:
@@ -78,9 +83,9 @@ def get_options_chain(symbol: str, strike: float, from_date: str, to_date: str, 
         - The function logs the operation details for debugging purposes.
         - The 'from_date' and 'to_date' are adjusted to ensure they conform to the rules specified.
     """
-    logger.info(f"Fetching expiration dates for {symbol} at {strike}, from {from_date} to {to_date}, contract={contract_type}")
+    logger.info(f"Fetching expiration dates for {symbol} at {strike}, from {start_date} to {end_date}, contract={contract_type}")
     market_service = MarketService()
-    expiration_dates = market_service.get_all_expiration_dates(symbol, strike, from_date, to_date, contract_type)
+    expiration_dates = market_service.get_all_expiration_dates(symbol, strike, start_date, end_date, contract_type)
     return json.dumps(expiration_dates) if expiration_dates else "No expiration dates found."
 
 
