@@ -12,6 +12,11 @@ class Instrument(BaseModel):
     type: Optional[str] = None
     assetType: Optional[str] = None
     closingPrice: Optional[float] = None
+    expirationDate: Optional[datetime] = None
+    optionDeliverables: Optional[List[dict]] = None
+    underlyingSymbol: Optional[str] = None
+    strikePrice: Optional[float] = None
+    putCall: Optional[str] = None
 
 
 class TransferItem(BaseModel):
@@ -43,8 +48,8 @@ class Activity(BaseModel):
     type: Optional[str] = None
     status: Optional[str] = None
     subAccount: Optional[str] = None
-    tradeDate: Optional[datetime] = None
-    settlementDate: Optional[datetime] = None
+    tradeDate: Optional[str] = None
+    settlementDate: Optional[str] = None
     positionId: Optional[int] = None
     orderId: Optional[int] = None
     netAmount: Optional[float] = None

@@ -38,7 +38,10 @@ def position():
 
 def transaction():
     service = TransactionService()
-    transactions = service.get_transaction_history("2025-03-01", "2025-03-02")
+    # transactions = service.get_transaction_history("2025-03-01", "2025-03-30")
+
+    option_transactions = service.get_option_transactions("2025-03-01", "2025-03-30")
+    print("Option Transactions:", option_transactions)
 
 def llm():
     service = AgentService()
@@ -48,5 +51,6 @@ def llm():
 
 
 if __name__ == "__main__":
+    # authenticate()
     transaction()
     # position()
