@@ -31,3 +31,19 @@ def convert_to_iso8601(date_string: str) -> str:
         """
         dt = datetime.strptime(date_string, "%Y-%m-%d")
         return dt.strftime("%Y-%m-%dT00:00:00.000Z")
+
+def get_date_string(datetime_str: str) -> str:
+    """
+    Convert a datetime string in ISO 8601 format to 'YYYY-MM-DD' format.
+    Example: '2023-10-01T00:00:00-04:00' -> '2023-10-01'
+    """
+    try:
+        # Parse the string into a datetime object
+        dt = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M:%S%z")
+
+        # Format the datetime object to only include the date
+        date_str = dt.strftime("%Y-%m-%d")
+        return date_str
+    except ValueError as e:
+        logger.error(f"Invalid datetime string: {datetime_str}. Error: {e}")
+        return ""

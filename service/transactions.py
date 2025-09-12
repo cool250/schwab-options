@@ -1,9 +1,9 @@
-
 from collections import defaultdict
 from loguru import logger
 from broker.accounts import AccountsTrading
 from broker.market_data import MarketData
 from model.account_models import SecuritiesAccount
+from utils.utils import get_date_string
 
 def parse_option_symbol(symbol):
     """Parse the option symbol to extract ticker, strike price, and expiration date."""
@@ -44,37 +44,71 @@ class TransactionService:
                         if ticker and ticker != underlyingSymbol:
                             continue
                         symbol = getattr(item.instrument, "symbol", "")  # Default to empty string if None
-                        price = getattr(item.instrument, "closingPrice", None)
+                        price = getattr(item, "price", None)
                         strikePrice = getattr(item.instrument, "strikePrice", None)
                         optionType = getattr(item.instrument, "putCall", None)
-                        ticker, strike_price, expiration_date = parse_option_symbol(symbol)
+                        if symbol is not None:
+                            ticker, strike_price, expiration_date = parse_option_symbol(symbol)
+                        else:
+                            # Assign empty strings as default values to match the expected type
+                            ticker, strike_price, expiration_date = "", "", ""
                         option_transactions.append({
-                            "date": getattr(transaction, "tradeDate", None),
+                            "date": get_date_string(getattr(transaction, "tradeDate", "")) if getattr(transaction, "tradeDate", None) else "",
+                            "close_date": None,
+                            "underlying_symbol": underlyingSymbol,
+                            "expirationDate": expiration_date,
+                            "strike_price": strikePrice,
                             "symbol": symbol,
                             "price": price,
-                            "underlying_symbol": underlyingSymbol,
-                            "strike_price": strikePrice,
-                            "option_type": optionType,
-                            "expirationDate": expiration_date,
                             "ticker": ticker,
                             "qty": getattr(item, "amount", 0),
                             "position_effect": getattr(item, "positionEffect", None),
 
                         })
-        # option_transactions = self.match_open_close_trades(option_transactions)
+        option_transactions = self.match_open_close_trades(option_transactions)
         return option_transactions
 
     def match_open_close_trades(self, trades):
-        # Group trades by contract identity
-        grouped = defaultdict(list)
-        for trade in trades:
-            key = (trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"])
-            grouped[key].append(trade)
+        """
+        Matches opening and closing option trades by contract identity and date.
 
+        Returns:
+            List[dict]: A list where the first elements are matched trades (dicts with open/close info),
+                        and the remaining elements are unmatched trades (with the original trade structure).
+                        The structure of matched and unmatched trades differs.
+        """
+        # Group trades by contract identity
+        position_grouped = defaultdict(list)
+        for trade in trades:
+            key = (trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"], trade["position_effect"])
+            position_grouped[key].append(trade)
+
+        grouped_trades = []
+        # Combine trades with the same key by summing quantities and keeping the price of the first trade
+        for key, trade_group in position_grouped.items():
+            if len(trade_group) > 1:
+                total_qty = sum(t["qty"] for t in trade_group)
+                first_trade = trade_group[0]
+                combined_trade = {
+                    **first_trade,
+                    "qty": total_qty
+                }
+            else:
+                combined_trade = trade_group[0]
+            grouped_trades.append(combined_trade)
+
+        # Now match opening and closing trades
+
+        combined_trades = defaultdict(list)
+        for trade in grouped_trades:
+            key = (trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"])
+            combined_trades[key].append(trade)
+
+        # Grouped trades now contain all trades by their unique key
         matched_trades = []
         unmatched_trades = []
 
-        for key, trade_group in grouped.items():
+        for key, trade_group in combined_trades.items():
             opens = [t for t in trade_group if t["position_effect"] == "OPENING"]
             closes = [t for t in trade_group if t["position_effect"] == "CLOSING"]
 
@@ -87,32 +121,25 @@ class TransactionService:
                 open_trade = opens.pop(0)
                 close_trade = closes.pop(0)
 
-                matched_qty = min(open_trade["qty"], close_trade["qty"])
+                if open_trade["qty"] != -close_trade["qty"] or open_trade["expirationDate"] != close_trade["expirationDate"]:
+                    logger.warning(f"Unmatched trade quantities or expiration dates for {key}: Open qty {open_trade['qty']}, Close qty {close_trade['qty']}, Open exp {open_trade['expirationDate']}, Close exp {close_trade['expirationDate']}")
 
                 matched_trades.append({
-                    "underlying_symbol": key[0],
-                    "strike_price": key[1],
-                    "expirationDate": key[2],
-                    "open_date": open_trade.get("date"),
+                    "date": open_trade.get("date"),
                     "close_date": close_trade.get("date"),
+                    "underlying_symbol": key[0],
+                    "expirationDate": key[2],
+                    "strike_price": key[1],
                     "symbol": open_trade.get("symbol"),
-                    "option_type": open_trade.get("option_type"),
+                    "price": (close_trade.get("price", 0) - open_trade.get("price", 0)),
                     "ticker": open_trade.get("ticker"),
-                    "open_price": open_trade.get("price"),
-                    "close_price": close_trade.get("price"),
-                    "qty": matched_qty,
-                    "net": (close_trade.get("price", 0) - open_trade.get("price", 0))
+                    "qty": open_trade["qty"],
+                    "position_effect": "MATCHED"
                 })
-
-                # Adjust remaining qty
-                if open_trade["qty"] > matched_qty:
-                    open_trade["qty"] -= matched_qty
-                    opens.insert(0, open_trade)
-                elif close_trade["qty"] > matched_qty:
-                    close_trade["qty"] -= matched_qty
-                    closes.insert(0, close_trade)
 
             # Any unmatched trades left
             unmatched_trades.extend(opens + closes)
+            all_trades = matched_trades + unmatched_trades
+            all_trades.sort(key=lambda x: x.get("date"))
 
-        return matched_trades + unmatched_trades
+        return all_trades

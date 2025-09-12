@@ -17,7 +17,6 @@ def render():
     transaction_service = TransactionService()
     st.title("Option Transactions")
    
-
     with st.form("transactions_form"):
         # Create two columns
         col1_input, col2_input = st.columns(2)
@@ -43,11 +42,13 @@ def render():
                 transactions = transaction_service.get_option_transactions(
                     start_date=start_date_str,
                     end_date=end_date_str,
-                    symbol=ticker,
+                    ticker=ticker,
                     contract_type=option_type
                 )
             if transactions:
                 st.subheader("Transactions")
+                st.write(f"Total Records: {len(transactions)}")
                 display_ui_table(transactions, sort_column="transaction_date")
+
             else:
                 st.error("No transactions found for the given criteria.")
