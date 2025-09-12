@@ -31,10 +31,10 @@ class TransactionService:
     def get_option_transactions(self, start_date: str, end_date: str, stock_ticker: str, contract_type: str = "ALL"):
         """Fetch option transactions and parse their details."""
 
-        # For options, we want to look back 30 days and forward 5 days to ensure we capture all related trades
+        # For options, we want to look back 60 days and forward 5 days to ensure we capture all related trades
         # with options expiring within the selected range
         start_date_obj = get_date_object(start_date)  # Ensure start_date is converted to datetime
-        modified_start_date = (start_date_obj - timedelta(days=15)).strftime('%Y-%m-%d')
+        modified_start_date = (start_date_obj - timedelta(days=60)).strftime('%Y-%m-%d')
 
         end_date_obj = get_date_object(end_date)
         modified_end_date = (end_date_obj + timedelta(days=10)).strftime('%Y-%m-%d')
@@ -72,7 +72,7 @@ class TransactionService:
                     if stock_ticker and stock_ticker != underlyingSymbol:
                         continue
                     symbol = getattr(item.instrument, "symbol", "")  # Default to empty string if None
-                    price = float(getattr(item, "price", 0) or 0)
+                    price = float(getattr(item, "price", 0))
                     strikePrice = getattr(item.instrument, "strikePrice", None)
                     amount = float(item.amount)
                     expiration_date = get_date_string(getattr(item.instrument, "expirationDate", None))
@@ -108,7 +108,7 @@ class TransactionService:
             position_grouped[key].append(trade)
 
         grouped_trades = []
-        # Combine trades with the same key by summing quantities and keeping the price of the first trade
+        # Combine trades with the same key by summing quantities and averaging the prices
         for key, trade_group in position_grouped.items():
             if len(trade_group) > 1:
                 total_amount = sum(t["amount"] for t in trade_group)
@@ -172,13 +172,12 @@ class TransactionService:
 
             # Any unmatched trades left
             unmatched_trades.extend(opens + closes)
-        if (False): # do not send unmatched trades for now
-            all_trades = matched_trades + unmatched_trades
-            all_trades.sort(key=lambda x: x.get("date"))
-            for trade in all_trades:
-                trade.pop("description", None)
-        matched_trades.sort(key=lambda x: x.get("close_date"))
-        return matched_trades
+ 
+        all_trades = matched_trades + unmatched_trades
+        all_trades.sort(key=lambda x: x.get("close_date"))
+        for trade in all_trades:
+            trade.pop("description", None)
+        return all_trades
 
     def determine_trade_type(self, close_trade):
         trade_type = None
