@@ -41,6 +41,8 @@ class TransactionService:
         option_transactions = []
         for transaction in transactions:
             transfer_items = getattr(transaction, "transferItems", None)
+            type_of_transaction = getattr(transaction, "type", "None")
+            description = getattr(transaction, "description", "Trade")
             if transfer_items:
                 for item in transfer_items:
                     if item.instrument is not None and getattr(item.instrument, "assetType", None) == "OPTION":
@@ -67,6 +69,8 @@ class TransactionService:
                             "amount": amount,
                             "position_effect": getattr(item, "positionEffect", None),
                             "option_type": optionType,
+                            "type": type_of_transaction,
+                            "description": description
                         })
         
         option_transactions = self.match_open_close_trades(option_transactions)
@@ -137,6 +141,19 @@ class TransactionService:
 
                 price = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0))
                 amount = float(open_trade["amount"])
+                trade_type = None
+                if close_trade.get("type") == "RECEIVE_AND_DELIVER":
+                    if "Expiration" in close_trade["description"]:
+                        # Handle expiration case
+                        trade_type = "EXPIRATION"
+                    elif "Assignment" in close_trade["description"]:
+                        # Handle assignment case
+                        trade_type = "ASSIGNMENT"
+                        price = 0  # For assignment, set price to 0
+                    else:
+                        trade_type = "UNKNOWN"
+                else:
+                    trade_type = "CLOSED"
                 matched_trades.append({
                     "date": open_trade.get("date"),
                     "close_date": close_trade.get("date"),
@@ -145,14 +162,19 @@ class TransactionService:
                     "strike_price": open_trade.get("strike_price"),
                     "symbol": open_trade.get("symbol"),
                     "price": price,
+                    "open_price": open_trade.get("price"), # Added to keep track of open price
+                    "close_price": close_trade.get("price"), # Added to keep track of close price
                     "amount": amount,
                     "position_effect": "MATCHED",
                     "option_type": open_trade.get("option_type"),
+                    "type": trade_type
                 })
 
             # Any unmatched trades left
             unmatched_trades.extend(opens + closes)
-            all_trades = matched_trades + unmatched_trades
-            all_trades.sort(key=lambda x: x.get("date"))
+        all_trades = matched_trades + unmatched_trades
+        all_trades.sort(key=lambda x: x.get("date"))
+        for trade in all_trades:
+            trade.pop("description", None)
 
         return all_trades

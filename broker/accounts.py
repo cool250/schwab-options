@@ -52,14 +52,14 @@ class AccountsTrading(APIClient):
             logger.error(f"Error parsing securities account: {e}")
             return None
 
-    def fetch_transactions(self, start_date, end_date, symbol=None, transaction_type="TRADE"):
+    def fetch_transactions(self, start_date, end_date, symbol=None):
         """Fetch transactions for the given date range and transaction type."""
 
         start_date_iso = convert_to_iso8601(start_date)
         end_date_iso = convert_to_iso8601(end_date)
 
         url = f"{self.base_url}/accounts/{self.account_hash_value}/transactions"
-        params = {"startDate": start_date_iso, "endDate": end_date_iso, "types": transaction_type}
+        params = {"startDate": start_date_iso, "endDate": end_date_iso}
         if symbol is not None:
             params["symbol"] = symbol
         response_data = super()._fetch_data(url, params)
