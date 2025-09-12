@@ -48,7 +48,7 @@ def render():
             if transactions:
                 st.subheader("Transactions")
                 st.write(f"Total Records: {len(transactions)}")
-                st.write(f"Total Amount: {sum(txn['total'] for txn in transactions):,.2f}")
+                st.write(f"Total Amount: {sum(txn['total_amount'] for txn in transactions):,.2f}")
                 display_ui_table(transactions, sort_column="date")
 
             else:

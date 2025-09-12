@@ -48,8 +48,8 @@ class Activity(BaseModel):
     type: Optional[str] = None
     status: Optional[str] = None
     subAccount: Optional[str] = None
-    tradeDate: Optional[str] = None
-    settlementDate: Optional[str] = None
+    tradeDate: Optional[datetime] = None
+    settlementDate: Optional[datetime] = None
     positionId: Optional[int] = None
     orderId: Optional[int] = None
     netAmount: Optional[float] = None

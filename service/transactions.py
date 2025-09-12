@@ -1,9 +1,10 @@
 from collections import defaultdict
+from datetime import timedelta
 from loguru import logger
 from broker.accounts import AccountsTrading
 from broker.market_data import MarketData
 from model.account_models import SecuritiesAccount
-from utils.utils import get_date_string
+from utils.utils import convert_date_string, get_date_object, get_date_string
 
 def parse_option_symbol(symbol):
     """Parse the option symbol to extract ticker, strike price, and expiration date."""
@@ -29,7 +30,10 @@ class TransactionService:
     
     def get_option_transactions(self, start_date: str, end_date: str, stock_ticker: str, contract_type: str = "ALL"):
         """Fetch option transactions and parse their details."""
-        transactions = self.accounts_trading.fetch_transactions(start_date=start_date, end_date=end_date)
+
+        start_date_obj = get_date_object(start_date)  # Ensure start_date is converted to datetime
+        modified_start_date = (start_date_obj - timedelta(days=30)).strftime('%Y-%m-%d')
+        transactions = self.accounts_trading.fetch_transactions(start_date=modified_start_date, end_date=end_date)
         if transactions is None or len(transactions) == 0:
             logger.error("No transactions found for the given date range.")
             return []
@@ -48,30 +52,31 @@ class TransactionService:
                         if stock_ticker and stock_ticker != underlyingSymbol:
                             continue
                         symbol = getattr(item.instrument, "symbol", "")  # Default to empty string if None
-                        price = getattr(item, "price", None)
+                        price = float(getattr(item, "price", 0) or 0)
                         strikePrice = getattr(item.instrument, "strikePrice", None)
-                        amount = item.amount
-                        total = -price * amount * 100
-                        if symbol is not None:
-                            ticker, strike_price, expiration_date = parse_option_symbol(symbol)
-                        else:
-                            # Assign empty strings as default values to match the expected type
-                            ticker, strike_price, expiration_date = "", "", ""
+                        amount = float(item.amount)
+                        expiration_date = get_date_string(getattr(item.instrument, "expirationDate", None))
                         option_transactions.append({
                             "date": get_date_string(getattr(transaction, "tradeDate", "")) if getattr(transaction, "tradeDate", None) else "",
-                            "close_date": "",
+                            "close_date": expiration_date,
                             "underlying_symbol": underlyingSymbol,
                             "expirationDate": expiration_date,
                             "strike_price": strikePrice,
                             "symbol": symbol,
                             "price": price,
-                            "ticker": ticker,
                             "amount": amount,
-                            "total": total,
                             "position_effect": getattr(item, "positionEffect", None),
                             "option_type": optionType,
                         })
+        
         option_transactions = self.match_open_close_trades(option_transactions)
+         # Filter by date range
+        option_transactions = [
+            transaction for transaction in option_transactions
+            if get_date_object(start_date) <= get_date_object(transaction.get("close_date")) <= get_date_object(end_date)
+        ]
+        for transaction in option_transactions:
+            transaction["total_amount"] = -transaction["price"] * transaction["amount"] * 100
         return option_transactions
 
     def match_open_close_trades(self, trades):
@@ -130,9 +135,8 @@ class TransactionService:
                 if open_trade["amount"] != -close_trade["amount"] or open_trade["expirationDate"] != close_trade["expirationDate"]:
                     logger.warning(f"Unmatched trade quantities or expiration dates for {key}: Open qty {open_trade['amount']}, Close qty {close_trade['amount']}, Open exp {open_trade['expirationDate']}, Close exp {close_trade['expirationDate']}")
 
-                price = (close_trade.get("price", 0) - open_trade.get("price", 0))
-                amount = open_trade["amount"]
-                total = -price * amount * 100
+                price = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0))
+                amount = float(open_trade["amount"])
                 matched_trades.append({
                     "date": open_trade.get("date"),
                     "close_date": close_trade.get("date"),
@@ -141,9 +145,7 @@ class TransactionService:
                     "strike_price": open_trade.get("strike_price"),
                     "symbol": open_trade.get("symbol"),
                     "price": price,
-                    "ticker": open_trade.get("ticker"),
                     "amount": amount,
-                    "total": total,
                     "position_effect": "MATCHED",
                     "option_type": open_trade.get("option_type"),
                 })
