@@ -49,7 +49,7 @@ def render():
                 st.subheader("Transactions")
                 st.write(f"Total Records: {len(transactions)}")
                 st.write(f"Total Amount: {sum(txn['total_amount'] for txn in transactions):,.2f}")
-                display_ui_table(transactions, sort_column="date")
+                display_ui_table(transactions, sort_column="expirationDate")
 
             else:
                 st.error("No transactions found for the given criteria.")
