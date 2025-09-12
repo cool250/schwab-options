@@ -59,7 +59,7 @@ class TransactionService:
                             ticker, strike_price, expiration_date = "", "", ""
                         option_transactions.append({
                             "date": get_date_string(getattr(transaction, "tradeDate", "")) if getattr(transaction, "tradeDate", None) else "",
-                            "close_date": None,
+                            "close_date": "",
                             "underlying_symbol": underlyingSymbol,
                             "expirationDate": expiration_date,
                             "strike_price": strikePrice,
@@ -136,15 +136,16 @@ class TransactionService:
                 matched_trades.append({
                     "date": open_trade.get("date"),
                     "close_date": close_trade.get("date"),
-                    "underlying_symbol": key[0],
-                    "expirationDate": key[2],
-                    "strike_price": key[1],
+                    "underlying_symbol": open_trade.get("underlying_symbol"),
+                    "expirationDate": open_trade.get("expirationDate"),
+                    "strike_price": open_trade.get("strike_price"),
                     "symbol": open_trade.get("symbol"),
                     "price": price,
                     "ticker": open_trade.get("ticker"),
                     "amount": amount,
                     "total": total,
                     "position_effect": "MATCHED",
+                    "option_type": open_trade.get("option_type"),
                 })
 
             # Any unmatched trades left
