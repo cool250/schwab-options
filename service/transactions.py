@@ -27,7 +27,7 @@ class TransactionService:
         transactions = self.accounts_trading.fetch_transactions(start_date=start_date, end_date=end_date)
         return transactions
     
-    def get_option_transactions(self, start_date: str, end_date: str, ticker: str, contract_type: str = "ALL"):
+    def get_option_transactions(self, start_date: str, end_date: str, stock_ticker: str, contract_type: str = "ALL"):
         """Fetch option transactions and parse their details."""
         transactions = self.accounts_trading.fetch_transactions(start_date=start_date, end_date=end_date)
         if transactions is None or len(transactions) == 0:
@@ -41,12 +41,17 @@ class TransactionService:
                 for item in transfer_items:
                     if item.instrument is not None and getattr(item.instrument, "assetType", None) == "OPTION":
                         underlyingSymbol = getattr(item.instrument, "underlyingSymbol", None)
-                        if ticker and ticker != underlyingSymbol:
+                        optionType = getattr(item.instrument, "putCall", None)
+                        # Filter by stock ticker and contract type if provided
+                        if contract_type != "ALL" and optionType != contract_type:
+                            continue
+                        if stock_ticker and stock_ticker != underlyingSymbol:
                             continue
                         symbol = getattr(item.instrument, "symbol", "")  # Default to empty string if None
                         price = getattr(item, "price", None)
                         strikePrice = getattr(item.instrument, "strikePrice", None)
-                        optionType = getattr(item.instrument, "putCall", None)
+                        amount = item.amount
+                        total = -price * amount * 100
                         if symbol is not None:
                             ticker, strike_price, expiration_date = parse_option_symbol(symbol)
                         else:
@@ -61,9 +66,10 @@ class TransactionService:
                             "symbol": symbol,
                             "price": price,
                             "ticker": ticker,
-                            "qty": getattr(item, "amount", 0),
+                            "amount": amount,
+                            "total": total,
                             "position_effect": getattr(item, "positionEffect", None),
-
+                            "option_type": optionType,
                         })
         option_transactions = self.match_open_close_trades(option_transactions)
         return option_transactions
@@ -80,18 +86,18 @@ class TransactionService:
         # Group trades by contract identity
         position_grouped = defaultdict(list)
         for trade in trades:
-            key = (trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"], trade["position_effect"])
+            key = (trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"], trade["position_effect"], trade["option_type"])
             position_grouped[key].append(trade)
 
         grouped_trades = []
         # Combine trades with the same key by summing quantities and keeping the price of the first trade
         for key, trade_group in position_grouped.items():
             if len(trade_group) > 1:
-                total_qty = sum(t["qty"] for t in trade_group)
+                total_amount = sum(t["amount"] for t in trade_group)
                 first_trade = trade_group[0]
                 combined_trade = {
                     **first_trade,
-                    "qty": total_qty
+                    "amount": total_amount
                 }
             else:
                 combined_trade = trade_group[0]
@@ -101,7 +107,7 @@ class TransactionService:
 
         combined_trades = defaultdict(list)
         for trade in grouped_trades:
-            key = (trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"])
+            key = (trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"], trade["option_type"])
             combined_trades[key].append(trade)
 
         # Grouped trades now contain all trades by their unique key
@@ -121,9 +127,12 @@ class TransactionService:
                 open_trade = opens.pop(0)
                 close_trade = closes.pop(0)
 
-                if open_trade["qty"] != -close_trade["qty"] or open_trade["expirationDate"] != close_trade["expirationDate"]:
-                    logger.warning(f"Unmatched trade quantities or expiration dates for {key}: Open qty {open_trade['qty']}, Close qty {close_trade['qty']}, Open exp {open_trade['expirationDate']}, Close exp {close_trade['expirationDate']}")
+                if open_trade["amount"] != -close_trade["amount"] or open_trade["expirationDate"] != close_trade["expirationDate"]:
+                    logger.warning(f"Unmatched trade quantities or expiration dates for {key}: Open qty {open_trade['amount']}, Close qty {close_trade['amount']}, Open exp {open_trade['expirationDate']}, Close exp {close_trade['expirationDate']}")
 
+                price = (close_trade.get("price", 0) - open_trade.get("price", 0))
+                amount = open_trade["amount"]
+                total = -price * amount * 100
                 matched_trades.append({
                     "date": open_trade.get("date"),
                     "close_date": close_trade.get("date"),
@@ -131,10 +140,11 @@ class TransactionService:
                     "expirationDate": key[2],
                     "strike_price": key[1],
                     "symbol": open_trade.get("symbol"),
-                    "price": (close_trade.get("price", 0) - open_trade.get("price", 0)),
+                    "price": price,
                     "ticker": open_trade.get("ticker"),
-                    "qty": open_trade["qty"],
-                    "position_effect": "MATCHED"
+                    "amount": amount,
+                    "total": total,
+                    "position_effect": "MATCHED",
                 })
 
             # Any unmatched trades left

@@ -23,7 +23,7 @@ def render():
 
         # User input for ticker symbol and option type
         ticker = col1_input.text_input("Enter Ticker Symbol:")
-        option_type = col2_input.selectbox("Select Option Type:", ["CALL", "PUT"], index=1)
+        option_type = col2_input.selectbox("Select Option Type:", ["CALL", "PUT","ALL"], index=2)
 
 
         # Date range inputs with calendar picker
@@ -42,13 +42,14 @@ def render():
                 transactions = transaction_service.get_option_transactions(
                     start_date=start_date_str,
                     end_date=end_date_str,
-                    ticker=ticker,
+                    stock_ticker=ticker,
                     contract_type=option_type
                 )
             if transactions:
                 st.subheader("Transactions")
                 st.write(f"Total Records: {len(transactions)}")
-                display_ui_table(transactions, sort_column="transaction_date")
+                st.write(f"Total Amount: {sum(txn['total'] for txn in transactions):,.2f}")
+                display_ui_table(transactions, sort_column="date")
 
             else:
                 st.error("No transactions found for the given criteria.")
