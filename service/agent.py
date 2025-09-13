@@ -12,6 +12,7 @@ import asyncio
 from typing import Dict, Any
 import json
 from loguru import logger
+from datetime import date
 
 @function_tool
 def get_ticker_price(symbol: str) -> str:
@@ -208,11 +209,12 @@ class AgentService:
             model=self.model,
             tools=[get_option_transactions],
         )
-
+        today = date.today().isoformat()
         root_agent = Agent(
             name="Root Financial Agent",
             instructions=(
                 "You are the root agent.\n"
+                f"Today's date is {today}.\n"
                 "- Route the query to the correct sub-agent.\n"
                 "- Never answer financial queries directly.\n"
                 "- Ask clarifying questions only if intent is unclear.\n"
@@ -220,6 +222,7 @@ class AgentService:
             model=self.model,
             handoffs=[options_chain_agent, balances_agent, transactions_agent],
         )
+
 
         return root_agent
 
