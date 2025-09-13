@@ -1,7 +1,6 @@
 from typing import Optional
 from loguru import logger
-from broker.accounts import AccountsTrading
-from broker.market_data import MarketData
+from broker import Accounts, MarketData
 from model.account_models import SecuritiesAccount
 
 def parse_option_symbol(symbol):
@@ -23,7 +22,7 @@ class PositionService:
         self._initialize()
     
     def _initialize(self):
-        self.position = AccountsTrading().fetch_positions()
+        self.position = Accounts().fetch_positions()
     
     def get_positions(self):
         return self.position

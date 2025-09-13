@@ -28,9 +28,7 @@ def render():
             # Display assistant response in chat message container
             with st.chat_message("assistant"):
                 st.markdown(response)
-            
-    
-
+                
     with chat_container:
         if "messages" not in st.session_state:  # Check if messages are not empty
             st.session_state.messages = []

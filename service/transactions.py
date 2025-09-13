@@ -1,10 +1,8 @@
 from collections import defaultdict
 from datetime import timedelta
 from loguru import logger
-from broker.accounts import AccountsTrading
-from broker.market_data import MarketData
-from model.account_models import SecuritiesAccount
-from utils.utils import convert_date_string, get_date_object, get_date_string
+from broker import Accounts, MarketData
+from utils.utils import get_date_object, get_date_string
 
 def parse_option_symbol(symbol):
     """Parse the option symbol to extract ticker, strike price, and expiration date."""
@@ -21,7 +19,7 @@ class TransactionService:
 
     def __init__(self):
         self.market_data = MarketData()
-        self.accounts_trading = AccountsTrading()
+        self.accounts_trading = Accounts()
 
     def get_transaction_history(self, start_date: str, end_date: str):
         """Fetch the transaction history for the account."""
@@ -156,7 +154,7 @@ class TransactionService:
                 
                 amount = float(open_trade["amount"])
                 trade_type = self.determine_trade_type(close_trade)
-                price = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0)) if trade_type != "ASSIGNMENT" else 0
+                price = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0)) 
                 matched_trades.append({
                     "date": open_trade.get("date"),
                     "close_date": min(close_trade.get("date"), open_trade.get("expirationDate")), # Handle Transactions closing later than expiration in system

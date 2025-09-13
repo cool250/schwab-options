@@ -8,7 +8,7 @@ from .logging_methods import log_transactions
 
 
 
-class AccountsTrading(APIClient):
+class Accounts(APIClient):
     def __init__(self):
         super().__init__("https://api.schwabapi.com/trader/v1")
         self.account_hash_value: Optional[str] = None
