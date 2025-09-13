@@ -28,7 +28,7 @@ class TransactionService:
         transactions = self.accounts_trading.fetch_transactions(start_date=start_date, end_date=end_date)
         return transactions
     
-    def get_option_transactions(self, start_date: str, end_date: str, stock_ticker: str, contract_type: str = "ALL"):
+    def get_option_transactions(self, start_date: str, end_date: str, stock_ticker: str, contract_type: str = "ALL", realized_gains_only: bool = True):
         """Fetch option transactions and parse their details."""
 
         # For options, we want to look back 60 days and forward 5 days to ensure we capture all related trades
@@ -50,6 +50,9 @@ class TransactionService:
         # Filter by date range
         filtered_transactions = []
         for transaction in matched_transactions:
+            if realized_gains_only: # Only show closed or expired transactions that resulted in realized gains/losses
+                if transaction["type"] not in ["EXPIRATION", "CLOSED"]:
+                    continue
             if get_date_object(start_date) <= get_date_object(transaction.get("close_date")) <= get_date_object(end_date):
                 transaction["total_amount"] = -transaction["price"] * transaction["amount"] * 100
                 filtered_transactions.append(transaction)
