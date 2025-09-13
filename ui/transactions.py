@@ -19,12 +19,12 @@ def render():
    
     with st.form("transactions_form"):
         # Create two columns
-        col1_input, col2_input = st.columns(2)
+        col1_input, col2_input, col3_input = st.columns(3)
 
         # User input for ticker symbol and option type
-        ticker = col1_input.text_input("Enter Ticker Symbol:")
-        option_type = col2_input.selectbox("Select Option Type:", ["CALL", "PUT","ALL"], index=2)
-
+        stock_ticker = col1_input.text_input("Enter Ticker Symbol:")
+        contract_type = col2_input.selectbox("Select Option Type:", ["CALL", "PUT","ALL"], index=2)
+        realized_gains_only = col3_input.radio("Realized Gains Only:", ["Yes", "No"], index=0)
 
         # Date range inputs with calendar picker
         start_date = col1_input.date_input("From Date:", value=datetime.now(pytz.timezone("US/Eastern")) - timedelta(days=30))
@@ -42,8 +42,9 @@ def render():
                 transactions = transaction_service.get_option_transactions(
                     start_date=start_date_str,
                     end_date=end_date_str,
-                    stock_ticker=ticker,
-                    contract_type=option_type
+                    stock_ticker=stock_ticker,
+                    contract_type=contract_type,
+                    realized_gains_only=(realized_gains_only == "Yes")
                 )
             if transactions:
                 st.subheader("Transactions")
