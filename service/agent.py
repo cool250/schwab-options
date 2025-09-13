@@ -1,17 +1,127 @@
 import os
 import json
+from typing import Any
 from dotenv import load_dotenv
 from loguru import logger
 from agents import Agent, Runner, function_tool, handoff
 from service.market import MarketService
 from service.position import PositionService
-from service.transactions import TransactionService  
+from service.transactions import TransactionService
 import asyncio
+
+from typing import Dict, Any
+import json
+from loguru import logger
+
+
+def make_get_ticker_price(market_service):
+    @function_tool
+    def get_ticker_price(symbol: str) -> Dict[str, Any]:
+        """
+        Get the current price for a given ticker symbol.
+
+        Args:
+            symbol (str): The ticker symbol of the stock or asset.
+
+        Returns:
+            dict: {"symbol": ..., "price": ...} or {"error": ...}
+        """
+        logger.info(f"Fetching ticker price for {symbol}")
+        price = market_service.get_ticker_price(symbol)
+        return (
+            {"symbol": symbol, "price": round(price, 2)}
+            if price
+            else {"error": f"Price for {symbol} could not be retrieved."}
+        )
+
+    return get_ticker_price
+
+
+def make_get_balances(position_service):
+    @function_tool
+    def get_balances() -> Dict[str, Any]:
+        """
+        Fetch and return the account balances.
+
+        Returns:
+            dict: balances or {"error": ...}
+        """
+        logger.info("Fetching account balances")
+        balances = position_service.get_balances()
+        return (
+            balances if balances else {"error": "Could not retrieve account balances."}
+        )
+
+    return get_balances
+
+
+def make_get_options_chain(market_service):
+    @function_tool
+    def get_options_chain(
+        symbol: str,
+        strike: float,
+        start_date: str,
+        end_date: str,
+        contract_type: str = "ALL",
+    ) -> Dict[str, Any]:
+        """
+        Fetch option chain expiration dates.
+
+        Returns:
+            dict: expiration dates or {"error": ...}
+        """
+        logger.info(
+            f"Fetching expiration dates for {symbol} at {strike}, "
+            f"from {start_date} to {end_date}, contract={contract_type}"
+        )
+        expiration_dates = market_service.get_all_expiration_dates(
+            symbol, strike, start_date, end_date, contract_type
+        )
+        return (
+            {"data": expiration_dates}
+            if expiration_dates
+            else {"error": "No expiration dates found."}
+        )
+
+    return get_options_chain
+
+
+def make_get_option_transactions(transaction_service):
+    @function_tool
+    def get_option_transactions(
+        start_date: str,
+        end_date: str,
+        stock_ticker: str,
+        contract_type: str = "ALL",
+        realized_gains_only: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Fetch option transactions.
+        """
+        logger.info(
+            f"Fetching option transactions for {stock_ticker} "
+            f"from {start_date} to {end_date}, contract={contract_type}, realized={realized_gains_only}"
+        )
+        transactions = transaction_service.get_option_transactions(
+            start_date=start_date,
+            end_date=end_date,
+            stock_ticker=stock_ticker,
+            contract_type=contract_type,
+            realized_gains_only=realized_gains_only,
+        )
+        return (
+            {"transactions": transactions}
+            if transactions
+            else {"error": "No transactions found."}
+        )
+
+    return get_option_transactions
 
 
 # -----------------------------
 # Define tools
 # -----------------------------
+
 
 @function_tool
 def get_ticker_price(symbol: str) -> str:
@@ -22,12 +132,16 @@ def get_ticker_price(symbol: str) -> str:
         symbol (str): The ticker symbol of the stock or asset.
 
     Returns:
-        str: A formatted string containing the current price of the ticker symbol 
+        str: A formatted string containing the current price of the ticker symbol
              or an error message if the price could not be retrieved.
     """
     market_service = MarketService()
     price = market_service.get_ticker_price(symbol)
-    return f"The current price of {symbol} is ${price:.2f}" if price else f"Price for {symbol} could not be retrieved."
+    return (
+        f"The current price of {symbol} is ${price:.2f}"
+        if price
+        else f"Price for {symbol} could not be retrieved."
+    )
 
 
 @function_tool
@@ -44,15 +158,22 @@ def get_balances() -> str:
     If no balances are available, an error message is returned.
 
     Returns:
-        str: A JSON-formatted string of account balances if available, 
+        str: A JSON-formatted string of account balances if available,
              otherwise an error message indicating the failure to retrieve balances.
     """
     position_service = PositionService()
     balances = position_service.get_balances()
     return json.dumps(balances) if balances else "Could not retrieve account balances."
 
+
 @function_tool
-def get_options_chain(symbol: str, strike: float, start_date: str, end_date: str, contract_type: str = "ALL") -> str:
+def get_options_chain(
+    symbol: str,
+    strike: float,
+    start_date: str,
+    end_date: str,
+    contract_type: str = "ALL",
+) -> str:
     """
     Fetch all valid expiration dates for a given option symbol within a specified date range.
     Always pass start_date more than today's date.
@@ -64,11 +185,11 @@ def get_options_chain(symbol: str, strike: float, start_date: str, end_date: str
     Args:
         symbol (str): The ticker symbol of the option (e.g., "AAPL").
         strike (float): The strike price of the option.
-        start_date (str): 
-            The start date of the range (format: "YYYY-MM-DD"). 
+        start_date (str):
+            The start date of the range (format: "YYYY-MM-DD").
             Must be **today or a future date**. If the user does not specify, default to today's date.
-        end_date (str): 
-            The end date of the range (format: "YYYY-MM-DD"). 
+        end_date (str):
+            The end date of the range (format: "YYYY-MM-DD").
             Must also be today or later. If the user does not specify, default to one month from today.
         contract_type (str, optional): The type of option contract. Defaults to "ALL". Use "PUT" for put options or "CALL" for call options.
 
@@ -83,13 +204,28 @@ def get_options_chain(symbol: str, strike: float, start_date: str, end_date: str
         - The function logs the operation details for debugging purposes.
         - The 'from_date' and 'to_date' are adjusted to ensure they conform to the rules specified.
     """
-    logger.info(f"Fetching expiration dates for {symbol} at {strike}, from {start_date} to {end_date}, contract={contract_type}")
+    logger.info(
+        f"Fetching expiration dates for {symbol} at {strike}, from {start_date} to {end_date}, contract={contract_type}"
+    )
     market_service = MarketService()
-    expiration_dates = market_service.get_all_expiration_dates(symbol, strike, start_date, end_date, contract_type)
-    return json.dumps(expiration_dates) if expiration_dates else "No expiration dates found."
+    expiration_dates = market_service.get_all_expiration_dates(
+        symbol, strike, start_date, end_date, contract_type
+    )
+    return (
+        json.dumps(expiration_dates)
+        if expiration_dates
+        else "No expiration dates found."
+    )
+
 
 @function_tool
-def get_option_transactions(start_date: str, end_date: str, stock_ticker: str, contract_type: str = "ALL", realized_gains_only: bool = True) -> str:
+def get_option_transactions(
+    start_date: str,
+    end_date: str,
+    stock_ticker: str,
+    contract_type: str = "ALL",
+    realized_gains_only: bool = True,
+) -> str:
     """
     Fetch option transactions based on user-defined criteria.
 
@@ -97,13 +233,13 @@ def get_option_transactions(start_date: str, end_date: str, stock_ticker: str, c
             start_date (str): The start date for the transaction query in the format 'YYYY-MM-DD'.
             end_date (str): The end date for the transaction query in the format 'YYYY-MM-DD'.
             stock_ticker (str): The stock ticker symbol to filter transactions (e.g., 'AAPL').
-            contract_type (str, optional): The type of option contract to filter by. 
+            contract_type (str, optional): The type of option contract to filter by.
                 Defaults to "ALL". Possible values include "CALL", "PUT", or "ALL".
-            realized_gains_only (bool, optional): Whether to include only transactions with realized gains. 
+            realized_gains_only (bool, optional): Whether to include only transactions with realized gains.
                 Defaults to True.
 
         Returns:
-            str: A JSON string representation of the filtered transactions if found, 
+            str: A JSON string representation of the filtered transactions if found,
                 otherwise a message indicating no transactions were found.
     """
     transaction_service = TransactionService()
@@ -112,19 +248,27 @@ def get_option_transactions(start_date: str, end_date: str, stock_ticker: str, c
         end_date=end_date,
         stock_ticker=stock_ticker,
         contract_type=contract_type,
-        realized_gains_only=realized_gains_only
+        realized_gains_only=realized_gains_only,
     )
     return json.dumps(transactions) if transactions else "No transactions found."
+
 
 # -----------------------------
 # Agent Service
 # -----------------------------
 
+
 class AgentService:
     def __init__(self):
         self.api_key = self._load_environment()
-        self.model = "gpt-5-mini"
+        self.model = "gpt-4o-mini"
         self.runner = Runner()
+
+        # ✅ Create services ONCE
+        self.market_service = MarketService()
+        self.position_service = PositionService()
+        self.transaction_service = TransactionService()
+
         self.root_agent = self._initialize_agent()
 
     @staticmethod
@@ -137,50 +281,70 @@ class AgentService:
         return api_key
 
     def _initialize_agent(self) -> Agent:
-        """Initialize and return the agent."""
+        """Initialize and return the root agent with handoffs."""
 
-        options_chain_agent = Agent(name="Options Chain Agent",
-                                    instructions=(
-                                        "Use the tools provided to fetch options chain data based on user queries. "
-                                        "When the user does not provide a strike price, fetch the current price using the 'get_ticker_price' tool and use it as the strike. "
-                                        "When displaying an option chain, always separate Calls and Puts into two clear tables. "
-                                        "Ensure the tables include expiration date, strike, price, and annualized return if available."
-                                    ),
-                                    model=self.model,
-                                    tools=[get_ticker_price, get_options_chain],
+        # ✅ Inject services into tools
+        get_ticker_price = make_get_ticker_price(self.market_service)
+        get_balances = make_get_balances(self.position_service)
+        get_options_chain = make_get_options_chain(self.market_service)
+        get_option_transactions = make_get_option_transactions(self.transaction_service)
+
+        options_chain_agent = Agent(
+            name="Options Chain Agent",
+            instructions=(
+                "You are responsible for fetching and displaying options chain data.\n"
+                "- If strike price is missing, call 'get_ticker_price' first.\n"
+                "- Ensure start_date >= today (default today).\n"
+                "- Ensure end_date >= start_date (default +30 days).\n"
+                "- Always separate Calls and Puts into two tables.\n"
+                "- Tables must include expiration date, strike, price, and annualized return.\n"
+                "- Never mix text and function calls in one response.\n"
+            ),
+            model=self.model,
+            tools=[get_ticker_price, get_options_chain],
         )
 
-        balances_agent = Agent(name="Get Balances Agent",
-                                   instructions=(
-                                       "Use the 'get_balances' tool to fetch account balances when the user requests it."
-                                   ),
-                                   model=self.model,
-                                   tools=[get_balances],
+        balances_agent = Agent(
+            name="Balances Agent",
+            instructions=(
+                "Fetch account balances only when explicitly requested.\n"
+                "- Always return structured JSON or a readable table.\n"
+                "- Do not add invented metrics.\n"
+            ),
+            model=self.model,
+            tools=[get_balances],
         )
 
-        transactions_agent = Agent(name="Transactions Agent",
-                                   instructions=(
-                                        "Assist the user in retrieving and understanding their option transactions. "
-                                        "When the user requests transaction history, guide them to provide necessary details such as date range, ticker symbol, option type, and whether they want to see only realized gains."
-                                        "If the user does not provide a date range, default to the last 30 days. "
-                                        "If the user does not specify a ticker symbol, keep it Blank "
-                                        "If the user does not specify an option type, default to 'ALL'. "
-                                        "Use the 'get_option_transactions' tool to fetch and display the transactions based on the user's criteria in a table."
-                                        "Show the result and don't ask for more input."
-                                   ),
-                                   model=self.model,
-                                   tools=[get_option_transactions],
+        transactions_agent = Agent(
+            name="Transactions Agent",
+            instructions=(
+                "Fetch option transactions.\n"
+                "- Default date range: last 30 days.\n"
+                "- Default ticker: blank (all tickers).\n"
+                "- Default contract type: ALL.\n"
+                "- Default realized_gains_only: True.\n"
+                "- Always return a table (date, ticker, type, P/L).\n"
+                "- Do not ask for more input if defaults are applied.\n"
+            ),
+            model=self.model,
+            tools=[get_option_transactions],
         )
 
-        root_agent = Agent(name="Root Financial Agent",
-                            instructions=("You are a root financial agent."),
-                            handoffs=[options_chain_agent, balances_agent, transactions_agent],
-                            model=self.model,
+        root_agent = Agent(
+            name="Root Financial Agent",
+            instructions=(
+                "You are the root agent.\n"
+                "- Route the query to the correct sub-agent.\n"
+                "- Never answer financial queries directly.\n"
+                "- Ask clarifying questions only if intent is unclear.\n"
+            ),
+            model=self.model,
+            handoffs=[options_chain_agent, balances_agent, transactions_agent],
         )
 
         return root_agent
 
-    def invoke_llm(self, query: str) -> str:
+    def invoke_llm(self, query: str) -> dict[str, Any] | str:
         """Run a query against the financial agent."""
         # Ensure an event loop exists in the current thread
         try:
@@ -190,4 +354,6 @@ class AgentService:
             asyncio.set_event_loop(loop)
 
         result = self.runner.run_sync(self.root_agent, query)
-        return result.final_output
+        if isinstance(result.final_output, dict):
+            return json.dumps(result.final_output, indent=2)
+        return str(result.final_output)
