@@ -13,116 +13,6 @@ from typing import Dict, Any
 import json
 from loguru import logger
 
-
-def make_get_ticker_price(market_service):
-    @function_tool
-    def get_ticker_price(symbol: str) -> Dict[str, Any]:
-        """
-        Get the current price for a given ticker symbol.
-
-        Args:
-            symbol (str): The ticker symbol of the stock or asset.
-
-        Returns:
-            dict: {"symbol": ..., "price": ...} or {"error": ...}
-        """
-        logger.info(f"Fetching ticker price for {symbol}")
-        price = market_service.get_ticker_price(symbol)
-        return (
-            {"symbol": symbol, "price": round(price, 2)}
-            if price
-            else {"error": f"Price for {symbol} could not be retrieved."}
-        )
-
-    return get_ticker_price
-
-
-def make_get_balances(position_service):
-    @function_tool
-    def get_balances() -> Dict[str, Any]:
-        """
-        Fetch and return the account balances.
-
-        Returns:
-            dict: balances or {"error": ...}
-        """
-        logger.info("Fetching account balances")
-        balances = position_service.get_balances()
-        return (
-            balances if balances else {"error": "Could not retrieve account balances."}
-        )
-
-    return get_balances
-
-
-def make_get_options_chain(market_service):
-    @function_tool
-    def get_options_chain(
-        symbol: str,
-        strike: float,
-        start_date: str,
-        end_date: str,
-        contract_type: str = "ALL",
-    ) -> Dict[str, Any]:
-        """
-        Fetch option chain expiration dates.
-
-        Returns:
-            dict: expiration dates or {"error": ...}
-        """
-        logger.info(
-            f"Fetching expiration dates for {symbol} at {strike}, "
-            f"from {start_date} to {end_date}, contract={contract_type}"
-        )
-        expiration_dates = market_service.get_all_expiration_dates(
-            symbol, strike, start_date, end_date, contract_type
-        )
-        return (
-            {"data": expiration_dates}
-            if expiration_dates
-            else {"error": "No expiration dates found."}
-        )
-
-    return get_options_chain
-
-
-def make_get_option_transactions(transaction_service):
-    @function_tool
-    def get_option_transactions(
-        start_date: str,
-        end_date: str,
-        stock_ticker: str,
-        contract_type: str = "ALL",
-        realized_gains_only: bool = True,
-    ) -> Dict[str, Any]:
-        """
-        Fetch option transactions.
-        """
-        logger.info(
-            f"Fetching option transactions for {stock_ticker} "
-            f"from {start_date} to {end_date}, contract={contract_type}, realized={realized_gains_only}"
-        )
-        transactions = transaction_service.get_option_transactions(
-            start_date=start_date,
-            end_date=end_date,
-            stock_ticker=stock_ticker,
-            contract_type=contract_type,
-            realized_gains_only=realized_gains_only,
-        )
-        return (
-            {"transactions": transactions}
-            if transactions
-            else {"error": "No transactions found."}
-        )
-
-    return get_option_transactions
-
-
-# -----------------------------
-# Define tools
-# -----------------------------
-
-
 @function_tool
 def get_ticker_price(symbol: str) -> str:
     """
@@ -264,11 +154,6 @@ class AgentService:
         self.model = "gpt-4o-mini"
         self.runner = Runner()
 
-        # ✅ Create services ONCE
-        self.market_service = MarketService()
-        self.position_service = PositionService()
-        self.transaction_service = TransactionService()
-
         self.root_agent = self._initialize_agent()
 
     @staticmethod
@@ -282,12 +167,6 @@ class AgentService:
 
     def _initialize_agent(self) -> Agent:
         """Initialize and return the root agent with handoffs."""
-
-        # ✅ Inject services into tools
-        get_ticker_price = make_get_ticker_price(self.market_service)
-        get_balances = make_get_balances(self.position_service)
-        get_options_chain = make_get_options_chain(self.market_service)
-        get_option_transactions = make_get_option_transactions(self.transaction_service)
 
         options_chain_agent = Agent(
             name="Options Chain Agent",
