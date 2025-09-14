@@ -3,13 +3,13 @@ import json
 from typing import Any
 from dotenv import load_dotenv
 from loguru import logger
-from agents import Agent, Runner, function_tool, handoff
+from agents import Agent, Runner, function_tool, MessageOutputItem, RunResult
 from service.market import MarketService
 from service.position import PositionService
 from service.transactions import TransactionService
 import asyncio
 
-from typing import Dict, Any
+from typing import Any
 import json
 from loguru import logger
 from datetime import date
@@ -156,6 +156,9 @@ class AgentService:
         self.runner = Runner()
 
         self.root_agent = self._initialize_agent()
+        
+        # History list of turns as dicts: role + content
+        self.history: list[dict[str, str]] = []
 
     @staticmethod
     def _load_environment() -> str:
@@ -228,14 +231,29 @@ class AgentService:
 
     def invoke_llm(self, query: str) -> dict[str, Any] | str:
         """Run a query against the financial agent."""
-        # Ensure an event loop exists in the current thread
+        
+        # Append the user query to history
+        self.history.append({"role": "user", "content": query})
+
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+        
+        # Call the agent, passing the history
+        result: RunResult = self.runner.run_sync(
+            self.root_agent,
+            input=self.history
+        )
 
-        result = self.runner.run_sync(self.root_agent, query)
-        if isinstance(result.final_output, dict):
-            return json.dumps(result.final_output, indent=2)
-        return str(result.final_output)
+        # result.final_output is either structured or text
+        # Append assistant reply to history
+        assistant_reply = str(result.final_output)
+        self.history.append({"role": "assistant", "content": assistant_reply})
+
+        # Maintain history length to a maximum of 4 entries
+        if len(self.history) > 4:
+            self.history = self.history[-4:]
+
+        return assistant_reply
