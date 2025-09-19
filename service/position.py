@@ -94,11 +94,11 @@ class PositionService:
         stocks = self.get_current_price(stocks)
         return stocks
 
-    def get_balances(self):
+    def get_balances(self) -> dict:
         """Fetch and log the account balances."""
         if self.position is None:
             logger.warning("Position is not initialized.")
-            return []
+            return {"error": "Position is not initialized."}
         securities_account: SecuritiesAccount = self.position
 
         balances = {

@@ -52,7 +52,7 @@ def initialize_transactions_agent(model: str) -> Agent:
             "- Default ticker: blank (all tickers).\n"
             "- Default contract type: ALL.\n"
             "- Default realized_gains_only: True.\n"
-            "- Always return a table (date, ticker, type, P/L).\n"
+            "- Always return a table (date, underlying_symbol, total_amount, option_type).\n"
             "- Do not ask for more input if defaults are applied.\n"
         ),
         model=model,

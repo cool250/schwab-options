@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from agents import Agent, Runner, RunResult
 from customagents.brokerage_agents import initialize_options_chain_agent, initialize_balances_agent, initialize_transactions_agent
 import asyncio
+import json
 
 from typing import Any
 from datetime import date
@@ -64,10 +65,15 @@ class AgentService:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        # Call the agent, passing the history
+        # Convert `self.history` to a string if it doesn't match the expected type
+        if isinstance(self.history, list):
+            input_data = json.dumps(self.history)  # Convert list to JSON string
+        else:
+            input_data = self.history
+        # Pass `input_data` to `run_sync`
         result: RunResult = self.runner.run_sync(
             self.root_agent,
-            input=self.history
+            input=input_data
         )
 
         # result.final_output is either structured or text
