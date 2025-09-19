@@ -1,5 +1,5 @@
 from agents import Agent
-from customagents.functions import (
+from customagents.tools import (
     get_ticker_price,
     get_balances,
     get_options_chain,
@@ -14,7 +14,7 @@ def initialize_options_chain_agent(model: str) -> Agent:
         name="Options Chain Agent",
         instructions=(
             "You are responsible for fetching and displaying options chain data.\n"
-            "- If strike price is missing, call 'get_ticker_price' first.\n"
+            "- If strike price is missing, call 'get_ticker_price' first and pass the response as the strike price.\n"
             "- Ensure start_date >= today (default today).\n"
             "- Ensure end_date >= start_date (default +30 days).\n"
             "- Always separate Calls and Puts into two tables.\n"

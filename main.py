@@ -51,6 +51,6 @@ def llm():
 
 
 if __name__ == "__main__":
-    # authenticate()
-    transaction()
+    authenticate()
+    # transaction()
     # position()

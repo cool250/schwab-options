@@ -1,18 +1,11 @@
 import os
-import json
 from typing import Any
 from dotenv import load_dotenv
-from loguru import logger
-from agents import Agent, Runner, function_tool, MessageOutputItem, RunResult
+from agents import Agent, Runner, RunResult
 from customagents.brokerage_agents import initialize_options_chain_agent, initialize_balances_agent, initialize_transactions_agent
-from service.market import MarketService
-from service.position import PositionService
-from service.transactions import TransactionService
 import asyncio
 
 from typing import Any
-import json
-from loguru import logger
 from datetime import date
 
 

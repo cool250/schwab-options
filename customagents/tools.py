@@ -4,6 +4,7 @@ from loguru import logger
 
 from service.market import MarketService
 from service.position import PositionService
+from service.transactions import TransactionService
 
 
 @function_tool
@@ -134,8 +135,3 @@ def get_option_transactions(
         realized_gains_only=realized_gains_only,
     )
     return json.dumps(transactions) if transactions else "No transactions found."
-
-
-# -----------------------------
-# Agent Service
-# -----------------------------
