@@ -14,7 +14,6 @@ def display_ui_table(data, sort_column):
     st.dataframe(table, hide_index=True)
 
 def render():
-    transaction_service = TransactionService()
     st.title("Option Transactions")
    
     with st.form("transactions_form"):
@@ -38,6 +37,7 @@ def render():
         get_transactions_button = st.form_submit_button("Search Transactions")
 
         if get_transactions_button:
+            transaction_service = TransactionService()
             with st.spinner("Fetching data..."):
                 transactions = transaction_service.get_option_transactions(
                     start_date=start_date_str,

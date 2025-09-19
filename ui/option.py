@@ -5,8 +5,6 @@ import streamlit as st
 from service.market import MarketService
 
 def render():
-    # Initialize the MarketDataService
-    market_data_service = MarketService()
     # Streamlit app title
     
     st.subheader("Options Chain Analyzer")
@@ -34,6 +32,7 @@ def render():
         max_return_button = col2_button.form_submit_button("Max Return")
     # Button to trigger analysis
     if max_return_button:
+        market_data_service = MarketService()
         if ticker and strike_price > 0:
             with st.spinner("Fetching data..."):
                 result = market_data_service.highest_return(
@@ -61,6 +60,7 @@ def render():
 
     # Button to fetch all expiration dates
     if get_expirations_button:
+        market_data_service = MarketService()
         if ticker and strike_price > 0:
             with st.spinner("Fetching data..."):
                 results = market_data_service.get_all_expiration_dates(
