@@ -4,8 +4,6 @@ from typing import Optional
 from broker.base import APIClient
 from model.account_models import AccountHash, SecuritiesAccount, Activity
 from utils import convert_to_iso8601
-from .logging_methods import log_transactions
-
 
 
 class Accounts(APIClient):
@@ -14,7 +12,7 @@ class Accounts(APIClient):
         self.account_hash_value: Optional[str] = None
         self._initialize_account_hash()
 
-    def _initialize_account_hash(self):
+    def _initialize_account_hash(self) -> None:
         """Initialize the account hash value by fetching it from the API."""
         url = f"{self.base_url}/accounts/accountNumbers"
         response_data = self._fetch_data(url)
@@ -28,7 +26,7 @@ class Accounts(APIClient):
         except (IndexError, ValidationError) as e:
             logger.error(f"Error parsing account hash value: {e}")
 
-    def fetch_positions(self):
+    def fetch_positions(self) -> Optional[SecuritiesAccount]:
 
         """Retrieve the account details, fetching positions if necessary."""
         url = f"{self.base_url}/accounts/{self.account_hash_value}"
@@ -52,7 +50,7 @@ class Accounts(APIClient):
             logger.error(f"Error parsing securities account: {e}")
             return None
 
-    def fetch_transactions(self, start_date, end_date, symbol=None):
+    def fetch_transactions(self, start_date: str, end_date: str, symbol: Optional[str] = None) -> Optional[list[Activity]]:
         """Fetch transactions for the given date range and transaction type."""
 
         start_date_iso = convert_to_iso8601(start_date)
@@ -70,7 +68,6 @@ class Accounts(APIClient):
 
         try:
             transactions = [Activity(**item) for item in response_data]
-            # log_transactions(transactions)
             return transactions
         except ValidationError as e:
             logger.error(f"Error parsing transactions: {e}")

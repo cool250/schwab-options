@@ -1,8 +1,7 @@
 from loguru import logger
 from model.market_models import PriceHistoryResponse, StockQuotes
 from model.option_models import OptionChainResponse
-from pydantic import ValidationError, BaseModel
-from typing import List
+from pydantic import ValidationError
 from broker.base import APIClient
 
 
@@ -11,18 +10,17 @@ class MarketData(APIClient):
         super().__init__("https://api.schwabapi.com/marketdata/v1")
         self.headers = {
             "Authorization": f"Bearer {self.access_token}",
-            "Accept": "application/json"
+            "Accept": "application/json",
         }
 
-    def get_price(self, symbol):
+    def get_price(self, symbol: str) -> StockQuotes | None:
         """
-        Fetch stock quotes for the given symbol(s).
+        Retrieve the stock price for the specified symbol(s).
+
         """
-        params = {
-            "symbols": symbol,
-            "fields": "quote"
-        }
+
         url = f"{self.base_url}/quotes"
+        params = {"symbols": symbol, "fields": "quote"}
         response_data = self._fetch_data(url, params)
         if response_data:
             try:
@@ -32,12 +30,17 @@ class MarketData(APIClient):
                 logger.error(f"Error parsing stock quotes: {e}")
         return None
 
-    def get_price_history(self, symbol, period_type='day', period=2, frequency_type='minute'):
+    def get_price_history(
+        self,
+        symbol: str,
+        period_type: str = "day",
+        period: int = 2,
+        frequency_type: str = "minute",
+    ) -> PriceHistoryResponse | None:
         """
-        Fetch price history for the given symbol.
+        Fetch the price history for a given symbol.
         """
         url = f"{self.base_url}/pricehistory"
-
         params = {
             "symbol": symbol,
             "periodType": period_type,
@@ -53,21 +56,26 @@ class MarketData(APIClient):
                 logger.error(f"Error parsing price history: {e}")
         return None
 
-    def get_chain(self, symbol, from_date, to_date, strike_count=10, contract_type="ALL"):
+    def get_chain(
+        self,
+        symbol: str,
+        from_date: str,
+        to_date: str,
+        strike_count: int = 10,
+        contract_type: str = "ALL",
+    ) -> OptionChainResponse | None:
         """
-        Fetch options chain for the given symbol and parse it using the Pydantic model.
+        Fetch the option chain for a given symbol.
         """
-        
+        url = f"{self.base_url}/chains"
         params = {
             "symbol": symbol,
             "strikeCount": strike_count,
             "contractType": contract_type,
             "fromDate": from_date,
-            "toDate": to_date
+            "toDate": to_date,
         }
 
-        
-        url = f"{self.base_url}/chains"
         response_data = self._fetch_data(url, params)
         if response_data:
             try:
@@ -76,4 +84,3 @@ class MarketData(APIClient):
             except ValidationError as e:
                 logger.error(f"Error parsing option chain: {e}")
         return None
-
