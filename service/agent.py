@@ -1,14 +1,19 @@
 import os
 from typing import Any
 from dotenv import load_dotenv
-from agents import Agent, Runner, RunResult
-from customagents.brokerage_agents import initialize_options_chain_agent, initialize_balances_agent, initialize_transactions_agent
+from agents import Agent, Runner, RunResult, SQLiteSession, trace
+from customagents.brokerage_agents import (
+    initialize_options_chain_agent,
+    initialize_balances_agent,
+    initialize_transactions_agent,
+)
 import asyncio
 import json
 
 from typing import Any
 from datetime import date
 
+from loguru import logger
 
 
 class AgentService:
@@ -18,9 +23,7 @@ class AgentService:
         self.runner = Runner()
 
         self.root_agent = self._initialize_agent()
-        
-        # History list of turns as dicts: role + content
-        self.history: list[dict[str, str]] = []
+        self.session = SQLiteSession("conversation_123") # Use a unique session name
 
     @staticmethod
     def _load_environment() -> str:
@@ -55,9 +58,9 @@ class AgentService:
 
     def invoke_llm(self, query: str) -> dict[str, Any] | str:
         """Run a query against the financial agent."""
-        
+
         # Append the user query to history
-        self.history.append({"role": "user", "content": query})
+        input = f'{{"role": "user", "content": "{query}"}}'
 
         try:
             loop = asyncio.get_event_loop()
@@ -65,24 +68,10 @@ class AgentService:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        # Convert `self.history` to a string if it doesn't match the expected type
-        if isinstance(self.history, list):
-            input_data = json.dumps(self.history)  # Convert list to JSON string
-        else:
-            input_data = self.history
-        # Pass `input_data` to `run_sync`
-        result: RunResult = self.runner.run_sync(
-            self.root_agent,
-            input=input_data
-        )
-
-        # result.final_output is either structured or text
-        # Append assistant reply to history
-        assistant_reply = str(result.final_output)
-        self.history.append({"role": "assistant", "content": assistant_reply})
-
-        # Maintain history length to a maximum of 4 entries
-        if len(self.history) > 4:
-            self.history = self.history[-4:]
-
+        with trace(workflow_name="Conversation with Financial Agent"):
+            # Pass `input` to `run_sync`
+            result: RunResult = self.runner.run_sync(self.root_agent, input=input, session=self.session)
+            logger.debug(f"RunResult dir: {dir(result)}")
+            assistant_reply = str(result.final_output)
+        
         return assistant_reply
