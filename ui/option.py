@@ -77,6 +77,7 @@ def render():
                 st.write(f"### {option_type} Returns for {ticker} at current price {current:.2f}")
                 data = {
                     "Expiration": [result['expiration_date'] for result in results],
+                    "Strike ($)": [f"{result['strike']:.2f}" for result in results],
                     "Price ($)": [f"{result['price']:.2f}" for result in results],
                     "Annualized Return (%)": [f"{result['annualized_return']:.2f}" for result in results]
                 }

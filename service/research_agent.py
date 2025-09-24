@@ -2,10 +2,11 @@ import os
 from typing import Any
 from dotenv import load_dotenv
 from agents import Agent, Runner, RunResult, SQLiteSession, trace
-from customagents.brokerage_agents import (
-    initialize_options_chain_agent,
-    initialize_balances_agent,
-    initialize_transactions_agent,
+from customagents.research_agents import (
+    initialize_report_writer,
+    initialize_research_evaluator_agent,
+    initialize_financial_analyst,
+    initialize_research_analyst,
 )
 from tools.google_search_tool import google_search
 import asyncio
@@ -38,22 +39,31 @@ class AgentService:
     def _initialize_agent(self) -> Agent:
         """Initialize and return the root agent with handoffs."""
 
-        options_chain_agent = initialize_options_chain_agent(self.model)
-        balances_agent = initialize_balances_agent(self.model)
-        transactions_agent = initialize_transactions_agent(self.model)
+        report_writer = initialize_report_writer(self.model)
+        research_evaluator = initialize_research_evaluator_agent(self.model)
+        financial_analyst = initialize_financial_analyst(self.model)
+        research_analyst = initialize_research_analyst(self.model)
 
         today = date.today().isoformat()
         root_agent = Agent(
             name="Root Financial Agent",
             instructions=(
-                "You are the root agent.\n"
-                f"Today's date is {today}.\n"
-                "- Route the query to the correct sub-agent.\n"
-                "- Never answer financial queries directly.\n"
-                "- Ask clarifying questions only if intent is unclear.\n"
+                """
+                1. Use the research_analyst to gather data on a stock.
+
+                 Ask for:
+                    - Current stock price and recent movement
+                    - Latest quarterly earnings results and performance vs expectations
+                    - Recent news and developments
+                
+                2. Use the financial_analyst to analyze this research data and identify key insights.
+                
+                3. Use the report_writer to create a comprehensive stock report 
+                """
+        
             ),
             model=self.model,
-            handoffs=[options_chain_agent, balances_agent, transactions_agent],
+            handoffs=[report_writer, financial_analyst, research_analyst],
             tools=[google_search],
         )
         return root_agent
