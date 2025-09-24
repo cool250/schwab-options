@@ -7,7 +7,6 @@ from customagents.brokerage_agents import (
     initialize_balances_agent,
     initialize_transactions_agent,
 )
-from tools.google_search_tool import google_search
 import asyncio
 import json
 
@@ -54,7 +53,6 @@ class AgentService:
             ),
             model=self.model,
             handoffs=[options_chain_agent, balances_agent, transactions_agent],
-            tools=[google_search],
         )
         return root_agent
 
