@@ -32,6 +32,27 @@ def price():
     print("Current Price of Ticker:", price)
     # service.get_price_history("SPY", period_type='month', frequency_type='daily')
 
+def price_history():
+    service = MarketService()
+    candles = []
+    # Implement logic to fetch and display option prices
+    price_history = service.get_price_history("CRM", period_type='month', frequency_type='daily', period=1)
+    print(f"Total records: {len(price_history)}")
+    print("\nTop 10 records:")
+    if price_history:
+        for day in price_history:
+            # Convert epoch timestamp to readable date
+            readable_date = day.get_datetime().strftime("%Y-%m-%d")
+            candles.append({
+                "date": readable_date,
+                "open": day.open,
+                "high": day.high,
+                "low": day.low,
+                "close": day.close,
+                "volume": day.volume
+            })
+    print(candles)
+
 def position():
     service = PositionService()
     positions = service.get_positions()
@@ -51,6 +72,7 @@ def llm():
 
 
 if __name__ == "__main__":
-    authenticate()
+    # authenticate()
+    price_history()
     # transaction()
     # position()

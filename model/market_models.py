@@ -68,8 +68,18 @@ class Candle(BaseModel):
     close: float
     volume: int
     datetime: int
+    
+    def get_datetime(self):
+        """Convert epoch milliseconds to datetime object"""
+        from datetime import datetime
+        # Check if datetime is in milliseconds (13 digits) or seconds (10 digits)
+        if len(str(self.datetime)) >= 13:
+            # Convert from milliseconds
+            return datetime.fromtimestamp(self.datetime / 1000)
+        else:
+            # Convert from seconds
+            return datetime.fromtimestamp(self.datetime)
 
 class PriceHistoryResponse(BaseModel):
     symbol: str
-    empty: bool
     candles: List[Candle]

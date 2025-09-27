@@ -33,9 +33,9 @@ class MarketData(APIClient):
     def get_price_history(
         self,
         symbol: str,
-        period_type: str = "day",
+        period_type: str = "month",
         period: int = 2,
-        frequency_type: str = "minute",
+        frequency_type: str = "daily",
     ) -> PriceHistoryResponse | None:
         """
         Fetch the price history for a given symbol.

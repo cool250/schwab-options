@@ -136,3 +136,16 @@ class MarketService:
         if stock_quotes:
             return stock_quotes.root.get(symbol).quote.lastPrice
         return None
+
+    def get_price_history(self, symbol, period_type, frequency_type, period):
+        """
+        Get the price history for a given symbol.
+
+        Parameters:
+            symbol (str): The ticker symbol for the underlying asset.
+
+        Returns:
+            list: A list of historical prices, or an empty list if not found.
+        """
+        price_history = self.market_data.get_price_history(symbol, period_type=period_type, frequency_type=frequency_type, period=period)
+        return price_history.candles if price_history else []

@@ -4,22 +4,23 @@
 from datetime import datetime
 from agents import Agent
 from tools.google_search_tool import google_search
+from tools.broker_tools import get_price_history
 
 
 # Data collection agent that gathers comprehensive financial information
-def initialize_research_analyst(model) -> Agent:
+def initialize_research_analyst(model, company_name) -> Agent:
     return Agent(
         name="research_analyst",
-        instructions=f"""You are a comprehensive financial data collector for COMPANY_NAME.
+        instructions=f"""You are a comprehensive financial data collector for {company_name}.
 
-        Your job is to gather ALL required financial information using Google Search and fetch tools.
+        Your job is to gather ALL required financial information using Google Search and get_price_history tools.
 
         **REQUIRED DATA TO COLLECT:**
 
         1. **Current Market Data**:
             Search: "COMPANY_NAME stock price today current"
             Search: "COMPANY_NAME trading volume market data"
-            Extract: Current price, daily change ($ and %), trading volume, 52-week range
+            Extract: Current price, daily change ($ and %), trading volume, 4-week range
 
         2. **Latest Earnings Information**:
             Search: "COMPANY_NAME latest quarterly earnings results"
@@ -69,7 +70,7 @@ def initialize_research_analyst(model) -> Agent:
         - Note data timestamps/dates
         - If any section is missing data, explicitly state what couldn't be found
         """,
-        tools=[google_search],
+        tools=[google_search,get_price_history],
         model=model
     )
 
@@ -77,7 +78,7 @@ def initialize_research_analyst(model) -> Agent:
 def initialize_research_evaluator_agent(model) -> Agent:
     return Agent(
         name="data_evaluator",
-        instructions=f"""You are a strict financial data quality evaluator for COMPANY_NAME research.
+        instructions=f"""You are a strict financial data quality evaluator for the company research.
 
         **EVALUATION CRITERIA:**
         
@@ -146,7 +147,7 @@ def initialize_research_evaluator_agent(model) -> Agent:
 def initialize_financial_analyst(model) -> Agent:
     return Agent(
         name="financial_analyst",
-        instructions=f"""You are a senior financial analyst providing investment analysis for COMPANY_NAME.
+        instructions=f"""You are a senior financial analyst providing investment analysis for the company.
 
         Based on the verified, high-quality data provided, create a comprehensive analysis:
         
@@ -202,7 +203,7 @@ def initialize_financial_analyst(model) -> Agent:
 def initialize_report_writer(model) -> Agent:
     return Agent(
         name="report_writer",
-        instructions=f"""Create a comprehensive, institutional-quality financial report for COMPANY_NAME.
+        instructions=f"""Create a comprehensive, institutional-quality financial report for the company.
         
         **REPORT STRUCTURE** (Use exactly this format):
         
@@ -318,5 +319,5 @@ def initialize_report_writer(model) -> Agent:
         
         **CRITICAL:** Ensure all data comes directly from the verified research. Do not add speculative information not supported by the collected data.
         """,
-        model=model
+        model=model,
     )
