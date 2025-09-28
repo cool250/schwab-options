@@ -17,6 +17,8 @@ def parse_option_symbol(symbol):
 
 class TransactionService:
 
+    commission_per_share = 0.65/100  # commission per share
+
     def __init__(self):
         self.market_data = MarketData()
         self.accounts_trading = Accounts()
@@ -52,7 +54,7 @@ class TransactionService:
                 if transaction["type"] not in ["EXPIRATION", "CLOSED"]:
                     continue
             if get_date_object(start_date) <= get_date_object(transaction.get("close_date")) <= get_date_object(end_date):
-                transaction["total_amount"] = -transaction["price"] * transaction["amount"] * 100
+                transaction["total_amount"] = (transaction["price"] - self.commission_per_share) * -transaction["amount"] * 100
                 filtered_transactions.append(transaction)
         return filtered_transactions
 
@@ -102,7 +104,7 @@ class TransactionService:
                         and the remaining elements are unmatched trades (with the original trade structure).
                         The structure of matched and unmatched trades differs.
         """
-        # Group trades by contract identity
+        # Group trades opened on same day with same attributes incase they were split into multiple transactions.
         position_grouped = defaultdict(list)
         for trade in trades:
             key = (trade["date"], trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"], trade["position_effect"], trade["option_type"])
