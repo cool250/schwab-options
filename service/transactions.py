@@ -44,8 +44,16 @@ class TransactionService:
             logger.error("No transactions found for the given date range.")
             return []
 
-        parsed_transactions = self._populate_options(stock_ticker, contract_type, transactions)
-        matched_transactions = self._match_trades(parsed_transactions)
+        # Filter by types not assigned
+        filtered_transactions = []
+
+        all_transactions = self._populate_options(stock_ticker, contract_type, transactions)
+        for transaction in all_transactions:
+            if transaction["position_effect"] == "CLOSING" and self.trade_type(transaction) == "ASSIGNMENT": # Do not include assignments
+                continue
+            filtered_transactions.append(transaction)
+
+        matched_transactions = self._match_trades(filtered_transactions)
         
         # Filter by date range
         filtered_transactions = []
@@ -56,6 +64,7 @@ class TransactionService:
             if get_date_object(start_date) <= get_date_object(transaction.get("close_date")) <= get_date_object(end_date):
                 transaction["total_amount"] = (transaction["price"] - self.commission_per_share) * -transaction["amount"] * 100
                 filtered_transactions.append(transaction)
+
         return filtered_transactions
 
     def _populate_options(self, stock_ticker, contract_type, transactions):
@@ -79,6 +88,7 @@ class TransactionService:
                     strikePrice = getattr(item.instrument, "strikePrice", None)
                     amount = float(item.amount)
                     expiration_date = get_date_string(getattr(item.instrument, "expirationDate", None))
+                    position_effect = getattr(item, "positionEffect", None)
                     parsed_transactions.append({
                         "date": get_date_string(getattr(transaction, "tradeDate", "")) if getattr(transaction, "tradeDate", None) else "",
                         "close_date": expiration_date,
@@ -88,7 +98,7 @@ class TransactionService:
                         "symbol": symbol,
                         "price": price,
                         "amount": amount,
-                        "position_effect": getattr(item, "positionEffect", None),
+                        "position_effect": position_effect,
                         "option_type": optionType,
                         "type": type_of_transaction,
                         "description": description
@@ -150,12 +160,16 @@ class TransactionService:
                 open_trade = opens.pop(0)
                 close_trade = closes.pop(0)
 
-                if open_trade["amount"] != -close_trade["amount"] or open_trade["expirationDate"] != close_trade["expirationDate"]:
-                    logger.warning(f"Unmatched trade quantities or expiration dates for {key}: Open qty {open_trade['amount']}, Close qty {close_trade['amount']}, Open exp {open_trade['expirationDate']}, Close exp {close_trade['expirationDate']}")
+                amount = 0
+                if open_trade["amount"] != -close_trade["amount"]:
+                    # Use the minimum of the amounts for matching
+                    matched_amount = min(abs(open_trade["amount"]), abs(close_trade["amount"]))
+                    amount = matched_amount
+                    logger.warning(f"Unmatched trade quantities for {key}: Open qty {open_trade['amount']}, Close qty {close_trade['amount']}")
+                else: # Take full amount if they match
+                    amount = float(open_trade["amount"])
 
-                
-                amount = float(open_trade["amount"])
-                trade_type = self.determine_trade_type(close_trade)
+                trade_type = self.trade_type(close_trade)
                 price = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0)) 
                 matched_trades.append({
                     "date": open_trade.get("date"),
@@ -182,7 +196,7 @@ class TransactionService:
             trade.pop("description", None)
         return all_trades
 
-    def determine_trade_type(self, close_trade):
+    def trade_type(self, close_trade):
         trade_type = None
         if close_trade.get("type") == "RECEIVE_AND_DELIVER":
             if "Expiration" in close_trade["description"]:
