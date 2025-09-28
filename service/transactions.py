@@ -105,7 +105,7 @@ class TransactionService:
         # Group trades by contract identity
         position_grouped = defaultdict(list)
         for trade in trades:
-            key = (trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"], trade["position_effect"], trade["option_type"])
+            key = (trade["date"], trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"], trade["position_effect"], trade["option_type"])
             position_grouped[key].append(trade)
 
         grouped_trades = []
