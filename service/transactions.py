@@ -1,212 +1,400 @@
+"""
+Transaction Service Module
+
+This module provides functionality to fetch, filter, and analyze transaction history,
+with a focus on option transactions.
+"""
+
 from collections import defaultdict
 from datetime import timedelta
+from typing import List, Dict, Tuple, Any, Optional
 from loguru import logger
 from broker import Accounts, MarketData
 from utils.utils import get_date_object, get_date_string
 
-def parse_option_symbol(symbol):
-    """Parse the option symbol to extract ticker, strike price, and expiration date."""
+
+def parse_option_symbol(symbol: str) -> Tuple[Optional[str], Optional[float], Optional[str]]:
+    """
+    Parse the option symbol to extract ticker, strike price, and expiration date.
+    
+    Args:
+        symbol (str): The option symbol to parse
+        
+    Returns:
+        tuple: (ticker, strike_price, expiration_date) or (None, None, None) if parsing fails
+    """
     try:
         strike_price = float(symbol[13:21]) / 1000
         ticker = symbol[:6].strip()
         expiration_date = f"{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"
         return ticker, strike_price, expiration_date
-    except ValueError as e:
+    except (ValueError, IndexError) as e:
         logger.error(f"Error parsing option symbol {symbol}: {e}")
         return None, None, None
 
-class TransactionService:
 
-    commission_per_share = 0.65/100  # commission per share
+class TransactionService:
+    """
+    Service for retrieving and analyzing transaction history.
+    
+    This class provides methods to fetch transaction history and process
+    option transactions, including matching opening and closing trades.
+    """
+
+    # Constants
+    COMMISSION_PER_SHARE = 0.65/100  # $0.0065 per share
 
     def __init__(self):
+        """Initialize the TransactionService with broker API clients."""
         self.market_data = MarketData()
         self.accounts_trading = Accounts()
 
-    def get_transaction_history(self, start_date: str, end_date: str):
-        """Fetch the transaction history for the account."""
+    def get_transaction_history(self, start_date: str, end_date: str) -> List[Any]:
+        """
+        Fetch the raw transaction history for the account.
+        
+        Args:
+            start_date (str): Start date in YYYY-MM-DD format
+            end_date (str): End date in YYYY-MM-DD format
+            
+        Returns:
+            list: Raw transaction records from the broker
+        """
         transactions = self.accounts_trading.fetch_transactions(start_date=start_date, end_date=end_date)
-        return transactions
+        return transactions if transactions else []
     
-    def get_option_transactions(self, start_date: str, end_date: str, stock_ticker: str, contract_type: str = "ALL", realized_gains_only: bool = True):
-        """Fetch option transactions and parse their details."""
-
-        # For options, we want to look back 60 days and forward 5 days to ensure we capture all related trades
-        # with options expiring within the selected range
-        start_date_obj = get_date_object(start_date)  # Ensure start_date is converted to datetime
-        modified_start_date = (start_date_obj - timedelta(days=60)).strftime('%Y-%m-%d')
-
-        end_date_obj = get_date_object(end_date)
-        modified_end_date = (end_date_obj + timedelta(days=10)).strftime('%Y-%m-%d')
-
-        transactions = self.accounts_trading.fetch_transactions(start_date=modified_start_date, end_date=modified_end_date)
+    def get_option_transactions(self, stock_ticker: str, start_date: str, end_date: str, 
+                             contract_type: str = "ALL", realized_gains_only: bool = True) -> List[Dict]:
+        """
+        Fetch option transactions, match related trades, and calculate realized gains/losses.
+        
+        Args:
+            stock_ticker (str): The ticker symbol to filter by (e.g., "AAPL")
+            start_date (str): Start date in YYYY-MM-DD format
+            end_date (str): End date in YYYY-MM-DD format
+            contract_type (str, optional): Filter by option type - "PUT", "CALL", or "ALL". Defaults to "ALL"
+            realized_gains_only (bool, optional): If True, only return closed positions. Defaults to True
+            
+        Returns:
+            list: Processed option transactions with calculated gains/losses
+        """
+        # Expand date range to ensure we capture all related trades
+        # Looking back 60 days to find opening trades and forward 10 days for closing trades
+        expanded_date_range = self._expand_date_range(start_date, end_date, 
+                                                     lookback_days=60, 
+                                                     lookforward_days=10)
+        
+        # Fetch transactions with expanded date range
+        transactions = self.accounts_trading.fetch_transactions(
+            start_date=expanded_date_range["start_date"], 
+            end_date=expanded_date_range["end_date"]
+        )
+        
         if not transactions:
             logger.error("No transactions found for the given date range.")
             return []
 
-        # Filter by types not assigned
-        filtered_transactions = []
+        # Extract and process option transactions
+        option_transactions = self._populate_options(stock_ticker, contract_type, transactions)
+        
+        # Filter out assignments
+        filtered_transactions = [
+            transaction for transaction in option_transactions
+            if not (transaction["position_effect"] == "CLOSING" and 
+                   self._identify_trade_type(transaction) == "ASSIGNMENT")
+        ]
 
-        all_transactions = self._populate_options(stock_ticker, contract_type, transactions)
-        for transaction in all_transactions:
-            if transaction["position_effect"] == "CLOSING" and self.trade_type(transaction) == "ASSIGNMENT": # Do not include assignments
-                continue
-            filtered_transactions.append(transaction)
-
+        # Match opening and closing trades
         matched_transactions = self._match_trades(filtered_transactions)
         
-        # Filter by date range
-        filtered_transactions = []
+        # Filter by date range and calculate totals
+        result_transactions = []
         for transaction in matched_transactions:
-            if realized_gains_only: # Only show closed or expired transactions that resulted in realized gains/losses
-                if transaction["type"] not in ["EXPIRATION", "CLOSED"]:
-                    continue
-            if get_date_object(start_date) <= get_date_object(transaction.get("close_date")) <= get_date_object(end_date):
-                transaction["total_amount"] = (transaction["price"] - self.commission_per_share) * -transaction["amount"] * 100
-                filtered_transactions.append(transaction)
+            # Skip if we only want realized gains and this is still open
+            if realized_gains_only and transaction["type"] not in ["EXPIRATION", "CLOSED"]:
+                continue
+                
+            # Only include transactions that closed within our original date range
+            close_date_str = transaction.get("close_date", "")
+            if close_date_str:
+                close_date = get_date_object(close_date_str)
+                if get_date_object(start_date) <= close_date <= get_date_object(end_date):
+                    # Calculate total amount including commission
+                    transaction["total_amount"] = (
+                        (transaction["price"] - self.COMMISSION_PER_SHARE) * 
+                        -transaction["amount"] * 100
+                    )
+                    result_transactions.append(transaction)
 
-        return filtered_transactions
+        return result_transactions
+        
+    def _expand_date_range(self, start_date: str, end_date: str, 
+                           lookback_days: int = 60, 
+                           lookforward_days: int = 10) -> Dict[str, str]:
+        """
+        Expand a date range by a specified number of days in both directions.
+        
+        Args:
+            start_date (str): Original start date in YYYY-MM-DD format
+            end_date (str): Original end date in YYYY-MM-DD format
+            lookback_days (int): Number of days to look back
+            lookforward_days (int): Number of days to look forward
+            
+        Returns:
+            dict: Expanded date range with keys 'start_date' and 'end_date'
+        """
+        start_date_obj = get_date_object(start_date)
+        end_date_obj = get_date_object(end_date)
+        
+        expanded_start_date = (start_date_obj - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
+        expanded_end_date = (end_date_obj + timedelta(days=lookforward_days)).strftime('%Y-%m-%d')
+        
+        return {
+            "start_date": expanded_start_date,
+            "end_date": expanded_end_date
+        }
 
-    def _populate_options(self, stock_ticker, contract_type, transactions):
+    def _populate_options(self, stock_ticker: str, contract_type: str, transactions: List[Any]) -> List[Dict]:
+        """
+        Extract option transactions from the raw transaction data.
+        
+        Args:
+            stock_ticker (str): The ticker symbol to filter by
+            contract_type (str): Filter by option type - "PUT", "CALL", or "ALL"
+            transactions (list): Raw transaction records
+            
+        Returns:
+            list: Extracted and parsed option transactions
+        """
         parsed_transactions = []
+        
+        # Safely process each transaction
         for transaction in transactions:
-            transfer_items = getattr(transaction, "transferItems", None)
-            type_of_transaction = getattr(transaction, "type", "None")
+            # Safely extract transaction properties
+            transfer_items = getattr(transaction, "transferItems", [])
+            if transfer_items is None:
+                continue
+                
+            type_of_transaction = getattr(transaction, "type", "UNKNOWN")
             description = getattr(transaction, "description", "Trade")
-      
+            trade_date = getattr(transaction, "tradeDate", None)
+            
+            # Process each transfer item (line item) in the transaction
             for item in transfer_items:
-                if item.instrument is not None and getattr(item.instrument, "assetType", None) == "OPTION":
-                    underlyingSymbol = getattr(item.instrument, "underlyingSymbol", None)
-                    optionType = getattr(item.instrument, "putCall", None)
-                    # Filter by stock ticker and contract type if provided
-                    if contract_type != "ALL" and optionType != contract_type:
-                        continue
-                    if stock_ticker and stock_ticker != underlyingSymbol:
-                        continue
-                    symbol = getattr(item.instrument, "symbol", "")  # Default to empty string if None
-                    price = float(getattr(item, "price", 0))
-                    strikePrice = getattr(item.instrument, "strikePrice", None)
-                    amount = float(item.amount)
-                    expiration_date = get_date_string(getattr(item.instrument, "expirationDate", None))
-                    position_effect = getattr(item, "positionEffect", None)
-                    parsed_transactions.append({
-                        "date": get_date_string(getattr(transaction, "tradeDate", "")) if getattr(transaction, "tradeDate", None) else "",
-                        "close_date": expiration_date,
-                        "underlying_symbol": underlyingSymbol,
-                        "expirationDate": expiration_date,
-                        "strike_price": strikePrice,
-                        "symbol": symbol,
-                        "price": price,
-                        "amount": amount,
-                        "position_effect": position_effect,
-                        "option_type": optionType,
-                        "type": type_of_transaction,
-                        "description": description
-                    })
+                # Skip if not an option instrument
+                if not hasattr(item, "instrument") or item.instrument is None:
+                    continue
+                    
+                if getattr(item.instrument, "assetType", None) != "OPTION":
+                    continue
+                
+                # Extract option details
+                underlying_symbol = getattr(item.instrument, "underlyingSymbol", None)
+                option_type = getattr(item.instrument, "putCall", None)
+                
+                # Filter for selected option type
+                if contract_type != "ALL" and option_type != contract_type:
+                    continue
+
+                # Filter for selected stock ticker   
+                if stock_ticker and stock_ticker != underlying_symbol:
+                    continue
+                
+                # Get additional option details
+                symbol = getattr(item.instrument, "symbol", "")
+                price = float(getattr(item, "price", 0))
+                strike_price = getattr(item.instrument, "strikePrice", None)
+                amount = float(getattr(item, "amount", 0))
+                position_effect = getattr(item, "positionEffect", None)
+                
+                # Safely handle date conversion
+                try:
+                    expiration_date_obj = getattr(item.instrument, "expirationDate", None)
+                    expiration_date = get_date_string(expiration_date_obj) if expiration_date_obj else ""
+                    
+                    trade_date_str = ""
+                    if trade_date:
+                        trade_date_str = get_date_string(trade_date)
+                except Exception as e:
+                    logger.error(f"Error processing dates: {e}")
+                    expiration_date = ""
+                    trade_date_str = ""
+                
+                # Create the transaction record
+                parsed_transactions.append({
+                    "date": trade_date_str,
+                    "close_date": expiration_date,
+                    "underlying_symbol": underlying_symbol,
+                    "expirationDate": expiration_date,
+                    "strike_price": strike_price,
+                    "symbol": symbol,
+                    "price": price,
+                    "amount": amount,
+                    "position_effect": position_effect,
+                    "option_type": option_type,
+                    "type": type_of_transaction,
+                    "description": description
+                })
+                
         return parsed_transactions
 
-    def _match_trades(self, trades):
+    def _match_trades(self, trades: List[Dict]) -> List[Dict]:
         """
-        Matches opening and closing option trades by contract identity and date.
+        Match opening and closing option trades by contract identity and date.
+        
+        This method performs several steps:
+        1. Group trades opened on the same day with same attributes
+        2. Match opening and closing trades for the same contract
+        3. Calculate profit/loss for matched trades
 
+        Args:
+            trades (list): List of parsed option trade records
+            
         Returns:
-            List[dict]: A list where the first elements are matched trades (dicts with open/close info),
-                        and the remaining elements are unmatched trades (with the original trade structure).
-                        The structure of matched and unmatched trades differs.
+            list: Matched trades with profit/loss calculations and unmatched trades
         """
-        # Group trades opened on same day with same attributes incase they were split into multiple transactions.
+        # STEP 1A: Group trades opened on same day with same attributes
+        # This handles cases where trades were split into multiple transactions
+        # Groups them to process together
         position_grouped = defaultdict(list)
         for trade in trades:
-            key = (trade["date"], trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"], trade["position_effect"], trade["option_type"])
+            key = (
+                trade["date"], 
+                trade["underlying_symbol"], 
+                trade["strike_price"], 
+                trade["expirationDate"], 
+                trade["position_effect"], 
+                trade["option_type"]
+            )
             position_grouped[key].append(trade)
 
+        # STEP 1B: Collapses trades with the same key by summing quantities and averaging prices
         grouped_trades = []
-        # Combine trades with the same key by summing quantities and averaging the prices
         for key, trade_group in position_grouped.items():
             if len(trade_group) > 1:
+                # Multiple trades with the same characteristics - combine them
                 total_amount = sum(t["amount"] for t in trade_group)
-                price = sum(t["price"] * t["amount"] for t in trade_group) / total_amount if total_amount != 0 else 0
-                first_trade = trade_group[0]
+                # Calculate weighted average price
+                weighted_price = sum(t["price"] * t["amount"] for t in trade_group) / total_amount if total_amount != 0 else 0
+                
+                # Create a combined trade record
                 combined_trade = {
-                    **first_trade,
+                    **trade_group[0],  # Use first trade as template
                     "amount": total_amount,
-                    "price": price
+                    "price": weighted_price
                 }
             else:
+                # Only one trade with these characteristics
                 combined_trade = trade_group[0]
+                
             grouped_trades.append(combined_trade)
 
-        # Now match opening and closing trades
-
-        combined_trades = defaultdict(list)
+        # STEP 2: Match opening and closing trades for the same option contract
+        # Group by option contract key (underlying, strike, expiration, option type)
+        contract_trades = defaultdict(list)
         for trade in grouped_trades:
-            key = (trade["underlying_symbol"], trade["strike_price"], trade["expirationDate"], trade["option_type"])
-            combined_trades[key].append(trade)
+            key = (
+                trade["underlying_symbol"], 
+                trade["strike_price"], 
+                trade["expirationDate"], 
+                trade["option_type"]
+            )
+            contract_trades[key].append(trade)
 
-        # Grouped trades now contain all trades by their unique key
+        # STEP 3: Process each contract's trades to match opening and closing positions and calculate P/L
         matched_trades = []
         unmatched_trades = []
 
-        for key, trade_group in combined_trades.items():
+        for contract_key, trade_group in contract_trades.items():
+            # Separate opening and closing trades
             opens = [t for t in trade_group if t["position_effect"] == "OPENING"]
             closes = [t for t in trade_group if t["position_effect"] == "CLOSING"]
 
-            # Sort by date to pair in order
-            opens.sort(key=lambda x: x.get("date"))
-            closes.sort(key=lambda x: x.get("date"))
+            # Sort by date to pair in chronological order
+            opens.sort(key=lambda x: x.get("date", ""))
+            closes.sort(key=lambda x: x.get("date", ""))
 
-            # Match opens and closes
+            # Match opens and closes until we run out of one or both
             while opens and closes:
                 open_trade = opens.pop(0)
                 close_trade = closes.pop(0)
 
-                amount = 0
+                # Handle cases where quantities don't match exactly
                 if open_trade["amount"] != -close_trade["amount"]:
                     # Use the minimum of the amounts for matching
                     matched_amount = min(abs(open_trade["amount"]), abs(close_trade["amount"]))
-                    amount = matched_amount
-                    logger.warning(f"Unmatched trade quantities for {key}: Open qty {open_trade['amount']}, Close qty {close_trade['amount']}")
-                else: # Take full amount if they match
+                    amount = matched_amount if open_trade["amount"] > 0 else -matched_amount # Determine sign based on opening trade
+                    logger.warning(
+                        f"Unmatched trade quantities for {contract_key}: "
+                        f"Open qty {open_trade['amount']}, Close qty {close_trade['amount']}"
+                    )
+                else: 
+                    # Take full amount if they match
                     amount = float(open_trade["amount"])
 
-                trade_type = self.trade_type(close_trade)
-                price = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0)) 
+                # Identify the type of closing trade (normal close, expiration, assignment)
+                trade_type = self._identify_trade_type(close_trade)
+                
+                # Calculate P/L (open price - close price)
+                price_difference = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0))
+                
+                # Use the earliest of close date or expiration date
+                # This handles transactions that might be recorded after expiration
+                close_date = min(
+                    close_trade.get("date", open_trade.get("expirationDate")),
+                    open_trade.get("expirationDate", close_trade.get("date"))
+                )
+                
+                # Create the matched trade record with detailed P/L information
                 matched_trades.append({
                     "date": open_trade.get("date"),
-                    "close_date": min(close_trade.get("date"), open_trade.get("expirationDate")), # Handle Transactions closing later than expiration in system
+                    "close_date": close_date,
                     "underlying_symbol": open_trade.get("underlying_symbol"),
                     "expirationDate": open_trade.get("expirationDate"),
                     "strike_price": open_trade.get("strike_price"),
                     "symbol": open_trade.get("symbol"),
-                    "price": price,
-                    "open_price": open_trade.get("price"), # Added to keep track of open price
-                    "close_price": close_trade.get("price"), # Added to keep track of close price
+                    "price": price_difference,  # P/L per contract
+                    "open_price": open_trade.get("price"),  # Original entry price
+                    "close_price": close_trade.get("price"),  # Exit price
                     "amount": amount,
                     "position_effect": "MATCHED",
                     "option_type": open_trade.get("option_type"),
                     "type": trade_type
                 })
 
-            # Any unmatched trades left
+            # Add any remaining unmatched trades to the unmatched list
             unmatched_trades.extend(opens + closes)
  
+        # Combine matched and unmatched trades, sort by close date, and clean up
         all_trades = matched_trades + unmatched_trades
-        all_trades.sort(key=lambda x: x.get("close_date"))
+        all_trades.sort(key=lambda x: x.get("close_date", ""))
+        
+        # Remove description field which is no longer needed
         for trade in all_trades:
             trade.pop("description", None)
+            
         return all_trades
 
-    def trade_type(self, close_trade):
-        trade_type = None
+    def _identify_trade_type(self, close_trade: Dict) -> str:
+        """
+        Identify the type of trade (expiration, assignment, or regular close).
+        
+        Args:
+            close_trade (dict): The trade record to analyze
+            
+        Returns:
+            str: The identified trade type - "EXPIRATION", "ASSIGNMENT", "CLOSED", or "UNKNOWN"
+        """
+        # For RECEIVE_AND_DELIVER transaction types, check the description for specific keywords
         if close_trade.get("type") == "RECEIVE_AND_DELIVER":
-            if "Expiration" in close_trade["description"]:
-                        # Handle expiration case
-                trade_type = "EXPIRATION"
-            elif "Assignment" in close_trade["description"]:
-                        # Handle assignment case
-                trade_type = "ASSIGNMENT"
+            description = close_trade.get("description", "")
+            
+            if "Expiration" in description:
+                return "EXPIRATION"
+            elif "Assignment" in description:
+                return "ASSIGNMENT"
             else:
-                trade_type = "UNKNOWN"
-        else:
-            trade_type = "CLOSED"
-        return trade_type
+                return "UNKNOWN"
+        
+        # If not a special case, it's a normal close
+        return "CLOSED"
