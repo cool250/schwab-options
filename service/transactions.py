@@ -97,11 +97,13 @@ class TransactionService:
         # Extract and process option transactions
         option_transactions = self._populate_options(stock_ticker, contract_type, transactions)
         
-        # Filter out assignments
+        # Filter out assignments close trade for realized gains only 
+        # before matching trades to avoid confusion when a few are rolled over
         filtered_transactions = [
             transaction for transaction in option_transactions
             if not (transaction["position_effect"] == "CLOSING" and 
-                   self._identify_trade_type(transaction) == "ASSIGNMENT")
+                   self._identify_trade_type(transaction) == "ASSIGNMENT" and
+                   realized_gains_only)
         ]
 
         # Match opening and closing trades
@@ -110,7 +112,7 @@ class TransactionService:
         # Filter by date range and calculate totals
         result_transactions = []
         for transaction in matched_transactions:
-            # Skip if we only want realized gains and this is still open
+            # Skip if we only want realized gains and anything is still open
             if realized_gains_only and transaction["type"] not in ["EXPIRATION", "CLOSED"]:
                 continue
                 
@@ -301,7 +303,7 @@ class TransactionService:
             )
             contract_trades[key].append(trade)
 
-        # STEP 3: Process each contract's trades to match opening and closing positions and calculate P/L
+        # STEP 3: Process each contract's trades to match opening and closing positions and 
         matched_trades = []
         unmatched_trades = []
 
@@ -337,6 +339,9 @@ class TransactionService:
                 
                 # Calculate P/L (open price - close price)
                 price_difference = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0))
+
+                if trade_type == "ASSIGNMENT":
+                    price_difference = 0  # Neutralize amount for assignments
                 
                 # Use the earliest of close date or expiration date
                 # This handles transactions that might be recorded after expiration
@@ -372,6 +377,7 @@ class TransactionService:
         # Remove description field which is no longer needed
         for trade in all_trades:
             trade.pop("description", None)
+            trade.pop("position_effect", None)  # Remove position_effect as it's now implicit
             
         return all_trades
 
