@@ -255,6 +255,27 @@ class TransactionService:
         Returns:
             list: Matched trades with profit/loss calculations and unmatched trades
         """
+        # STEP 1: Combine trades opened for same lots on the same day with same attributes
+        grouped_trades = self._combine_common_lots(trades)
+
+        # STEP 2: Match opening and closing trades for the same option contract
+        # Group by option contract key (underlying, strike, expiration, option type)
+        contract_trades = defaultdict(list)
+        for trade in grouped_trades:
+            key = (
+                trade["underlying_symbol"], 
+                trade["strike_price"], 
+                trade["expirationDate"], 
+                trade["option_type"]
+            )
+            contract_trades[key].append(trade)
+
+        # STEP 3: Process each contract's trades to match opening and closing positions and 
+        combined_trades = self._match_open_close(contract_trades)
+            
+        return combined_trades
+    
+    def _combine_common_lots(self, trades: List[Dict]) -> List[Dict]:
         # STEP 1A: Group trades opened on same day with same attributes
         # This handles cases where trades were split into multiple transactions
         # Groups them to process together
@@ -291,19 +312,10 @@ class TransactionService:
                 
             grouped_trades.append(combined_trade)
 
-        # STEP 2: Match opening and closing trades for the same option contract
-        # Group by option contract key (underlying, strike, expiration, option type)
-        contract_trades = defaultdict(list)
-        for trade in grouped_trades:
-            key = (
-                trade["underlying_symbol"], 
-                trade["strike_price"], 
-                trade["expirationDate"], 
-                trade["option_type"]
-            )
-            contract_trades[key].append(trade)
+        return grouped_trades
 
-        # STEP 3: Process each contract's trades to match opening and closing positions and 
+    def _match_open_close(self, contract_trades: Dict) -> List[Dict]:
+        # STEP 3: Process each contract's trades to match opening and closing positions and
         matched_trades = []
         unmatched_trades = []
 
@@ -368,8 +380,11 @@ class TransactionService:
                 })
 
             # Add any remaining unmatched trades to the unmatched list
+            if closes: # Update the type for any remaining unmatched close trades EXPIRED or ASSIGNMENT or CLOSED
+                for close_trade in closes:
+                    close_trade["type"] = self._identify_trade_type(close_trade)
             unmatched_trades.extend(opens + closes)
- 
+
         # Combine matched and unmatched trades, sort by close date, and clean up
         all_trades = matched_trades + unmatched_trades
         all_trades.sort(key=lambda x: x.get("close_date", ""))
@@ -378,7 +393,7 @@ class TransactionService:
         for trade in all_trades:
             trade.pop("description", None)
             trade.pop("position_effect", None)  # Remove position_effect as it's now implicit
-            
+        
         return all_trades
 
     def _identify_trade_type(self, close_trade: Dict) -> str:
