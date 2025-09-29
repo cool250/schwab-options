@@ -1,9 +1,10 @@
-from loguru import logger
+import logging
 from model.market_models import PriceHistoryResponse, StockQuotes
 from model.option_models import OptionChainResponse
 from pydantic import ValidationError
 from broker.base import APIClient
 
+logger = logging.getLogger(__name__)
 
 class MarketData(APIClient):
     def __init__(self):

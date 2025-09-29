@@ -8,10 +8,12 @@ with a focus on option transactions.
 from collections import defaultdict
 from datetime import timedelta
 from typing import List, Dict, Any, Optional
-from loguru import logger
+import logging
 from broker import Accounts, MarketData
 from utils.utils import get_date_object, get_date_string
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 # Create the transaction record
 class OptionTransaction(BaseModel):

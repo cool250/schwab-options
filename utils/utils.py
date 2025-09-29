@@ -3,7 +3,9 @@ import os
 from typing import Optional, Tuple
 
 from dotenv import load_dotenv
-from loguru import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # Load environment variables from .env file

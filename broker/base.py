@@ -1,10 +1,11 @@
 import time
-from loguru import logger
+import logging
 import requests
 from broker.refresh_token import refresh_tokens
 from utils.read_token import get_access_token
 import json
 
+logger = logging.getLogger(__name__)
 
 class APIClient:
     """
@@ -34,9 +35,8 @@ class APIClient:
                 url = self.base_url
         
             full_url = requests.Request('GET', url, params=params).prepare().url
-            logger.debug(f"Full request URL: {full_url}")
             response = requests.get(url, headers=self.headers, params=params)
-            logger.info(f"Received response with status code {response.status_code}")
+            logger.debug(f"status code: {response.status_code} URL: {full_url}")
             if response.status_code == 200:
                 try:
                     response_data = response.json()
