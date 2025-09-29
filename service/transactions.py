@@ -7,11 +7,29 @@ with a focus on option transactions.
 
 from collections import defaultdict
 from datetime import timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from loguru import logger
 from broker import Accounts, MarketData
 from utils.utils import get_date_object, get_date_string
+from pydantic import BaseModel
 
+# Create the transaction record
+class OptionTransaction(BaseModel):
+    date: str
+    close_date: str
+    underlying_symbol: str
+    expirationDate: str
+    strike_price: float
+    symbol: str
+    price: float
+    open_price: float = 0.0
+    close_price: float = 0.0
+    amount: float
+    position_effect: str
+    option_type: str
+    type: str
+    description: Optional[str] = None
+    total_amount: Optional[float] = 0.0
 
 class TransactionService:
     """
@@ -101,11 +119,6 @@ class TransactionService:
             if close_date_str:
                 close_date = get_date_object(close_date_str)
                 if get_date_object(start_date) <= close_date <= get_date_object(end_date):
-                    # Calculate total amount including commission
-                    transaction["total_amount"] = (
-                        (transaction["price"] - self.COMMISSION_PER_SHARE) * 
-                        -transaction["amount"] * 100
-                    )
                     result_transactions.append(transaction)
 
         return result_transactions
@@ -167,12 +180,12 @@ class TransactionService:
                 if not hasattr(item, "instrument") or item.instrument is None:
                     continue
                     
-                if getattr(item.instrument, "assetType", None) != "OPTION":
+                if getattr(item.instrument, "assetType") != "OPTION":
                     continue
                 
                 # Extract option details
-                underlying_symbol = getattr(item.instrument, "underlyingSymbol", None)
-                option_type = getattr(item.instrument, "putCall", None)
+                underlying_symbol = getattr(item.instrument, "underlyingSymbol")
+                option_type = getattr(item.instrument, "putCall")
                 
                 # Filter for selected option type
                 if contract_type != "ALL" and option_type != contract_type:
@@ -185,9 +198,9 @@ class TransactionService:
                 # Get additional option details
                 symbol = getattr(item.instrument, "symbol", "")
                 price = float(getattr(item, "price", 0))
-                strike_price = getattr(item.instrument, "strikePrice", None)
+                strike_price = getattr(item.instrument, "strikePrice")
                 amount = float(getattr(item, "amount", 0))
-                position_effect = getattr(item, "positionEffect", None)
+                position_effect = getattr(item, "positionEffect")
                 
                 # Safely handle date conversion
                 try:
@@ -202,22 +215,22 @@ class TransactionService:
                     expiration_date = ""
                     trade_date_str = ""
                 
-                # Create the transaction record
-                parsed_transactions.append({
-                    "date": trade_date_str,
-                    "close_date": expiration_date,
-                    "underlying_symbol": underlying_symbol,
-                    "expirationDate": expiration_date,
-                    "strike_price": strike_price,
-                    "symbol": symbol,
-                    "price": price,
-                    "amount": amount,
-                    "position_effect": position_effect,
-                    "option_type": option_type,
-                    "type": type_of_transaction,
-                    "description": description
-                })
-                
+                # Create the option transaction record
+                parsed_transactions.append(OptionTransaction(
+                    date=trade_date_str,
+                    close_date=expiration_date,
+                    underlying_symbol=underlying_symbol,
+                    expirationDate=expiration_date,
+                    strike_price=strike_price,
+                    symbol=symbol,
+                    price=price,
+                    amount=amount,
+                    position_effect=position_effect,
+                    option_type=option_type,
+                    type=type_of_transaction,
+                    description=description
+                ).model_dump())
+
         return parsed_transactions
 
     def _match_trades(self, trades: List[Dict]) -> List[Dict]:
@@ -350,21 +363,22 @@ class TransactionService:
                 )
                 
                 # Create the matched trade record with detailed P/L information
-                matched_trades.append({
-                    "date": open_trade.get("date"),
-                    "close_date": close_date,
-                    "underlying_symbol": open_trade.get("underlying_symbol"),
-                    "expirationDate": open_trade.get("expirationDate"),
-                    "strike_price": open_trade.get("strike_price"),
-                    "symbol": open_trade.get("symbol"),
-                    "price": price_difference,  # P/L per contract
-                    "open_price": open_trade.get("price"),  # Original entry price
-                    "close_price": close_trade.get("price"),  # Exit price
-                    "amount": amount,
-                    "position_effect": "MATCHED",
-                    "option_type": open_trade.get("option_type"),
-                    "type": trade_type
-                })
+                matched_trades.append(OptionTransaction(
+                    date=open_trade.get("date"),
+                    close_date=close_date,
+                    underlying_symbol=open_trade.get("underlying_symbol"),
+                    expirationDate=open_trade.get("expirationDate"),
+                    strike_price=open_trade.get("strike_price"),
+                    symbol=open_trade.get("symbol"),
+                    price=price_difference,  # P/L per contract
+                    open_price=open_trade.get("price"),  # Original entry price
+                    close_price=close_trade.get("price"),  # Exit price
+                    amount=amount,
+                    position_effect="MATCHED",
+                    option_type=open_trade.get("option_type"),
+                    type=trade_type,
+                    total_amount=(price_difference - self.COMMISSION_PER_SHARE) * -amount * 100
+                ).model_dump())
 
             # Add any remaining unmatched trades to the unmatched list
             if closes: # Update the type for any remaining unmatched close trades EXPIRED or ASSIGNMENT or CLOSED
