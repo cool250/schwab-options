@@ -81,8 +81,8 @@ class TransactionService:
         # Expand date range to ensure we capture all related trades
         # Looking back 60 days to find opening trades and forward 10 days for closing trades
         expanded_date_range = self._expand_date_range(start_date, end_date, 
-                                                     lookback_days=60, 
-                                                     lookforward_days=10)
+                                                     lookback_days=30, 
+                                                     lookforward_days=5)
         
         # Fetch transactions with expanded date range
         transactions = self.accounts_trading.fetch_transactions(
