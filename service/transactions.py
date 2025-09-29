@@ -342,6 +342,13 @@ class TransactionService:
                         f"Unmatched trade quantities for {contract_key}: "
                         f"Open qty {open_trade['amount']}, Close qty {close_trade['amount']}"
                     )
+                    # Adjust remaining quantities back in the trades
+                    if abs(open_trade["amount"]) > abs(matched_amount):
+                        open_trade["amount"] -= amount
+                        opens.insert(0, open_trade)  # Reinsert with updated amount
+                    if abs(close_trade["amount"]) > abs(matched_amount):
+                        close_trade["amount"] += amount  # Close trade amount is negative
+                        closes.insert(0, close_trade)  # Reinsert with updated amount
                 else: 
                     # Take full amount if they match
                     amount = float(open_trade["amount"])
