@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+from typing import Optional, Tuple
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -66,3 +67,22 @@ def get_date_string(date_obj: datetime) -> str:
         logger.error(f"Invalid date object: {date_obj}. Must be a datetime instance.")
         return ""
     return date_obj.strftime("%Y-%m-%d")
+
+def parse_option_symbol(symbol: str) -> Tuple[Optional[str], Optional[float], Optional[str]]:
+    """
+    Parse the option symbol to extract ticker, strike price, and expiration date.
+    
+    Args:
+        symbol (str): The option symbol to parse
+
+    Returns:
+        tuple: (ticker, strike_price, expiration_date) or (None, None, None) if parsing fails
+    """
+    try:
+        strike_price = float(symbol[13:21]) / 1000
+        ticker = symbol[:6].strip()
+        expiration_date = f"{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"
+        return ticker, strike_price, expiration_date
+    except (ValueError, IndexError) as e:
+        logger.error(f"Error parsing option symbol {symbol}: {e}")
+        return None, None, None

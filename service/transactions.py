@@ -7,30 +7,10 @@ with a focus on option transactions.
 
 from collections import defaultdict
 from datetime import timedelta
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Any
 from loguru import logger
 from broker import Accounts, MarketData
 from utils.utils import get_date_object, get_date_string
-
-
-def parse_option_symbol(symbol: str) -> Tuple[Optional[str], Optional[float], Optional[str]]:
-    """
-    Parse the option symbol to extract ticker, strike price, and expiration date.
-    
-    Args:
-        symbol (str): The option symbol to parse
-        
-    Returns:
-        tuple: (ticker, strike_price, expiration_date) or (None, None, None) if parsing fails
-    """
-    try:
-        strike_price = float(symbol[13:21]) / 1000
-        ticker = symbol[:6].strip()
-        expiration_date = f"{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"
-        return ticker, strike_price, expiration_date
-    except (ValueError, IndexError) as e:
-        logger.error(f"Error parsing option symbol {symbol}: {e}")
-        return None, None, None
 
 
 class TransactionService:
@@ -246,8 +226,8 @@ class TransactionService:
         
         This method performs several steps:
         1. Group trades opened on the same day with same attributes
-        2. Match opening and closing trades for the same contract
-        3. Calculate profit/loss for matched trades
+        2. Combine opening and closing trades for the same contract
+        3. Match open/close trades and calculate profit/loss for matched trades
 
         Args:
             trades (list): List of parsed option trade records
@@ -256,22 +236,22 @@ class TransactionService:
             list: Matched trades with profit/loss calculations and unmatched trades
         """
         # STEP 1: Combine trades opened for same lots on the same day with same attributes
-        grouped_trades = self._combine_common_lots(trades)
+        combine_lot_trades = self._combine_common_lots(trades)
 
-        # STEP 2: Match opening and closing trades for the same option contract
+        # STEP 2: Group opening and closing trades for the same option contract
         # Group by option contract key (underlying, strike, expiration, option type)
-        contract_trades = defaultdict(list)
-        for trade in grouped_trades:
+        open_close_trades = defaultdict(list)
+        for trade in combine_lot_trades:
             key = (
                 trade["underlying_symbol"], 
                 trade["strike_price"], 
                 trade["expirationDate"], 
                 trade["option_type"]
             )
-            contract_trades[key].append(trade)
+            open_close_trades[key].append(trade)
 
         # STEP 3: Process each contract's trades to match opening and closing positions and 
-        combined_trades = self._match_open_close(contract_trades)
+        combined_trades = self._match_open_close(open_close_trades)
             
         return combined_trades
     
