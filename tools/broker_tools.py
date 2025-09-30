@@ -1,10 +1,12 @@
 import json
 from agents import function_tool
-from loguru import logger
+import logging
 
 from service.market import MarketService
 from service.position import PositionService
 from service.transactions import TransactionService
+
+logger = logging.getLogger(__name__)
 
 
 @function_tool

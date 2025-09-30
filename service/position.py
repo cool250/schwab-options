@@ -1,7 +1,9 @@
 from typing import Optional
-from loguru import logger
+import logging
 from broker import Accounts, MarketData
 from model.account_models import SecuritiesAccount
+
+logger = logging.getLogger(__name__)
 
 def parse_option_symbol(symbol):
     """Parse the option symbol to extract ticker, strike price, and expiration date."""

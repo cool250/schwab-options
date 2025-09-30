@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta
 import pytz
 
-from loguru import logger
+import logging
 from broker.market_data import MarketData
+
+logger = logging.getLogger(__name__)
 
 class MarketService:
     def __init__(self):

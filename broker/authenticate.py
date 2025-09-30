@@ -2,7 +2,9 @@ import json
 import base64
 import requests
 import webbrowser
-from loguru import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 from utils import get_app_credentials, TOKEN_FILE_PATH
 

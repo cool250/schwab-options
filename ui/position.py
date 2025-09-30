@@ -12,7 +12,6 @@ Features:
 Modules:
 - `AccountsTrading`: Handles fetching and processing of account and position data.
 - `pandas`: Used for data manipulation and display in tabular format.
-- `loguru`: Provides logging for debugging and information tracking.
 
 Usage:
 1. Ensure the Streamlit server is running.

@@ -21,7 +21,9 @@ from customagents.research_agents import (
     initialize_research_analyst,
 )
 from tools.google_search_tool import google_search
-from loguru import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ResearchAgentService:

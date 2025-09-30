@@ -1,10 +1,11 @@
 import json
 import base64
 import requests
-from loguru import logger
+import logging
 
 from utils import get_app_credentials, get_response_token
 
+logger = logging.getLogger(__name__)
 
 def refresh_tokens():
     logger.info("Initializing...")

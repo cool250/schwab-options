@@ -11,7 +11,9 @@ from customagents.brokerage_agents import (
     initialize_balances_agent,
     initialize_transactions_agent,
 )
-from loguru import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AgentService:
