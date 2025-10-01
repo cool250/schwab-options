@@ -13,6 +13,8 @@ from customagents.brokerage_agents import (
 )
 import logging
 
+from tools.google_search_tool import google_search
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,6 +100,7 @@ class AgentService:
             ),
             model=self.model,
             handoffs=[options_chain_agent, balances_agent, transactions_agent],
+            tools=[google_search]
         )
         return root_agent
 
