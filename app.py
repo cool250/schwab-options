@@ -1,5 +1,5 @@
 import streamlit as st
-from ui import position, option, chat, transactions
+from ui import position, option, chat, transactions, stock_allocation
 import logging
 
 # Create and configure logger
@@ -18,8 +18,8 @@ st.set_page_config(layout="wide")
 st.title("Options Trading Dashboard")
 
 
-tab1_view, tab2_view, tab3_view, tab4_view = st.tabs(
-    ["Positions", "Market Data", "Chat", "Transactions"]
+tab1_view, tab2_view, tab3_view, tab4_view, tab5_view = st.tabs(
+    ["Positions", "Market Data", "Chat", "Transactions", "Stock Allocation"]
 )
 
 with tab1_view:
@@ -33,3 +33,6 @@ with tab3_view:
 
 with tab4_view:
     transactions.render()
+
+with tab5_view:
+    stock_allocation.render()
