@@ -60,12 +60,11 @@ def render():
 
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown(f"**Total Allocation:** ${total:,.2f}")
             fig = px.pie(
                 agg,
                 names='underlying_symbol',
                 values='total_amount',
-                title=f"Stock Allocation for {datetime(year, month, 1).strftime('%B %Y')}",
+                title=f"Stock Allocation for {datetime(year, month, 1).strftime('%B %Y')} with total (${total:,.2f})",
                 hole=0.3,
                 labels={'underlying_symbol': 'Stock', 'total_amount': 'Amount'},
             )
@@ -76,7 +75,6 @@ def render():
             st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            st.subheader("Weekly Stock Allocation Breakdown")
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
                 df = df.dropna(subset=['date'])
