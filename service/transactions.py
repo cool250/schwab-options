@@ -27,7 +27,7 @@ class OptionTransaction(BaseModel):
     open_price: float = 0.0
     close_price: float = 0.0
     amount: float
-    position_effect: str
+    position_effect: Optional[str] = None
     option_type: str
     type: str
     description: Optional[str] = None
@@ -164,74 +164,78 @@ class TransactionService:
             list: Extracted and parsed option transactions
         """
         parsed_transactions = []
-        
         # Safely process each transaction
         for transaction in transactions:
-            # Safely extract transaction properties
-            transfer_items = getattr(transaction, "transferItems", [])
-            if transfer_items is None:
-                continue
-                
-            type_of_transaction = getattr(transaction, "type", "UNKNOWN")
-            description = getattr(transaction, "description", "Trade")
-            trade_date = getattr(transaction, "tradeDate", None)
-            
-            # Process each transfer item (line item) in the transaction
-            for item in transfer_items:
-                # Skip if not an option instrument
-                if not hasattr(item, "instrument") or item.instrument is None:
+            try:
+                # Safely extract transaction properties
+                transfer_items = getattr(transaction, "transferItems", [])
+                if transfer_items is None:
                     continue
+                type_of_transaction = getattr(transaction, "type", "UNKNOWN")
+                description = getattr(transaction, "description", "Trade")
+                trade_date = getattr(transaction, "tradeDate", None)
+                # Process each transfer item (line item) in the transaction
+                for item in transfer_items:
+                    # Skip if not an option instrument
+                    if not hasattr(item, "instrument") or item.instrument is None:
+                        continue
+                        
+                    if getattr(item.instrument, "assetType") != "OPTION":
+                        continue
                     
-                if getattr(item.instrument, "assetType") != "OPTION":
-                    continue
-                
-                # Extract option details
-                underlying_symbol = getattr(item.instrument, "underlyingSymbol")
-                option_type = getattr(item.instrument, "putCall")
-                
-                # Filter for selected option type
-                if contract_type != "ALL" and option_type != contract_type:
-                    continue
+                    # Extract option details
+                    underlying_symbol = getattr(item.instrument, "underlyingSymbol")
+                    option_type = getattr(item.instrument, "putCall")
+                    
+                    # Filter for selected option type
+                    if contract_type != "ALL" and option_type != contract_type:
+                        continue
 
-                # Filter for selected stock ticker   
-                if stock_ticker and stock_ticker != underlying_symbol:
-                    continue
-                
-                # Get additional option details
-                symbol = getattr(item.instrument, "symbol", "")
-                price = float(getattr(item, "price", 0))
-                strike_price = getattr(item.instrument, "strikePrice")
-                amount = float(getattr(item, "amount", 0))
-                position_effect = getattr(item, "positionEffect")
-                
-                # Safely handle date conversion
-                try:
-                    expiration_date_obj = getattr(item.instrument, "expirationDate", None)
-                    expiration_date = get_date_string(expiration_date_obj) if expiration_date_obj else ""
+                    # Filter for selected stock ticker   
+                    if stock_ticker and stock_ticker != underlying_symbol:
+                        continue
                     
-                    trade_date_str = ""
-                    if trade_date:
-                        trade_date_str = get_date_string(trade_date)
-                except Exception as e:
-                    logger.error(f"Error processing dates: {e}")
-                    expiration_date = ""
-                    trade_date_str = ""
-                
-                # Create the option transaction record
-                parsed_transactions.append(OptionTransaction(
-                    date=trade_date_str,
-                    close_date=expiration_date,
-                    underlying_symbol=underlying_symbol,
-                    expirationDate=expiration_date,
-                    strike_price=strike_price,
-                    symbol=symbol,
-                    price=price,
-                    amount=amount,
-                    position_effect=position_effect,
-                    option_type=option_type,
-                    type=type_of_transaction,
-                    description=description
-                ).model_dump())
+                    # Get additional option details
+                    symbol = getattr(item.instrument, "symbol", "")
+                    price = float(getattr(item, "price", 0))
+                    strike_price = getattr(item.instrument, "strikePrice")
+                    amount = float(getattr(item, "amount", 0))
+                    position_effect = getattr(item, "positionEffect")
+                    
+                    # Safely handle date conversion
+                    try:
+                        expiration_date_obj = getattr(item.instrument, "expirationDate", None)
+                        expiration_date = get_date_string(expiration_date_obj) if expiration_date_obj else ""
+                        
+                        trade_date_str = ""
+                        if trade_date:
+                            trade_date_str = get_date_string(trade_date)
+                    except Exception as e:
+                        logger.error(f"Error processing dates: {e}")
+                        expiration_date = ""
+                        trade_date_str = ""
+                    
+                    # Create the option transaction record
+                    parsed_transactions.append(OptionTransaction(
+                        date=trade_date_str,
+                        close_date=expiration_date,
+                        underlying_symbol=underlying_symbol,
+                        expirationDate=expiration_date,
+                        strike_price=strike_price,
+                        symbol=symbol,
+                        price=price,
+                        amount=amount,
+                        position_effect=position_effect,
+                        option_type=option_type,
+                        type=type_of_transaction,
+                        description=description,
+                        total_amount=price * -amount * 100 - (self.COMMISSION_PER_SHARE * abs(amount) * 100)  if position_effect == "CLOSING" else 0.0,
+                        open_price=price if position_effect == "OPENING" else 0.0,
+                        close_price=price if position_effect == "CLOSING" else 0.0
+                    ).model_dump())
+            except Exception as e:
+                logger.error(f"Error processing transaction: {e}")
+                continue
 
         return parsed_transactions
 
