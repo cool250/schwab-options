@@ -229,7 +229,9 @@ class TransactionService:
                         option_type=option_type,
                         type=type_of_transaction,
                         description=description,
-                        total_amount=price * -amount * 100 - (self.COMMISSION_PER_SHARE * abs(amount) * 100)    
+                        total_amount=price * -amount * 100 - (self.COMMISSION_PER_SHARE * abs(amount) * 100)  if position_effect == "CLOSING" else 0.0,
+                        open_price=price if position_effect == "OPENING" else 0.0,
+                        close_price=price if position_effect == "CLOSING" else 0.0
                     ).model_dump())
             except Exception as e:
                 logger.error(f"Error processing transaction: {e}")
