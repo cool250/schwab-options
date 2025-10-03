@@ -228,7 +228,8 @@ class TransactionService:
                         position_effect=position_effect,
                         option_type=option_type,
                         type=type_of_transaction,
-                        description=description
+                        description=description,
+                        total_amount=price * -amount * 100 - (self.COMMISSION_PER_SHARE * abs(amount) * 100)    
                     ).model_dump())
             except Exception as e:
                 logger.error(f"Error processing transaction: {e}")
