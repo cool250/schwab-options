@@ -133,7 +133,7 @@ class PositionService:
                             quantity = position.longQuantity
                         elif position.shortQuantity and position.shortQuantity > 0:
                             quantity = -position.shortQuantity
-                        exposure = self._calculate_exposure(option_type, position, strike_price)
+                        exposure = PositionService._calculate_exposure(position, strike_price)
                         option_details = {
                             "ticker": ticker,
                             "symbol": symbol,
@@ -146,15 +146,16 @@ class PositionService:
                         option_positions_details.append(option_details)
         return option_positions_details
 
-    def _calculate_exposure(self, option_type, position, strike_price):
+    @classmethod
+    def _calculate_exposure(cls, position, strike_price):
         """Calculate exposure for PUT options."""
         exposure = 0
-      
+
         if position.shortQuantity and position.shortQuantity > 0:
             exposure += strike_price * position.shortQuantity * 100
         if position.longQuantity and position.longQuantity > 0:
             exposure -= strike_price * position.longQuantity * 100
-       
+
         return exposure
 
     def get_total_exposure(self):

@@ -16,7 +16,7 @@ def chain():
     current_date = (datetime.now(et_timezone)).strftime("%Y-%m-%d")
     future_date = (datetime.now(et_timezone) + timedelta(days=8)).strftime("%Y-%m-%d")
     print(f"From Date: {current_date}, To Date: {future_date}")
-    result = service.highest_return_puts("SPY", 644, current_date, future_date)
+    result = service.highest_return("SPY", 644, current_date, future_date)
     
     # result = service.highest_return_puts("SPY", 640, "2025-09-03", "2025-09-08")
     print("Options:", result)
@@ -72,7 +72,7 @@ def llm():
 
 
 if __name__ == "__main__":
-    # authenticate()
-    price_history()
+    authenticate()
+    # price_history()
     # transaction()
     # position()

@@ -4,7 +4,7 @@ from datetime import datetime
 import plotly.express as px
 from service.transactions import TransactionService
 
-def fetch_stock_transactions(year: int, month: int):
+def fetch_stock_transactions(year: int, month: int, realized_gains_only: bool = False):
     # Get the first and last day of the month
     start_date = datetime(year, month, 1).strftime("%Y-%m-%d")
     if month == 12:
@@ -20,7 +20,7 @@ def fetch_stock_transactions(year: int, month: int):
             start_date=start_date,
             end_date=end_date,
             contract_type="ALL",
-            realized_gains_only=False,
+            realized_gains_only=realized_gains_only,
             stock_ticker=stock_ticker
         )
         return data
@@ -32,15 +32,17 @@ def render():
     st.header("Monthly Gains")
     today = datetime.today()
     with st.form("stock_allocation_form"):
-        col1, col2, col3 = st.columns([2,2,1])
+        col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
         year = col1.selectbox("Select Year", options=list(range(today.year, today.year-5, -1)), index=0)
         month = col2.selectbox("Select Month", options=list(range(1, 13)), format_func=lambda x: datetime(1900, x, 1).strftime('%B'), index=today.month-1)
         col3.markdown("<div style='height:1.8em;'></div>", unsafe_allow_html=True)
-        submitted = col3.form_submit_button("Submit")
+        realized_gains_only = col3.checkbox("Realized Gains Only", value=True)
+        col4.markdown("<div style='height:1.8em;'></div>", unsafe_allow_html=True)
+        submitted = col4.form_submit_button("Submit")
     if not submitted:
         return
     with st.spinner("Loading data and charts..."):
-        data = fetch_stock_transactions(year, month)
+        data = fetch_stock_transactions(year, month, realized_gains_only=realized_gains_only)
         if not data:
             st.info("No transaction data available for this month.")
             return
