@@ -18,6 +18,7 @@ Usage:
 2. View the application in your browser at the provided URL (usually `http://localhost:8502`).
 """
 
+from turtle import pos
 import streamlit as st
 import pandas as pd
 
@@ -48,7 +49,7 @@ def render():
         service = PositionService()
 
         # Fetch data from the service
-        option_positions, exposure, balance, stocks = service.populate_positions()
+        option_positions, balance, stocks = service.populate_positions()
 
         # Display balances
         if balance:
@@ -79,6 +80,7 @@ def render():
 
             if puts:
                 st.subheader("Put")
+                st.write(f"Total: {len(puts)} Exposure: ${sum(put['exposure'] for put in puts):,.2f}")
                 display_ui_table(puts, "expiration_date")
             else:
                 handle_error("No PUT option positions found.")
@@ -88,12 +90,3 @@ def render():
                 display_ui_table(calls, "expiration_date")
             else:
                 handle_error("No CALL option positions found.")
-
-        # Display overall exposure
-        if exposure:
-            exposure_list = [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in exposure.items()] # convert dict to list of dicts
-            st.subheader("Exposure")
-            st.metric(label="Total Exposure", value=f"${sum(exposure.values()):,.2f}")
-            display_ui_table(exposure_list, "Ticker")
-        else:
-            handle_error("No data received or invalid data structure.")

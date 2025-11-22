@@ -63,11 +63,10 @@ class PositionService:
     def populate_positions(self):
         """Populate option positions with current prices, total exposure, and account balances."""
         option_positions = self.get_option_positions_details()
-        total_exposure = self.get_total_exposure()
         account_balances = self.get_balances()
         stocks = self.get_stocks()
 
-        return option_positions, total_exposure, account_balances, stocks
+        return option_positions, account_balances, stocks
 
 
     def get_stocks(self):
