@@ -49,7 +49,7 @@ def render():
         service = PositionService()
 
         # Fetch data from the service
-        option_positions, balance, stocks = service.populate_positions()
+        options, balance, stocks = service.populate_positions()
 
         # Display balances
         if balance:
@@ -75,8 +75,8 @@ def render():
             handle_error("No stocks found.")
 
         # Display option positions
-        if option_positions:
-            puts, calls = option_positions
+        if options:
+            puts, calls = options
 
             if puts:
                 st.subheader("Put")
