@@ -32,7 +32,7 @@ def render():
         first_day_of_month = today_et.replace(day=1).date()
         start_date = col1_input.date_input("From Date:", value=first_day_of_month)
         # Default end date: yesterday (US/Eastern)
-        end_date = col2_input.date_input("To Date:", value=(datetime.now(pytz.timezone("US/Eastern")) - timedelta(days=1)))
+        end_date = col2_input.date_input("To Date:", value=(datetime.now(pytz.timezone("US/Eastern"))))
 
         # Convert date objects to strings in the required format
         start_date_str = start_date.strftime("%Y-%m-%d")
