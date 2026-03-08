@@ -48,3 +48,5 @@ Before you begin, ensure you have the following installed:
    streamlit run ui.py
    ```
 2. The UI will be available in your browser at the URL provided by Streamlit (usually `http://localhost:8501`).
+
+3. When Token needs to be refreshed run main.py and paste the token in the terminal

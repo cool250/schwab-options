@@ -58,7 +58,7 @@ class MarketService:
             from_date = datetime.now(pytz.timezone("US/Eastern")).strftime('%Y-%m-%d')
             to_date = (datetime.now(pytz.timezone("US/Eastern")) + timedelta(days=8)).strftime('%Y-%m-%d')
 
-        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
+        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=50, strike=strike, contract_type=contract_type)
         return self._process_option_chain(option_chain, strike, contract_type)
 
     def _process_option_chain(self, option_chain, strike: float, contract_type: str):

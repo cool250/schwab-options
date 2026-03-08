@@ -4,24 +4,50 @@ import pytz
 import streamlit as st
 from service.market import MarketService
 
+def _on_ticker_change():
+    """Fetch the current price for the ticker on focus change."""
+    ticker = st.session_state.get("ticker_input", "").strip().upper()
+    if ticker:
+        try:
+            market_data_service = MarketService()
+            price = market_data_service.get_ticker_price(ticker)
+            st.session_state["ticker_current_price"] = price
+        except Exception:
+            st.session_state["ticker_current_price"] = None
+    else:
+        st.session_state["ticker_current_price"] = None
+
+
 def render():
     # Streamlit app title
-    
+
     st.subheader("Options Chain Analyzer")
+
+    # Ticker input is outside the form so on_change fires on focus-out
+    ticker = st.text_input(
+        "Enter Ticker Symbol:",
+        key="ticker_input",
+        on_change=_on_ticker_change,
+    )
+
+    current_price = st.session_state.get("ticker_current_price")
+    if ticker and current_price is not None:
+        st.caption(f"Current price for **{ticker.upper()}**: ${current_price:.2f}")
+    elif ticker and current_price is None and "ticker_current_price" in st.session_state:
+        st.caption(f"Could not fetch price for **{ticker.upper()}**.")
 
     with st.form("input_form"):
         # Create two columns
-        col1_input, col2_input,col3_input = st.columns(3)
+        col1_input, col2_input, col3_input, col4_input = st.columns(4)
 
-        # User input for ticker symbol and strike price
-        ticker = col1_input.text_input("Enter Ticker Symbol:")
-        strike_price = col2_input.number_input("Enter Strike Price:")
-        option_type = col3_input.selectbox("Select Option Type:", ["CALL", "PUT"], index=1)
+        # User input for strike price and option type (ticker already captured above)
+        strike_price = col1_input.number_input("Enter Strike Price:")
+        option_type = col2_input.selectbox("Select Option Type:", ["CALL", "PUT"], index=1)
 
 
         # Date range inputs with calendar picker
-        from_date = col1_input.date_input("From Date:", value=datetime.now(pytz.timezone("US/Eastern")))
-        to_date = col2_input.date_input("To Date:", value=datetime.now(pytz.timezone("US/Eastern")) + timedelta(days=8))
+        from_date = col3_input.date_input("From Date:", value=datetime.now(pytz.timezone("US/Eastern")))
+        to_date = col4_input.date_input("To Date:", value=datetime.now(pytz.timezone("US/Eastern")) + timedelta(days=8))
 
         # Convert date objects to strings in the required format
         from_date_str = from_date.strftime("%Y-%m-%d")

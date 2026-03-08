@@ -63,6 +63,7 @@ class MarketData(APIClient):
         from_date: str,
         to_date: str,
         strike_count: int = 10,
+        strike: float = 0.0,
         contract_type: str = "ALL",
     ) -> OptionChainResponse | None:
         """
@@ -72,6 +73,7 @@ class MarketData(APIClient):
         params = {
             "symbol": symbol,
             "strikeCount": strike_count,
+            "strike": strike,
             "contractType": contract_type,
             "fromDate": from_date,
             "toDate": to_date,

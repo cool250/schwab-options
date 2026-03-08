@@ -1,5 +1,5 @@
 import streamlit as st
-from ui import position, option, chat, transactions, stock_allocation
+from ui import market_data, position, chat, transactions, stock_allocation
 import logging
 import sys
 
@@ -38,7 +38,7 @@ with tab1_view:
     position.render()
 
 with tab2_view:
-    option.render()
+    market_data.render()
 
 with tab3_view:
     chat.render()
