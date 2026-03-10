@@ -1,6 +1,6 @@
 import logging
-from model.market_models import PriceHistoryResponse, StockQuotes
-from model.option_models import OptionChainResponse
+from data.market_data import PriceHistoryResponse, StockQuotes
+from data.option_data import OptionChainResponse
 from pydantic import ValidationError
 from broker.base import APIClient
 

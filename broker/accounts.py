@@ -2,7 +2,7 @@ import logging
 from pydantic import ValidationError
 from typing import Optional
 from broker.base import APIClient
-from model.account_models import AccountHash, SecuritiesAccount, Activity
+from data.account_data import AccountHash, SecuritiesAccount, Activity
 from utils import convert_to_iso8601
 
 logger = logging.getLogger(__name__)
