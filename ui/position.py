@@ -80,13 +80,16 @@ def render():
 
             if puts:
                 st.subheader("Put")
-                st.write(f"Total: {len(puts)} Exposure: ${sum(put['exposure'] for put in puts):,.2f}")
+                total_put_exposure = sum(put['exposure'] for put in puts)
+                total_put_value = sum(put['total_value'] for put in puts)
+                st.write(f"Total: {len(puts)} Exposure: ${total_put_exposure:,.2f} Value: ${total_put_value:,.2f}")
                 display_ui_table(puts, "expiration_date")
             else:
                 handle_error("No PUT option positions found.")
 
             if calls:
                 st.subheader("Call")
+                st.write(f"Total: {len(calls)} Value: ${sum(call['total_value'] for call in calls):,.2f}")
                 display_ui_table(calls, "expiration_date")
             else:
                 handle_error("No CALL option positions found.")

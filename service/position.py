@@ -1,7 +1,7 @@
 from typing import Optional
 import logging
 from broker import Accounts, MarketData
-from model.account_models import SecuritiesAccount
+from data.account_data import SecuritiesAccount
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +31,15 @@ class PositionService:
 
     def get_option_positions_details(self):
         """Fetch option positions details including current prices."""
-        puts = self._get_options_with_prices("P")
-        calls = self._get_options_with_prices("C")
+        puts = self._get_positions_with_prices("P")
+        calls = self._get_positions_with_prices("C")
         return puts, calls
 
-    def _get_options_with_prices(self, option_type):
+    def _get_positions_with_prices(self, option_type):
         """Fetch options of a specific type and populate their current prices."""
         options = self.get_option_details(option_type)
-        return self.get_current_price(options)
+        options_with_prices = self.get_current_price(options)
+        return options_with_prices
 
     def get_current_price(self, tickers):
         """Fetch the current price for the given options."""
@@ -103,7 +104,7 @@ class PositionService:
         securities_account: SecuritiesAccount = self.position
 
         balances = {
-            "margin": securities_account.currentBalances.cashBalance,
+            "margin": securities_account.currentBalances.marginBalance,
             "mutualFundValue": securities_account.currentBalances.mutualFundValue,
             "account": securities_account.currentBalances.liquidationValue
         }
@@ -141,6 +142,7 @@ class PositionService:
                             "quantity": f"{quantity:,.0f}",
                             "exposure": exposure,
                             "trade_price": f"${position.averagePrice:,.2f}",
+                            "total_value": position.averagePrice * -quantity * 100
                         }
                         option_positions_details.append(option_details)
         return option_positions_details
