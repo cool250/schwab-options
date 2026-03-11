@@ -316,12 +316,18 @@ def greedy_optimise(
     max_contracts:  int          = 10,
     max_delta_abs:  float        = 500,   # portfolio-level delta limit
     max_vega:       float        = -1,    # -1 = no limit
+    max_margin_pct: float        = 1.0,   # max total margin as fraction of free_cash (e.g. 0.80 = 80%)
 ) -> OptimizedPortfolio:
     """
     Greedy allocation:
       1. Rank by theta_per_dollar (highest first)
       2. Fill greedily while margin budget and delta limit hold
+
+    max_margin_pct caps how much of free_cash can be consumed as margin.
+    e.g. 0.80 means stop allocating once 80% of free_cash is used as margin.
     """
+    margin_budget = free_cash * max(0.0, min(max_margin_pct, 1.0))
+
     ranked = sorted(candidates, key=lambda c: c.theta_per_dollar, reverse=True)
 
     positions:   List[Position] = []
@@ -329,7 +335,7 @@ def greedy_optimise(
     port_delta   = 0.0
 
     for cand in ranked:
-        remaining    = free_cash - used_margin
+        remaining    = margin_budget - used_margin
         if remaining < cand.margin_per_contract:
             continue
 
@@ -490,21 +496,22 @@ def export_to_csv(pf: OptimizedPortfolio, path: str = "portfolio.csv"):
 
 CONFIG = {
     # ── Cash constraint ───────────────────────────────────────────────────────
-    "free_cash":        100_000,    # total margin budget in $
+    "free_cash":        1500_000,    # total margin budget in $
 
     # ── Tickers (subset of SPY / QQQ / IWM) ──────────────────────────────────
     "tickers":          ["SPY", "QQQ", "IWM"],
 
     # ── Option filters ────────────────────────────────────────────────────────
     "type_filter":      "both",     # "put" | "call" | "both"
-    "max_dte":          45,         # maximum days-to-expiry
+    "max_dte":          5,         # maximum days-to-expiry
     "min_premium":      0.10,       # skip options below this price
-    "min_delta":        0.25,       # minimum |delta|  (0.05 = 5Δ)
+    "min_delta":        0.25,       # minimum |delta|  (0.25 = 25Δ)
     "max_delta":        0.45,       # maximum |delta|  (< 0.50 keeps strictly OTM)
 
     # ── Allocation constraints ────────────────────────────────────────────────
     "max_contracts":    10,         # max contracts per single position
-    "max_delta_abs":    5000,        # abs portfolio delta cap
+    "max_delta_abs":    5000,       # abs portfolio delta cap
+    "max_margin_pct":   0.60,       # max total margin as % of free_cash (0.80 = 80%)
 
     # ── Market / rates ────────────────────────────────────────────────────────
     "risk_free_rate":   0.0525,     # 5.25 % — adjust to current Fed Funds
@@ -551,6 +558,7 @@ def run(cfg: dict = CONFIG):
         free_cash     = cfg["free_cash"],
         max_contracts = cfg["max_contracts"],
         max_delta_abs = cfg["max_delta_abs"],
+        max_margin_pct = cfg.get("max_margin_pct", 0.6),
     )
     print_portfolio(portfolio)
 
