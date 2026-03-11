@@ -16,6 +16,9 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Literal, List, Optional
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
+
+ET = ZoneInfo("America/New_York")
 
 import numpy as np
 import pandas as pd
@@ -89,7 +92,7 @@ class MarketSnapshot:
     ticker:  str
     spot:    float
     iv:      float          # ATM 30-day IV (decimal)
-    fetched: str = field(default_factory=lambda: datetime.now().strftime("%H:%M:%S"))
+    fetched: str = field(default_factory=lambda: datetime.now(ET).strftime("%H:%M:%S ET"))
 
 
 def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dict[str, MarketSnapshot]:
@@ -106,7 +109,7 @@ def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dic
     from datetime import timedelta
 
     schwab    = MarketData()
-    today     = date.today()
+    today     = datetime.now(ET).date()
     from_date = today.strftime("%Y-%m-%d")
     to_date   = (today + timedelta(days=35)).strftime("%Y-%m-%d")
 
@@ -237,7 +240,7 @@ class OptionContract:
     def __post_init__(self):
         from datetime import timedelta
         otm_pct = (self.strike - self.spot) / self.spot * 100
-        self.expiry_date = (date.today() + timedelta(days=self.dte)).strftime("%Y-%m-%d")
+        self.expiry_date = (datetime.now(ET).date() + timedelta(days=self.dte)).strftime("%Y-%m-%d")
         self.label = (
             f"{self.ticker} {self.option_type.upper()} "
             f"${self.strike:.0f} "
@@ -615,6 +618,7 @@ def export_to_csv(pf: OptimizedPortfolio, path: str = "portfolio.csv"):
 CONFIG = {
     # ── Cash constraint ───────────────────────────────────────────────────────
     "free_cash":        1500_000,    # total margin budget in $
+    "stock_margin_pct": 0.50,        # Reg-T initial margin for stock holdings (50%)
 
     # ── Tickers (subset of SPY / QQQ / IWM) ──────────────────────────────────
     "tickers":          ["SPY", "QQQ", "IWM"],
@@ -659,17 +663,20 @@ def run(cfg: dict = CONFIG):
     snapshots = fetch_market_data(cfg["tickers"], cfg["risk_free_rate"])
     print_market_data(snapshots)
 
-    # ── 1b. Deduct stock cost from free cash ─────────────────────────────────
-    stock_cost = sum(
+    # ── 1b. Deduct stock margin (50% Reg-T) from free cash ──────────────────
+    stock_margin_pct = cfg.get("stock_margin_pct", 0.50)
+    stock_market_value = sum(
         holdings.get(t, 0) * snapshots[t].spot
         for t in snapshots
         if holdings.get(t, 0) > 0
     )
+    stock_cost = stock_market_value * stock_margin_pct
     free_cash = cfg["free_cash"] - stock_cost
-    if stock_cost > 0:
+    if stock_market_value > 0:
         print(f"\n  ┌─  CASH ADJUSTMENT FOR STOCK HOLDINGS  {'─'*41}┐")
         print(f"  │  Original Free Cash  : ${cfg['free_cash']:>12,.0f}                              │")
-        print(f"  │  Stock Holdings Cost : ${stock_cost:>12,.0f}                              │")
+        print(f"  │  Stock Market Value  : ${stock_market_value:>12,.0f}                              │")
+        print(f"  │  Stock Margin ({stock_margin_pct*100:.0f}%)   : ${stock_cost:>12,.0f}                              │")
         print(f"  │  Adjusted Free Cash  : ${free_cash:>12,.0f}                              │")
         print(f"  └{'─'*81}┘")
 
