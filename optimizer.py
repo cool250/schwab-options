@@ -155,6 +155,53 @@ def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dic
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# 2b. PORTFOLIO STOCK HOLDINGS  (via PositionService)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def fetch_portfolio_stocks(tickers: List[str]) -> dict[str, int]:
+    """
+    Fetch current share holdings for the given tickers from the brokerage account.
+
+    Returns a dict mapping ticker → share count (positive = long, negative = short).
+    Tickers not held will have a value of 0.
+    """
+    from service.position import PositionService
+
+    try:
+        svc = PositionService()
+        stocks = svc.get_stocks()
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠  Could not fetch portfolio positions: {exc}")
+        return {t: 0 for t in tickers}
+
+    upper_tickers = {t.upper() for t in tickers}
+    holdings: dict[str, int] = {t: 0 for t in tickers}
+
+    for row in stocks:
+        sym = row.get("symbol", "").upper()
+        if sym in upper_tickers:
+            # quantity is formatted as e.g. "1,000" — strip commas and cast
+            raw = str(row.get("quantity", "0")).replace(",", "")
+            try:
+                holdings[sym] = int(float(raw))
+            except ValueError:
+                pass
+
+    return holdings
+
+
+def print_portfolio_stocks(holdings: dict[str, int]) -> None:
+    """Print a compact table of current stock holdings."""
+    print(f"\n  ┌─  CURRENT STOCK HOLDINGS  {'─'*54}┐")
+    print(f"  │  {'Ticker':<10} {'Shares':>12}  {'Position':<20}                    │")
+    print(f"  │  {'──────':<10} {'──────':>12}  {'────────':<20}                    │")
+    for ticker, qty in holdings.items():
+        pos_label = "Long" if qty > 0 else ("Short" if qty < 0 else "—")
+        print(f"  │  {ticker:<10} {qty:>12,}  {pos_label:<20}                    │")
+    print(f"  └{'─'*81}┘")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # 3.  OPTION CANDIDATE UNIVERSE
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -219,7 +266,7 @@ def build_universe(
     snapshots: dict[str, MarketSnapshot],
     risk_free_rate: float,
     type_filter: Literal["put", "call", "both"] = "both",
-    max_dte: int = 60,
+    max_dte: int = 45,
     min_premium: float = 0.10,
     min_delta: float = 0.05,   # minimum |delta| — filters out near-zero premium far-OTM
     max_delta: float = 0.50,   # maximum |delta| — must be < 0.50 to stay OTM
@@ -290,12 +337,13 @@ def build_universe(
 
 @dataclass
 class Position:
-    contract:       OptionContract
-    contracts:      int
-    total_premium:  float
-    total_margin:   float
-    total_theta:    float   # daily $ theta collected (positive = income)
-    total_delta:    float
+    contract:          OptionContract
+    contracts:         int
+    total_premium:     float
+    total_margin:      float
+    total_theta:       float   # daily $ theta collected (positive = income)
+    total_delta:       float
+    covered_contracts: int = 0  # how many contracts are covered by held shares
 
 @dataclass
 class OptimizedPortfolio:
@@ -311,12 +359,14 @@ class OptimizedPortfolio:
 
 
 def greedy_optimise(
-    candidates:     List[OptionContract],
-    free_cash:      float,
-    max_contracts:  int          = 10,
-    max_delta_abs:  float        = 500,   # portfolio-level delta limit
-    max_vega:       float        = -1,    # -1 = no limit
-    max_margin_pct: float        = 1.0,   # max total margin as fraction of free_cash (e.g. 0.80 = 80%)
+    candidates:              List[OptionContract],
+    free_cash:               float,
+    max_contracts:           int          = 10,
+    max_delta_abs:           float        = 500,   # portfolio-level delta limit
+    max_vega:                float        = -1,    # -1 = no limit
+    max_margin_pct:          float        = 1.0,   # max total margin as fraction of free_cash (e.g. 0.80 = 80%)
+    holdings:                Optional[dict] = None, # {ticker: share_count} for covered-call margin relief
+    max_naked_calls_per_ticker: int       = 10,    # max naked short call contracts per ticker across portfolio
 ) -> OptimizedPortfolio:
     """
     Greedy allocation:
@@ -325,8 +375,25 @@ def greedy_optimise(
 
     max_margin_pct caps how much of free_cash can be consumed as margin.
     e.g. 0.80 means stop allocating once 80% of free_cash is used as margin.
+
+    holdings: if provided, short CALL contracts for a ticker are treated as
+    covered calls (margin = $0) up to floor(shares / 100) contracts.  Any
+    contracts beyond the covered capacity are treated as naked calls.
+
+    max_naked_calls_per_ticker: hard cap on the total number of naked short
+    call contracts per ticker across the entire portfolio.
     """
     margin_budget = free_cash * max(0.0, min(max_margin_pct, 1.0))
+
+    # Covered-call slots per ticker: each 100 shares covers 1 contract
+    _holdings = holdings or {}
+    covered_slots: dict[str, int] = {
+        t: max(0, qty // 100) for t, qty in _holdings.items() if qty > 0
+    }
+    covered_used: dict[str, int] = {t: 0 for t in covered_slots}
+
+    # Track naked call contracts allocated per ticker
+    naked_call_used: dict[str, int] = {}
 
     ranked = sorted(candidates, key=lambda c: c.theta_per_dollar, reverse=True)
 
@@ -335,19 +402,32 @@ def greedy_optimise(
     port_delta   = 0.0
 
     for cand in ranked:
-        remaining    = margin_budget - used_margin
-        if remaining < cand.margin_per_contract:
-            continue
+        # How many of these call contracts can be covered by held shares?
+        if cand.option_type == "call":
+            covered_avail = max(0, covered_slots.get(cand.ticker, 0)
+                                   - covered_used.get(cand.ticker, 0))
+        else:
+            covered_avail = 0
 
-        affordable   = int(remaining // cand.margin_per_contract)
-        n            = min(affordable, max_contracts)
+        # Effective margin per contract (0 for covered, full for naked)
+        # We'll compute the blended max-n separately below.
+        naked_margin = cand.margin_per_contract
+
+        # Maximum contracts we can afford (covered ones cost $0 in margin)
+        remaining = margin_budget - used_margin
+        # covered_avail contracts are free; the rest cost naked_margin each
+        free_contracts = min(covered_avail, max_contracts)
+        if naked_margin > 0:
+            paid_capacity = int(remaining // naked_margin)
+        else:
+            paid_capacity = max_contracts
+        n = min(free_contracts + paid_capacity, max_contracts)
         if n < 1:
             continue
 
         # Delta guard — don't blow the limit
         delta_add = cand.bs["delta"] * 100 * n
         if abs(port_delta + delta_add) > max_delta_abs:
-            # Try to fit fewer contracts
             for test_n in range(n - 1, 0, -1):
                 if abs(port_delta + cand.bs["delta"] * 100 * test_n) <= max_delta_abs:
                     n = test_n
@@ -355,17 +435,47 @@ def greedy_optimise(
             else:
                 continue
 
-        margin  = cand.margin_per_contract * n
+        # Split into covered vs naked contracts
+        n_covered = min(n, covered_avail)
+        n_naked   = n - n_covered
+
+        # Cap naked calls per ticker across the portfolio
+        if cand.option_type == "call" and n_naked > 0:
+            naked_used = naked_call_used.get(cand.ticker, 0)
+            naked_allowed = max(0, max_naked_calls_per_ticker - naked_used)
+            if naked_allowed == 0:
+                # Only covered contracts are allowed
+                n_naked = 0
+                n       = n_covered
+                if n < 1:
+                    continue
+            elif n_naked > naked_allowed:
+                n_naked = naked_allowed
+                n       = n_covered + n_naked
+
+        # Verify naked portion fits margin budget
+        if n_naked > 0 and n_naked * naked_margin > remaining:
+            n_naked   = int(remaining // naked_margin)
+            n         = n_covered + n_naked
+            if n < 1:
+                continue
+
+        margin = n_naked * naked_margin  # covered portion adds $0 margin
         used_margin  += margin
         port_delta   += cand.bs["delta"] * 100 * n
+        if cand.ticker in covered_used:
+            covered_used[cand.ticker] += n_covered
+        if cand.option_type == "call" and n_naked > 0:
+            naked_call_used[cand.ticker] = naked_call_used.get(cand.ticker, 0) + n_naked
 
         positions.append(Position(
-            contract      = cand,
-            contracts     = n,
-            total_premium = cand.bs["price"] * 100 * n,
-            total_margin  = margin,
-            total_theta   = abs(cand.bs["theta"]) * 100 * n,
-            total_delta   = cand.bs["delta"] * 100 * n,
+            contract           = cand,
+            contracts          = n,
+            total_premium      = cand.bs["price"] * 100 * n,
+            total_margin       = margin,
+            total_theta        = abs(cand.bs["theta"]) * 100 * n,
+            total_delta        = cand.bs["delta"] * 100 * n,
+            covered_contracts  = n_covered,
         ))
 
     total_vega  = sum(p.contract.bs["vega"]  * 100 * p.contracts for p in positions)
@@ -439,8 +549,16 @@ def print_portfolio(pf: OptimizedPortfolio):
 
     for i, pos in enumerate(pf.positions, 1):
         c = pos.contract
+        # Annotate covered calls
+        coverage_tag = ""
+        if c.option_type == "call" and pos.covered_contracts > 0:
+            if pos.covered_contracts == pos.contracts:
+                coverage_tag = " [COVERED]"
+            else:
+                coverage_tag = f" [{pos.covered_contracts}COV/{pos.contracts - pos.covered_contracts}NAKED]"
+        label_str = c.label + coverage_tag
         print(
-            f"  {i:>2}  {c.label:<50} {pos.contracts:>4}  "
+            f"  {i:>2}  {label_str:<60} {pos.contracts:>4}  "
             f"${pos.total_premium:>7,.0f}  ${pos.total_margin:>7,.0f}  "
             f"${pos.total_theta:>6.2f}  {pos.total_delta:>+8.1f}"
         )
@@ -509,9 +627,10 @@ CONFIG = {
     "max_delta":        0.45,       # maximum |delta|  (< 0.50 keeps strictly OTM)
 
     # ── Allocation constraints ────────────────────────────────────────────────
-    "max_contracts":    10,         # max contracts per single position
-    "max_delta_abs":    5000,       # abs portfolio delta cap
-    "max_margin_pct":   0.60,       # max total margin as % of free_cash (0.80 = 80%)
+    "max_contracts":             10,   # max contracts per single position
+    "max_delta_abs":           5000,   # abs portfolio delta cap
+    "max_margin_pct":          0.60,   # max total margin as % of free_cash (0.80 = 80%)
+    "max_naked_calls_per_ticker": 10,  # max naked short call contracts per ticker across portfolio
 
     # ── Market / rates ────────────────────────────────────────────────────────
     "risk_free_rate":   0.0525,     # 5.25 % — adjust to current Fed Funds
@@ -530,10 +649,29 @@ CONFIG = {
 def run(cfg: dict = CONFIG):
     print_header()
 
+    # ── 0. Existing portfolio stock positions ────────────────────────────────
+    print("\n  Fetching portfolio stock holdings …")
+    holdings = fetch_portfolio_stocks(cfg["tickers"])
+    print_portfolio_stocks(holdings)
+
     # ── 1. Live market data ──────────────────────────────────────────────────
     print("\n  Fetching live market data …")
     snapshots = fetch_market_data(cfg["tickers"], cfg["risk_free_rate"])
     print_market_data(snapshots)
+
+    # ── 1b. Deduct stock cost from free cash ─────────────────────────────────
+    stock_cost = sum(
+        holdings.get(t, 0) * snapshots[t].spot
+        for t in snapshots
+        if holdings.get(t, 0) > 0
+    )
+    free_cash = cfg["free_cash"] - stock_cost
+    if stock_cost > 0:
+        print(f"\n  ┌─  CASH ADJUSTMENT FOR STOCK HOLDINGS  {'─'*41}┐")
+        print(f"  │  Original Free Cash  : ${cfg['free_cash']:>12,.0f}                              │")
+        print(f"  │  Stock Holdings Cost : ${stock_cost:>12,.0f}                              │")
+        print(f"  │  Adjusted Free Cash  : ${free_cash:>12,.0f}                              │")
+        print(f"  └{'─'*81}┘")
 
     # ── 2. Build option universe ─────────────────────────────────────────────
     print("\n  Building option universe …")
@@ -554,11 +692,13 @@ def run(cfg: dict = CONFIG):
     # ── 4. Optimise ──────────────────────────────────────────────────────────
     print("\n  Running optimiser …")
     portfolio = greedy_optimise(
-        candidates    = candidates,
-        free_cash     = cfg["free_cash"],
-        max_contracts = cfg["max_contracts"],
-        max_delta_abs = cfg["max_delta_abs"],
-        max_margin_pct = cfg.get("max_margin_pct", 0.6),
+        candidates                = candidates,
+        free_cash                 = free_cash,
+        max_contracts             = cfg["max_contracts"],
+        max_delta_abs             = cfg["max_delta_abs"],
+        max_margin_pct            = cfg.get("max_margin_pct", 0.6),
+        holdings                  = holdings,
+        max_naked_calls_per_ticker= cfg.get("max_naked_calls_per_ticker", 10),
     )
     print_portfolio(portfolio)
 
