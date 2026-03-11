@@ -158,9 +158,16 @@ def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dic
 # 3.  OPTION CANDIDATE UNIVERSE
 # ═════════════════════════════════════════════════════════════════════════════
 
-# Strikes as % OTM from spot  (negative = OTM for puts, positive = OTM for calls)
-STRIKE_MONEYNESS = [-0.3, -0.2, -0.1, 0.00,0.1, 0.2, 0.3]
-EXPIRY_DTE       = [1,2,3,4,5]
+# Strikes as % from spot — dense near ATM where short-DTE premium lives,
+# with wider steps further out for longer-dated candidates.
+STRIKE_MONEYNESS = [
+    -0.30, -0.20, -0.10,          # far OTM puts / far OTM calls
+    -0.07, -0.05, -0.04, -0.03,   # moderate OTM puts
+    -0.02, -0.01,                  # near OTM puts (critical for short DTE)
+     0.01,  0.02,                  # near OTM calls
+     0.03,  0.04,  0.05,  0.07,   # moderate OTM calls
+     0.10,  0.20,  0.30,          # far OTM calls / far OTM puts
+]
 
 
 @dataclass
@@ -178,14 +185,17 @@ class OptionContract:
     ann_yield_pct:       float = 0.0
     theta_per_dollar:    float = 0.0
     label:               str = ""
+    expiry_date:         str = ""   # calendar date of expiration (YYYY-MM-DD)
 
     def __post_init__(self):
+        from datetime import timedelta
         otm_pct = (self.strike - self.spot) / self.spot * 100
+        self.expiry_date = (date.today() + timedelta(days=self.dte)).strftime("%Y-%m-%d")
         self.label = (
             f"{self.ticker} {self.option_type.upper()} "
             f"${self.strike:.0f} "
             f"{'OTM' if (self.option_type=='put' and otm_pct<0) or (self.option_type=='call' and otm_pct>0) else 'ITM'} "
-            f"({self.dte}DTE)"
+            f"{self.expiry_date} ({self.dte}DTE)"
         )
 
 
@@ -211,28 +221,46 @@ def build_universe(
     type_filter: Literal["put", "call", "both"] = "both",
     max_dte: int = 60,
     min_premium: float = 0.10,
+    min_delta: float = 0.05,   # minimum |delta| — filters out near-zero premium far-OTM
+    max_delta: float = 0.50,   # maximum |delta| — must be < 0.50 to stay OTM
 ) -> List[OptionContract]:
-    """Generate all candidate short options across tickers, strikes, and expiries."""
+    """Generate all candidate short OTM options across tickers, strikes, and expiries.
+
+    OTM enforcement (strict):
+      - Put  : strike must be strictly below spot (K < S)
+      - Call : strike must be strictly above spot (K > S)
+    Delta range (absolute value, both types):
+      - Only contracts where min_delta <= |delta| <= max_delta are kept.
+      - Setting max_delta < 0.50 guarantees OTM on a delta basis as well.
+    """
     candidates: List[OptionContract] = []
 
     types = (["put", "call"] if type_filter == "both"
              else [type_filter])
 
+    # Build DTE list from 1 up to max_dte so it always respects the config
+    dte_list = list(range(1, max_dte + 1))
+
     for ticker, snap in snapshots.items():
         S, sigma = snap.spot, snap.iv
-        for dte in EXPIRY_DTE:
-            if dte > max_dte:
-                continue
+        for dte in dte_list:
             T = dte / 365.0
             for mono in STRIKE_MONEYNESS:
                 K = round(S * (1 + mono))
                 for opt_type in types:
-                    # Skip strikes that are deep ITM (rarely sold)
-                    if opt_type == "put"  and mono >  0.05: continue
-                    if opt_type == "call" and mono < -0.05: continue
+                    # ── Strict OTM filter ────────────────────────────────────
+                    # Put  OTM: strike must be below spot
+                    # Call OTM: strike must be above spot
+                    if opt_type == "put"  and K >= S: continue
+                    if opt_type == "call" and K <= S: continue
 
                     bs = bs_price_and_greeks(S, K, T, risk_free_rate, sigma, opt_type)
                     if bs["price"] < min_premium:
+                        continue
+
+                    # ── Delta range filter (absolute value) ──────────────────
+                    abs_delta = abs(bs["delta"])
+                    if not (min_delta <= abs_delta <= max_delta):
                         continue
 
                     margin = compute_margin(S, K, bs["price"], opt_type)
@@ -371,21 +399,21 @@ def print_market_data(snapshots: dict[str, MarketSnapshot]):
 
 def print_scanner(candidates: List[OptionContract], top_n: int = 20):
     ranked = sorted(candidates, key=lambda c: c.ann_yield_pct, reverse=True)[:top_n]
-    print(f"\n┌─  TOP {top_n} CANDIDATES BY ANNUALISED YIELD  " + "─" * 37 + "┐")
-    print(f"  {'#':>2}  {'TICKER':<6} {'TYPE':<5} {'STRIKE':>7} {'DTE':>4} "
+    print(f"\n┌─  TOP {top_n} CANDIDATES BY ANNUALISED YIELD  " + "─" * 47 + "┐")
+    print(f"  {'#':>2}  {'TICKER':<6} {'TYPE':<5} {'STRIKE':>7} {'EXPIRY':<12} {'DTE':>4} "
           f"{'PREMIUM':>8} {'MARGIN':>8} {'ANN YLD':>8} {'THETA/D':>8} {'DELTA':>7}")
-    print(f"  {'──':>2}  {'──────':<6} {'────':<5} {'──────':>7} {'───':>4} "
+    print(f"  {'──':>2}  {'──────':<6} {'────':<5} {'──────':>7} {'──────────':<12} {'───':>4} "
           f"{'───────':>8} {'──────':>8} {'───────':>8} {'───────':>8} {'─────':>7}")
     for i, c in enumerate(ranked, 1):
         print(
             f"  {i:>2}  {c.ticker:<6} {c.option_type.upper():<5} ${c.strike:>6.0f} "
-            f"{c.dte:>4}  "
+            f"{c.expiry_date:<12} {c.dte:>4}  "
             f"${c.bs['price']:>6.2f}  ${c.margin_per_contract:>6.0f}  "
             f"{c.ann_yield_pct:>7.1f}%  "
             f"${abs(c.bs['theta'])*100:>6.2f}  "
             f"{c.bs['delta']:>+7.4f}"
         )
-    print("└" + "─" * 81 + "┘")
+    print("└" + "─" * 91 + "┘")
 
 def print_portfolio(pf: OptimizedPortfolio):
     print(f"\n{HEADER}")
@@ -400,20 +428,20 @@ def print_portfolio(pf: OptimizedPortfolio):
         print("  ⚠  No positions allocated. Relax constraints or increase free cash.\n")
         return
 
-    print(f"  {'#':>2}  {'CONTRACT':<42} {'QTY':>4} {'PREMIUM':>9} {'MARGIN':>9} {'Θ/DAY':>8} {'DELTA':>8}")
-    print(f"  {'──':>2}  {'────────':<42} {'───':>4} {'───────':>9} {'──────':>9} {'─────':>8} {'─────':>8}")
+    print(f"  {'#':>2}  {'CONTRACT':<50} {'QTY':>4} {'PREMIUM':>9} {'MARGIN':>9} {'Θ/DAY':>8} {'DELTA':>8}")
+    print(f"  {'──':>2}  {'────────':<50} {'───':>4} {'───────':>9} {'──────':>9} {'─────':>8} {'─────':>8}")
 
     for i, pos in enumerate(pf.positions, 1):
         c = pos.contract
         print(
-            f"  {i:>2}  {c.label:<42} {pos.contracts:>4}  "
+            f"  {i:>2}  {c.label:<50} {pos.contracts:>4}  "
             f"${pos.total_premium:>7,.0f}  ${pos.total_margin:>7,.0f}  "
             f"${pos.total_theta:>6.2f}  {pos.total_delta:>+8.1f}"
         )
 
-    print(f"\n  {'':>48}{'─────────':>9}  {'────────':>8}  {'────────':>8}")
+    print(f"\n  {'':>56}{'─────────':>9}  {'────────':>8}  {'────────':>8}")
     print(
-        f"  {'TOTALS':>48}  ${pf.total_premium:>7,.0f}  "
+        f"  {'TOTALS':>56}  ${pf.total_premium:>7,.0f}  "
         f"${pf.total_theta:>6.2f}  {pf.total_delta:>+8.1f}"
     )
 
@@ -436,17 +464,18 @@ def export_to_csv(pf: OptimizedPortfolio, path: str = "portfolio.csv"):
     for pos in pf.positions:
         c = pos.contract
         rows.append({
-            "ticker":     c.ticker,
-            "type":       c.option_type,
-            "strike":     c.strike,
-            "dte":        c.dte,
-            "contracts":  pos.contracts,
-            "premium":    round(c.bs["price"], 2),
+            "ticker":        c.ticker,
+            "type":          c.option_type,
+            "strike":        c.strike,
+            "expiry_date":   c.expiry_date,
+            "dte":           c.dte,
+            "contracts":     pos.contracts,
+            "premium":       round(c.bs["price"], 2),
             "total_premium": round(pos.total_premium, 2),
-            "margin":     round(pos.total_margin, 2),
-            "theta_daily": round(pos.total_theta, 4),
-            "delta":      round(pos.total_delta, 4),
-            "iv_pct":     round(c.bs["iv"] * 100, 2),
+            "margin":        round(pos.total_margin, 2),
+            "theta_daily":   round(pos.total_theta, 4),
+            "delta":         round(pos.total_delta, 4),
+            "iv_pct":        round(c.bs["iv"] * 100, 2),
             "ann_yield_pct": round(c.ann_yield_pct, 2),
         })
     df = pd.DataFrame(rows)
@@ -470,10 +499,12 @@ CONFIG = {
     "type_filter":      "both",     # "put" | "call" | "both"
     "max_dte":          45,         # maximum days-to-expiry
     "min_premium":      0.10,       # skip options below this price
+    "min_delta":        0.25,       # minimum |delta|  (0.05 = 5Δ)
+    "max_delta":        0.45,       # maximum |delta|  (< 0.50 keeps strictly OTM)
 
     # ── Allocation constraints ────────────────────────────────────────────────
     "max_contracts":    10,         # max contracts per single position
-    "max_delta_abs":    500,        # abs portfolio delta cap
+    "max_delta_abs":    5000,        # abs portfolio delta cap
 
     # ── Market / rates ────────────────────────────────────────────────────────
     "risk_free_rate":   0.0525,     # 5.25 % — adjust to current Fed Funds
@@ -505,6 +536,8 @@ def run(cfg: dict = CONFIG):
         type_filter      = cfg["type_filter"],
         max_dte          = cfg["max_dte"],
         min_premium      = cfg["min_premium"],
+        min_delta        = cfg.get("min_delta", 0.25),
+        max_delta        = cfg.get("max_delta", 0.45),
     )
     print(f"  {len(candidates)} candidate contracts generated.")
 
