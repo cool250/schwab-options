@@ -82,9 +82,61 @@ def bs_price_and_greeks(
     return dict(price=max(price, 0.0), delta=delta, gamma=gamma,
                 theta=theta, vega=vega, rho=rho, iv=sigma)
 
+# ═════════════════════════════════════════════════════════════════════════════
+# 2.  RISK-REWARD SCORING
+# ═════════════════════════════════════════════════════════════════════════════
+
+def risk_reward_score(
+    theta_per_dollar:   float,
+    abs_delta:          float,
+    gamma:              float,
+    dte:                int,
+    dte_sweet_spot:     int   = 30,
+    delta_risk_exp:     float = 2.0,
+    gamma_risk_weight:  float = 5.0,
+    dte_risk_weight:         float = 0.3,
+) -> float:
+    """
+    Composite risk-adjusted score for a short option candidate.
+
+    Components
+    ──────────
+    theta_per_dollar   Raw daily theta per $ of margin — the base reward.
+
+    delta_penalty      Scales reward DOWN as |delta| approaches 0.50.
+                       A 0.40-delta contract is heavily penalized vs 0.20-delta,
+                       even if both collect similar nominal theta.
+                         exponent=1 → linear:    Δ0.30 penalty = 0.40
+                         exponent=2 → quadratic: Δ0.30 penalty = 0.16  ← default
+                         exponent=3 → cubic:     Δ0.30 penalty = 0.064
+
+    gamma_penalty      Scales reward DOWN for high gamma.
+                       Short-DTE near-ATM options have the highest gamma —
+                       their delta can swing violently on an adverse move.
+
+    dte_factor         Mild preference for the theta sweet-spot (~30 DTE).
+                       Very short DTE (high gamma risk) and very long DTE
+                       (slow decay, capital tied up) are both mildly penalized.
+    """
+    # Guard: if theta_per_dollar is zero or negative, score is zero
+    if theta_per_dollar <= 0:
+        return 0.0
+
+    # Delta penalty — quadratic decay toward zero as |delta| → 0.50
+    delta_ratio = min(abs_delta / 0.50, 1.0)
+    delta_pen   = (1.0 - delta_ratio) ** delta_risk_exp
+
+    # Gamma penalty — diminishing returns for high-gamma contracts
+    gamma_pen   = 1.0 / (1.0 + gamma_risk_weight * gamma * 100)
+
+    # DTE factor — mild sweet-spot preference
+    dte_factor  = 1.0 - dte_risk_weight * abs(dte - dte_sweet_spot) / max(dte_sweet_spot, 1)
+    dte_factor  = max(0.5, min(1.0, dte_factor))
+
+    return theta_per_dollar * delta_pen * gamma_pen * dte_factor
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 2.  MARKET DATA  (Schwab API)
+# 3.  MARKET DATA  (Schwab API)
 # ═════════════════════════════════════════════════════════════════════════════
 
 @dataclass
@@ -158,7 +210,7 @@ def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dic
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 2b. PORTFOLIO STOCK HOLDINGS  (via PositionService)
+# 3b. PORTFOLIO STOCK HOLDINGS  (via PositionService)
 # ═════════════════════════════════════════════════════════════════════════════
 
 def fetch_portfolio_stocks(tickers: List[str]) -> dict[str, int]:
@@ -238,7 +290,7 @@ def fetch_stock_cost_basis(tickers: List[str]) -> dict[str, float]:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 3.  OPTION CANDIDATE UNIVERSE
+# 4.  OPTION CANDIDATE UNIVERSE
 # ═════════════════════════════════════════════════════════════════════════════
 
 # Strikes as % from spot — dense near ATM where short-DTE premium lives,
@@ -267,6 +319,7 @@ class OptionContract:
     margin_per_contract: float = 0.0
     ann_yield_pct:       float = 0.0
     theta_per_dollar:    float = 0.0
+    rr_score:            float = 0.0   # ← risk-adjusted composite score
     label:               str = ""
     expiry_date:         str = ""   # calendar date of expiration (YYYY-MM-DD)
 
@@ -306,6 +359,10 @@ def build_universe(
     min_premium: float = 0.10,
     min_delta: float = 0.05,   # minimum |delta| — filters out near-zero premium far-OTM
     max_delta: float = 0.50,   # maximum |delta| — must be < 0.50 to stay OTM
+    delta_risk_exp:    float = 2.0,
+    gamma_risk_weight: float = 5.0,
+    dte_risk_weight:   float = 0.3,
+    dte_sweet_spot:    int   = 30,
 ) -> List[OptionContract]:
     """Generate all candidate short OTM options across tickers, strikes, and expiries.
 
@@ -353,6 +410,19 @@ def build_universe(
                     # Annualised yield on margin
                     premium_per_contract = bs["price"] * 100
                     ann_yield = (premium_per_contract / margin) * (365 / dte) * 100
+                    theta_per_dollar     = abs(bs["theta"]) * 100 / margin
+
+                    # ── Risk-reward score ─────────────────────────────────
+                    rr = risk_reward_score(
+                        theta_per_dollar  = theta_per_dollar,
+                        abs_delta         = abs_delta,
+                        gamma             = bs["gamma"],
+                        dte               = dte,
+                        delta_risk_exp    = delta_risk_exp,
+                        gamma_risk_weight = gamma_risk_weight,
+                        dte_sweet_spot    = dte_sweet_spot,
+                        dte_risk_weight   = dte_risk_weight,
+                    )
 
                     contract = OptionContract(
                         ticker=ticker, spot=S, strike=K,
@@ -360,7 +430,8 @@ def build_universe(
                     )
                     contract.margin_per_contract = margin
                     contract.ann_yield_pct       = ann_yield
-                    contract.theta_per_dollar    = abs(bs["theta"]) * 100 / margin
+                    contract.theta_per_dollar    = theta_per_dollar
+                    contract.rr_score            = rr
 
                     candidates.append(contract)
 
@@ -368,7 +439,7 @@ def build_universe(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 4.  PORTFOLIO OPTIMISER
+# 5.  PORTFOLIO OPTIMISER
 # ═════════════════════════════════════════════════════════════════════════════
 
 @dataclass
@@ -406,10 +477,13 @@ def greedy_optimise(
     holdings:                Optional[dict] = None, # {ticker: share_count} for covered-call margin relief
     max_naked_calls_per_ticker: int       = 10,    # max naked short call contracts per ticker across portfolio
     cost_basis:              Optional[dict] = None, # {ticker: avg_cost_per_share} — covered calls must not risk a loss
+    delta_penalty:           float        = 2.0,   # penalise higher |delta| in ranking score
 ) -> OptimizedPortfolio:
     """
     Greedy allocation:
-      1. Rank by theta_per_dollar (highest first)
+      1. Rank by delta-adjusted score: theta_per_dollar / (1 + delta_penalty * |delta|)
+         A delta_penalty of 2.0 means a 25Δ contract scores 1.5× lower than the same
+         theta_per_dollar at 0Δ, and a 45Δ contract scores 1.9× lower.
       2. Fill greedily while margin budget, delta band, and concentration limits hold
 
     max_margin_pct caps how much of free_cash can be consumed as margin.
@@ -424,6 +498,9 @@ def greedy_optimise(
     cost_basis: if provided, a covered call is only considered if
       strike + premium >= cost_basis[ticker], so assignment never locks in
       a loss on the underlying shares.
+    delta_penalty: scaling factor for the |delta| penalty in the ranking score.
+      0 = no penalty (pure theta_per_dollar ranking); higher = stronger preference
+      for low-delta contracts.
     """
     margin_budget = free_cash * max(0.0, min(max_margin_pct, 1.0))
 
@@ -443,7 +520,8 @@ def greedy_optimise(
     ticker_margin_cap = margin_budget * max(0.0, min(max_ticker_margin_pct, 1.0))
     ticker_margin_used: dict[str, float] = {}
 
-    ranked = sorted(candidates, key=lambda c: c.theta_per_dollar, reverse=True)
+    ranked = sorted(candidates, key=lambda c: c.rr_score, reverse=True)
+
 
     positions:   List[Position] = []
     used_margin  = 0.0
@@ -568,7 +646,7 @@ def greedy_optimise(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 5.  REPORTING
+# 6.  REPORTING
 # ═════════════════════════════════════════════════════════════════════════════
 
 HEADER = "═" * 82
@@ -707,6 +785,7 @@ CONFIG = {
     "max_margin_pct":          0.60,   # max total margin as % of free_cash
     "max_ticker_margin_pct":   0.40,   # max margin per ticker as fraction of total margin budget
     "max_naked_calls_per_ticker": 10,  # max naked short call contracts per ticker across portfolio
+    "delta_penalty":             2.0,  # penalise |delta| in ranking: score = theta_per_dollar / (1 + penalty * |delta|)
 
     # ── Market / rates ────────────────────────────────────────────────────────
     "risk_free_rate":   0.0525,     # 5.25 % — adjust to current Fed Funds
@@ -763,6 +842,10 @@ def run(cfg: dict = CONFIG):
         min_premium      = cfg["min_premium"],
         min_delta        = cfg.get("min_delta", 0.25),
         max_delta        = cfg.get("max_delta", 0.45),
+        delta_risk_exp    = cfg.get("delta_risk_exp", 2.0),
+        gamma_risk_weight = cfg.get("gamma_risk_weight", 5.0),
+        dte_sweet_spot    = cfg.get("dte_sweet_spot", 5),
+        dte_risk_weight   = cfg.get("dte_risk_weight", 0.3),
     )
     print(f"  {len(candidates)} candidate contracts generated.")
 
@@ -774,7 +857,7 @@ def run(cfg: dict = CONFIG):
     portfolio = greedy_optimise(
         candidates                 = candidates,
         free_cash                  = free_cash,
-        max_contracts              = cfg["max_contracts"],
+        max_contracts              = cfg.get("max_contracts", 10),
         max_delta_abs              = cfg.get("max_delta_abs", 100),
         target_delta               = cfg.get("target_delta", 0.0),
         max_margin_pct             = cfg.get("max_margin_pct", 0.6),
@@ -782,12 +865,13 @@ def run(cfg: dict = CONFIG):
         holdings                   = holdings,
         max_naked_calls_per_ticker = cfg.get("max_naked_calls_per_ticker", 10),
         cost_basis                 = cost_basis,
+        delta_penalty              = cfg.get("delta_penalty", 2.0),
     )
     print_portfolio(portfolio)
 
     # ── 5. Export ────────────────────────────────────────────────────────────
-    if cfg["export_csv"] and portfolio.positions:
-        df = export_to_csv(portfolio, cfg["csv_path"])
+    # if cfg["export_csv"] and portfolio.positions:
+    #     df = export_to_csv(portfolio, cfg["csv_path"])
 
     print(f"\n{HEADER}\n")
     return portfolio
