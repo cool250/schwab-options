@@ -9,7 +9,6 @@ Optimization: Maximize daily Theta collected subject to
               total margin exposure ≤ free_cash budget.
 """
 
-import math
 import sys
 import json
 import warnings
@@ -20,70 +19,13 @@ from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
 
-import numpy as np
 import pandas as pd
-from scipy.stats import norm
-from scipy.optimize import minimize
 
 warnings.filterwarnings("ignore")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 1.  BLACK-SCHOLES ENGINE
-# ═════════════════════════════════════════════════════════════════════════════
-
-def bs_price_and_greeks(
-    S: float, K: float, T: float, r: float, sigma: float,
-    option_type: Literal["put", "call"]
-) -> dict:
-    """
-    Returns Black-Scholes fair value + full Greeks for a European option.
-
-    Parameters
-    ----------
-    S      : underlying spot price
-    K      : strike price
-    T      : time to expiry in years  (e.g. 30/365)
-    r      : risk-free rate (decimal, e.g. 0.0525)
-    sigma  : implied volatility (decimal, e.g. 0.18)
-    option_type : 'put' or 'call'
-    """
-    if T <= 0:
-        intrinsic = max(K - S, 0) if option_type == "put" else max(S - K, 0)
-        return dict(price=intrinsic, delta=0.0, gamma=0.0,
-                    theta=0.0, vega=0.0, rho=0.0, iv=sigma)
-
-    d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
-    d2 = d1 - sigma * math.sqrt(T)
-
-    nd1, nd2   = norm.cdf(d1),  norm.cdf(d2)
-    nnd1, nnd2 = norm.cdf(-d1), norm.cdf(-d2)
-    pdf_d1     = norm.pdf(d1)
-    disc       = math.exp(-r * T)
-
-    if option_type == "call":
-        price = S * nd1 - K * disc * nd2
-        delta = nd1
-        rho   = K * T * disc * nd2 / 100
-    else:
-        price = K * disc * nnd2 - S * nnd1
-        delta = nd1 - 1
-        rho   = -K * T * disc * nnd2 / 100
-
-    gamma = pdf_d1 / (S * sigma * math.sqrt(T))
-    vega  = S * pdf_d1 * math.sqrt(T) / 100          # per 1 % IV move
-    theta = (
-        (-S * pdf_d1 * sigma / (2 * math.sqrt(T))
-         + (r * K * disc * nnd2 if option_type == "put"
-            else -r * K * disc * nd2))
-        / 365                                          # daily theta
-    )
-
-    return dict(price=max(price, 0.0), delta=delta, gamma=gamma,
-                theta=theta, vega=vega, rho=rho, iv=sigma)
-
-# ═════════════════════════════════════════════════════════════════════════════
-# 2.  RISK-REWARD SCORING
+# 1.  RISK-REWARD SCORING
 # ═════════════════════════════════════════════════════════════════════════════
 
 def risk_reward_score(
@@ -141,21 +83,77 @@ def risk_reward_score(
 
 @dataclass
 class MarketSnapshot:
-    ticker:  str
-    spot:    float
-    iv:      float          # ATM 30-day IV (decimal)
-    fetched: str = field(default_factory=lambda: datetime.now(ET).strftime("%H:%M:%S ET"))
+    ticker:    str
+    spot:      float
+    iv:        float          # ATM 30-day IV (decimal)
+    fetched:   str  = field(default_factory=lambda: datetime.now(ET).strftime("%H:%M:%S ET"))
+
+@dataclass
+class OptionContract:
+    ticker:      str
+    spot:        float
+    strike:      float
+    dte:         int
+    option_type: Literal["put", "call"]
+    T:           float               # years
+    bs:          dict = field(default_factory=dict)
+
+    # ── Computed metrics ─────────────────────────────────────────────────────
+    margin_per_contract: float = 0.0
+    ann_yield_pct:       float = 0.0
+    theta_per_dollar:    float = 0.0
+    rr_score:            float = 0.0   # risk-adjusted composite score
+    label:               str   = ""
+    expiry_date:         str   = ""   # YYYY-MM-DD
+
+    # ── Live market data (from Schwab chain; zero / False when unavailable) ──
+    has_live_data:   bool  = False
+    bid:             float = 0.0
+    ask:             float = 0.0
+    mark:            float = 0.0   # mid-market price from exchange
+    last:            float = 0.0
+    bid_size:        int   = 0
+    ask_size:        int   = 0
+    volume:          int   = 0
+    open_interest:   int   = 0
+    live_iv:         float = 0.0   # contract-level IV, decimal (e.g. 0.18 = 18%)
+    live_delta:      float = 0.0   # per share
+    live_gamma:      float = 0.0   # per share
+    live_theta:      float = 0.0   # per share per day (negative = decay)
+    live_vega:       float = 0.0   # per share per 1% IV move
+    live_rho:        float = 0.0   # per share
+    intrinsic_value: float = 0.0
+    extrinsic_value: float = 0.0
+    time_value:      float = 0.0
+    percent_change:  float = 0.0
+    mark_change:     float = 0.0
+    in_the_money:    bool  = False
+
+    def __post_init__(self):
+        from datetime import timedelta
+        otm_pct = (self.strike - self.spot) / self.spot * 100
+        self.expiry_date = (datetime.now(ET).date() + timedelta(days=self.dte)).strftime("%Y-%m-%d")
+        self.label = (
+            f"{self.ticker} {self.option_type.upper()} "
+            f"${self.strike:.0f} "
+            f"{'OTM' if (self.option_type=='put' and otm_pct<0) or (self.option_type=='call' and otm_pct>0) else 'ITM'} "
+            f"{self.expiry_date} ({self.dte}DTE)"
+        )
 
 
-def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dict[str, MarketSnapshot]:
+def fetch_market_data(
+    tickers: List[str],
+    chain_strike_count: int = 50,
+) -> tuple[dict[str, MarketSnapshot], List["OptionContract"]]:
     """
-    Pull live spot prices and ATM IV for each ticker via Schwab's
-    MarketData.get_chain().
+    Pull live spot prices, ATM IV, and full option chain for each ticker via
+    Schwab's MarketData.get_chain().
 
-    - spot  : OptionChainResponse.underlyingPrice
-    - ATM IV: OptionChainResponse.volatility (chain-level, in %→decimal).
-              Falls back to averaging individual contract IVs if chain-level
-              is zero, then to hard-coded defaults if the API call fails.
+    Returns
+    -------
+    snapshots     : {ticker → MarketSnapshot}  (spot + ATM IV, used for display)
+    raw_contracts : List[OptionContract] with all live market fields populated.
+                    BS metrics and scoring are NOT yet computed — that happens in build_universe().
     """
     from broker.market_data import MarketData
     from datetime import timedelta
@@ -165,7 +163,8 @@ def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dic
     from_date = today.strftime("%Y-%m-%d")
     to_date   = (today + timedelta(days=35)).strftime("%Y-%m-%d")
 
-    snapshots: dict[str, MarketSnapshot] = {}
+    snapshots:     dict[str, MarketSnapshot] = {}
+    raw_contracts: List[OptionContract]      = []
 
     for ticker in tickers:
         print(f"  📡  Fetching {ticker} …", end=" ", flush=True)
@@ -174,7 +173,7 @@ def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dic
                 ticker,
                 from_date=from_date,
                 to_date=to_date,
-                strike_count=5,
+                strike_count=chain_strike_count,
                 contract_type="ALL",
             )
             if chain is None:
@@ -185,20 +184,85 @@ def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dic
             # chain.volatility is reported in % (e.g. 18.0 → 18%)
             atm_iv = (chain.volatility / 100.0) if chain.volatility else 0.0
 
+            # ── Build OptionContract objects directly from chain data ─────────
+            ticker_contracts = 0
+            for _type, exp_map in [("call", chain.callExpDateMap), ("put", chain.putExpDateMap)]:
+                if not exp_map:
+                    continue
+                for exp_key, strikes in exp_map.items():
+                    # exp_key: "2026-03-20:5"  — date:DTE
+                    parts = exp_key.split(":")
+                    expiry_date_str = parts[0]
+                    try:
+                        dte = int(parts[1]) if len(parts) > 1 else 0
+                    except ValueError:
+                        continue
+                    if dte <= 0:
+                        continue
+                    T = dte / 365.0
+
+                    for strike_str, options in strikes.items():
+                        try:
+                            strike = round(float(strike_str))
+                        except ValueError:
+                            continue
+                        for opt_detail in options:
+                            contract = OptionContract(
+                                ticker=ticker,
+                                spot=spot,
+                                strike=strike,
+                                dte=dte,
+                                option_type=_type,
+                                T=T,
+                                bs={},
+                            )
+                            # Override __post_init__ computed expiry with the actual chain date
+                            contract.expiry_date = expiry_date_str
+                            otm_pct = (strike - spot) / spot * 100
+                            contract.label = (
+                                f"{ticker} {_type.upper()} "
+                                f"${strike:.0f} "
+                                f"{'OTM' if (_type=='put' and otm_pct<0) or (_type=='call' and otm_pct>0) else 'ITM'} "
+                                f"{expiry_date_str} ({dte}DTE)"
+                            )
+
+                            # ── Populate live market fields ───────────────────
+                            contract.has_live_data   = True
+                            contract.bid             = opt_detail.bid
+                            contract.ask             = opt_detail.ask
+                            contract.mark            = opt_detail.mark
+                            contract.last            = opt_detail.last
+                            contract.bid_size        = opt_detail.bidSize
+                            contract.ask_size        = opt_detail.askSize
+                            contract.volume          = opt_detail.totalVolume
+                            contract.open_interest   = opt_detail.openInterest
+                            contract.live_iv         = (opt_detail.volatility / 100.0
+                                                        if opt_detail.volatility and opt_detail.volatility > 0
+                                                        else 0.0)
+                            contract.live_delta      = opt_detail.delta
+                            contract.live_gamma      = opt_detail.gamma
+                            contract.live_theta      = opt_detail.theta
+                            contract.live_vega       = opt_detail.vega
+                            contract.live_rho        = opt_detail.rho
+                            contract.intrinsic_value = opt_detail.intrinsicValue
+                            contract.extrinsic_value = opt_detail.extrinsicValue
+                            contract.time_value      = opt_detail.timeValue
+                            contract.percent_change  = opt_detail.percentChange
+                            contract.mark_change     = opt_detail.markChange
+                            contract.in_the_money    = opt_detail.inTheMoney
+
+                            raw_contracts.append(contract)
+                            ticker_contracts += 1
+
             # Fallback: average individual contract IVs when chain-level is 0
             if atm_iv <= 0:
-                opt_ivs: List[float] = []
-                for exp_map in filter(None, [chain.callExpDateMap, chain.putExpDateMap]):
-                    for strikes in exp_map.values():
-                        for options in strikes.values():
-                            for opt in options:
-                                if opt.volatility and opt.volatility > 0:
-                                    opt_ivs.append(opt.volatility)
+                opt_ivs = [c.live_iv for c in raw_contracts
+                           if c.ticker == ticker and c.live_iv > 0]
                 if opt_ivs:
-                    atm_iv = (sum(opt_ivs) / len(opt_ivs)) / 100.0
+                    atm_iv = sum(opt_ivs) / len(opt_ivs)
 
             snapshots[ticker] = MarketSnapshot(ticker=ticker, spot=spot, iv=atm_iv)
-            print(f"spot={spot:.2f}  IV={atm_iv*100:.1f}%  ✓")
+            print(f"spot={spot:.2f}  IV={atm_iv*100:.1f}%  {ticker_contracts} contracts  ✓")
 
         except Exception as exc:
             print(f"⚠ WARNING: {exc}  — using fallback defaults")
@@ -206,7 +270,7 @@ def fetch_market_data(tickers: List[str], risk_free_rate: float = 0.0525) -> dic
             s, v = fallbacks.get(ticker, (100.0, 0.20))
             snapshots[ticker] = MarketSnapshot(ticker=ticker, spot=s, iv=v)
 
-    return snapshots
+    return snapshots, raw_contracts
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -293,48 +357,6 @@ def fetch_stock_cost_basis(tickers: List[str]) -> dict[str, float]:
 # 4.  OPTION CANDIDATE UNIVERSE
 # ═════════════════════════════════════════════════════════════════════════════
 
-# Strikes as % from spot — dense near ATM where short-DTE premium lives,
-# with wider steps further out for longer-dated candidates.
-STRIKE_MONEYNESS = [
-    -0.30, -0.20, -0.10,          # far OTM puts / far OTM calls
-    -0.07, -0.05, -0.04, -0.03,   # moderate OTM puts
-    -0.02, -0.01,                  # near OTM puts (critical for short DTE)
-     0.01,  0.02,                  # near OTM calls
-     0.03,  0.04,  0.05,  0.07,   # moderate OTM calls
-     0.10,  0.20,  0.30,          # far OTM calls / far OTM puts
-]
-
-
-@dataclass
-class OptionContract:
-    ticker:     str
-    spot:       float
-    strike:     float
-    dte:        int
-    option_type: Literal["put", "call"]
-    T:          float               # years
-    bs:         dict = field(default_factory=dict)
-
-    # computed after init
-    margin_per_contract: float = 0.0
-    ann_yield_pct:       float = 0.0
-    theta_per_dollar:    float = 0.0
-    rr_score:            float = 0.0   # ← risk-adjusted composite score
-    label:               str = ""
-    expiry_date:         str = ""   # calendar date of expiration (YYYY-MM-DD)
-
-    def __post_init__(self):
-        from datetime import timedelta
-        otm_pct = (self.strike - self.spot) / self.spot * 100
-        self.expiry_date = (datetime.now(ET).date() + timedelta(days=self.dte)).strftime("%Y-%m-%d")
-        self.label = (
-            f"{self.ticker} {self.option_type.upper()} "
-            f"${self.strike:.0f} "
-            f"{'OTM' if (self.option_type=='put' and otm_pct<0) or (self.option_type=='call' and otm_pct>0) else 'ITM'} "
-            f"{self.expiry_date} ({self.dte}DTE)"
-        )
-
-
 def compute_margin(S: float, K: float, premium: float,
                    option_type: str) -> float:
     """
@@ -352,8 +374,7 @@ def compute_margin(S: float, K: float, premium: float,
 
 
 def build_universe(
-    snapshots: dict[str, MarketSnapshot],
-    risk_free_rate: float,
+    raw_contracts: List[OptionContract],
     type_filter: Literal["put", "call", "both"] = "both",
     max_dte: int = 45,
     min_premium: float = 0.10,
@@ -364,76 +385,80 @@ def build_universe(
     dte_risk_weight:   float = 0.3,
     dte_sweet_spot:    int   = 30,
 ) -> List[OptionContract]:
-    """Generate all candidate short OTM options across tickers, strikes, and expiries.
+    """Filter and score pre-populated OptionContract objects from fetch_market_data().
+
+    For each contract the function:
+      1. Applies type / DTE / OTM / delta / premium filters using live chain data.
+      2. Computes margin, annualised yield, theta-per-dollar, and rr_score from
+         live mark price, delta, gamma, and theta.
 
     OTM enforcement (strict):
       - Put  : strike must be strictly below spot (K < S)
       - Call : strike must be strictly above spot (K > S)
-    Delta range (absolute value, both types):
+    Delta range (absolute value):
       - Only contracts where min_delta <= |delta| <= max_delta are kept.
-      - Setting max_delta < 0.50 guarantees OTM on a delta basis as well.
     """
     candidates: List[OptionContract] = []
+    types = (["put", "call"] if type_filter == "both" else [type_filter])
 
-    types = (["put", "call"] if type_filter == "both"
-             else [type_filter])
+    for c in raw_contracts:
+        # ── Type / DTE filter ─────────────────────────────────────────────────
+        if c.option_type not in types:
+            continue
+        if c.dte < 1 or c.dte > max_dte:
+            continue
 
-    # Build DTE list from 1 up to max_dte so it always respects the config
-    dte_list = list(range(1, max_dte + 1))
+        S, K = c.spot, c.strike
 
-    for ticker, snap in snapshots.items():
-        S, sigma = snap.spot, snap.iv
-        for dte in dte_list:
-            T = dte / 365.0
-            for mono in STRIKE_MONEYNESS:
-                K = round(S * (1 + mono))
-                for opt_type in types:
-                    # ── Strict OTM filter ────────────────────────────────────
-                    # Put  OTM: strike must be below spot
-                    # Call OTM: strike must be above spot
-                    if opt_type == "put"  and K >= S: continue
-                    if opt_type == "call" and K <= S: continue
+        # ── Strict OTM filter ────────────────────────────────────────────────
+        if c.option_type == "put"  and K >= S: continue
+        if c.option_type == "call" and K <= S: continue
 
-                    bs = bs_price_and_greeks(S, K, T, risk_free_rate, sigma, opt_type)
-                    if bs["price"] < min_premium:
-                        continue
+        # ── Use live market data directly ─────────────────────────────────────
+        price     = c.mark if c.mark > 0 else ((c.bid + c.ask) / 2 if c.ask > 0 else 0.0)
+        abs_delta = abs(c.live_delta)
 
-                    # ── Delta range filter (absolute value) ──────────────────
-                    abs_delta = abs(bs["delta"])
-                    if not (min_delta <= abs_delta <= max_delta):
-                        continue
+        if price < min_premium:
+            continue
 
-                    margin = compute_margin(S, K, bs["price"], opt_type)
-                    if margin <= 0:
-                        continue
+        # ── Delta range filter (absolute value) ──────────────────────────────
+        if not (min_delta <= abs_delta <= max_delta):
+            continue
 
-                    # Annualised yield on margin
-                    premium_per_contract = bs["price"] * 100
-                    ann_yield = (premium_per_contract / margin) * (365 / dte) * 100
-                    theta_per_dollar     = abs(bs["theta"]) * 100 / margin
+        margin = compute_margin(S, K, price, c.option_type)
+        if margin <= 0:
+            continue
 
-                    # ── Risk-reward score ─────────────────────────────────
-                    rr = risk_reward_score(
-                        theta_per_dollar  = theta_per_dollar,
-                        abs_delta         = abs_delta,
-                        gamma             = bs["gamma"],
-                        dte               = dte,
-                        delta_risk_exp    = delta_risk_exp,
-                        gamma_risk_weight = gamma_risk_weight,
-                        dte_sweet_spot    = dte_sweet_spot,
-                        dte_risk_weight   = dte_risk_weight,
-                    )
+        # ── Derived metrics ───────────────────────────────────────────────────
+        ann_yield        = (price * 100 / margin) * (365 / c.dte) * 100
+        theta_per_dollar = abs(c.live_theta) * 100 / margin
 
-                    contract = OptionContract(
-                        ticker=ticker, spot=S, strike=K,
-                        dte=dte, option_type=opt_type, T=T, bs=bs,
-                    )
-                    contract.margin_per_contract = margin
-                    contract.ann_yield_pct       = ann_yield
-                    contract.theta_per_dollar    = theta_per_dollar
-                    contract.rr_score            = rr
+        rr = risk_reward_score(
+            theta_per_dollar  = theta_per_dollar,
+            abs_delta         = abs_delta,
+            gamma             = c.live_gamma,
+            dte               = c.dte,
+            delta_risk_exp    = delta_risk_exp,
+            gamma_risk_weight = gamma_risk_weight,
+            dte_sweet_spot    = dte_sweet_spot,
+            dte_risk_weight   = dte_risk_weight,
+        )
 
-                    candidates.append(contract)
+        c.bs = {
+            "price": price,
+            "delta": c.live_delta,
+            "gamma": c.live_gamma,
+            "theta": c.live_theta,
+            "vega":  c.live_vega,
+            "rho":   c.live_rho,
+            "iv":    c.live_iv,
+        }
+        c.margin_per_contract = margin
+        c.ann_yield_pct       = ann_yield
+        c.theta_per_dollar    = theta_per_dollar
+        c.rr_score            = rr
+
+        candidates.append(c)
 
     return candidates
 
@@ -787,8 +812,15 @@ CONFIG = {
     "max_naked_calls_per_ticker": 10,  # max naked short call contracts per ticker across portfolio
     "delta_penalty":             2.0,  # penalise |delta| in ranking: score = theta_per_dollar / (1 + penalty * |delta|)
 
+    # ── Risk-reward scoring weights ───────────────────────────────────────────
+    "delta_risk_exp":            2.0,  # exponent for delta penalty in rr_score (1=linear, 2=quadratic)
+    "gamma_risk_weight":         5.0,  # weight for gamma penalty: 1 / (1 + w * gamma * 100)
+    "dte_sweet_spot":              5,  # DTE at which dte_factor peaks (set to match max_dte for short-DTE focus)
+    "dte_risk_weight":           0.3,  # how steeply rr_score decays away from the sweet-spot DTE
+
     # ── Market / rates ────────────────────────────────────────────────────────
     "risk_free_rate":   0.0525,     # 5.25 % — adjust to current Fed Funds
+    "chain_strike_count": 50,       # strikes fetched per side from Schwab (higher = more live data coverage)
 
     # ── Output ────────────────────────────────────────────────────────────────
     "scanner_top_n":    20,
@@ -812,7 +844,10 @@ def run(cfg: dict = CONFIG):
 
     # ── 1. Live market data ──────────────────────────────────────────────────
     print("\n  Fetching live market data …")
-    snapshots = fetch_market_data(cfg["tickers"], cfg["risk_free_rate"])
+    snapshots, raw_contracts = fetch_market_data(
+        cfg["tickers"],
+        chain_strike_count=cfg.get("chain_strike_count", 50),
+    )
     print_market_data(snapshots)
 
     # ── 1b. Deduct stock margin (50% Reg-T) from free cash ──────────────────
@@ -828,15 +863,14 @@ def run(cfg: dict = CONFIG):
         print(f"\n  ┌─  CASH ADJUSTMENT FOR STOCK HOLDINGS  {'─'*41}┐")
         print(f"  │  Original Free Cash  : ${cfg['free_cash']:>12,.0f}                              │")
         print(f"  │  Stock Market Value  : ${stock_market_value:>12,.0f}                              │")
-        print(f"  │  Stock Margin ({stock_margin_pct*100:.0f}%)   : ${stock_cost:>12,.0f}                              │")
+        print(f"  │  Stock Margin ({stock_margin_pct*100:.0f}%)   : ${stock_cost:>12,.0f}    │")
         print(f"  │  Adjusted Free Cash  : ${free_cash:>12,.0f}                              │")
         print(f"  └{'─'*81}┘")
 
     # ── 2. Build option universe ─────────────────────────────────────────────
     print("\n  Building option universe …")
     candidates = build_universe(
-        snapshots        = snapshots,
-        risk_free_rate   = cfg["risk_free_rate"],
+        raw_contracts    = raw_contracts,
         type_filter      = cfg["type_filter"],
         max_dte          = cfg["max_dte"],
         min_premium      = cfg["min_premium"],
