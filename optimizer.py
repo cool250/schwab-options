@@ -632,9 +632,6 @@ def greedy_optimise(
     free_cash:               float,
     min_contracts:           int          = 5,     # skip a position if fewer than this many contracts can be filled
     max_contracts:           int          = 10,
-    max_delta_abs:           float        = 500,   # max portfolio net delta band
-    max_ticker_delta_abs:    float        = 250,   # max |net delta| allowed per individual ticker
-    target_delta:            float        = 0.0,   # target portfolio delta (0 = delta neutral)
     max_margin_pct:          float        = 1.0,   # max total margin as fraction of free_cash
     max_ticker_margin_pct:   float        = 0.40,  # max margin for any single ticker as fraction of margin_budget
     holdings:                Optional[dict] = None, # {ticker: share_count} for covered-call margin relief
@@ -644,19 +641,16 @@ def greedy_optimise(
     initial_ticker_delta: dict[str, float] | None = None,        # per-ticker breakdown of pre-existing delta (used for reporting only)
 ) -> OptimizedPortfolio:
     """
-    Greedy allocation — rank by rr_score, fill while margin budget, delta band,
+    Greedy allocation — rank by rr_score, fill while margin budget
     and concentration limits hold.
 
-    max_margin_pct       : cap on total margin as fraction of free_cash.
-    target_delta / max_delta_abs : portfolio net delta kept within
-                           [target_delta ± max_delta_abs].
-    max_ticker_delta_abs : per-ticker net delta kept within ±max_ticker_delta_abs.
-    max_ticker_margin_pct: no single ticker exceeds this fraction of margin budget.
-    min_contracts        : skip any position that can only be filled below this many contracts.
-    holdings             : {ticker: shares} — covered calls get $0 margin up to
-                           floor(shares / 100) contracts.
+    max_margin_pct         : cap on total margin as fraction of free_cash.
+    max_ticker_margin_pct  : no single ticker exceeds this fraction of margin budget.
+    min_contracts          : skip any position that can only be filled below this many contracts.
+    holdings               : {ticker: shares} — covered calls get $0 margin up to
+                             floor(shares / 100) contracts.
     max_naked_calls_per_ticker: hard cap on naked short calls per ticker.
-    cost_basis           : covered call only allowed if strike + premium ≥ cost_basis.
+    cost_basis             : covered call only allowed if strike + premium ≥ cost_basis.
     """
     margin_budget = free_cash * max(0.0, min(max_margin_pct, 1.0))
 
@@ -676,10 +670,8 @@ def greedy_optimise(
     ticker_margin_cap = margin_budget * max(0.0, min(max_ticker_margin_pct, 1.0))
     ticker_margin_used: dict[str, float] = {}
 
-    # Per-ticker delta tracking (for net-neutral enforcement)
-    # Track new-trade delta only — initial_portfolio_delta is used for reporting only
-    portfolio_delta = 0.0
-    ticker_delta_used: dict[str, float] = {}
+    # Track new-trade delta for reporting (initial delta is kept separately)
+    portfolio_delta: float = 0.0
 
     # Covered calls on held tickers are evaluated first — they cost $0 margin and
     # reduce the long-delta exposure of the stock holdings.
@@ -697,7 +689,10 @@ def greedy_optimise(
     used_margin  = 0.0
 
     for cand in ranked:
-        d = cand.bs["delta"] * 100   # contract-level delta (per-share × 100)
+        d        = cand.bs["delta"] * 100   # Schwab contract-level delta (negative for puts, positive for calls)
+        d_actual = -d                        # actual portfolio delta contribution: SHORT position flips the sign
+                                             # short put:  Schwab d<0 → d_actual>0 (e.g. −30 → +30 per contract)
+                                             # short call: Schwab d>0 → d_actual<0 (e.g. +35 → −35 per contract)
 
         # How many of these call contracts can be covered by held shares?
         if cand.option_type == "call":
@@ -743,31 +738,6 @@ def greedy_optimise(
             if n < min_contracts:
                 continue
 
-        # Delta guard — keep portfolio within [target_delta ± max_delta_abs]
-        delta_add = d * n
-        if abs(portfolio_delta + delta_add - target_delta) > max_delta_abs:
-            best_n = 0
-            for test_n in range(n, min_contracts - 1, -1):
-                if abs(portfolio_delta + d * test_n - target_delta) <= max_delta_abs:
-                    best_n = test_n
-                    break
-            if best_n < min_contracts:
-                continue
-            n = best_n
-
-        # Per-ticker delta guard — keep each ticker net delta within ±max_ticker_delta_abs
-        ticker_delta = ticker_delta_used.get(cand.ticker, 0.0)
-        ticker_delta_add = d * n
-        if abs(ticker_delta + ticker_delta_add) > max_ticker_delta_abs:
-            best_n_ticker = 0
-            for test_n in range(n, min_contracts - 1, -1):
-                if abs(ticker_delta + d * test_n) <= max_ticker_delta_abs:
-                    best_n_ticker = test_n
-                    break
-            if best_n_ticker < min_contracts:
-                continue
-            n = best_n_ticker
-
         # Split into covered vs naked contracts
         n_covered = min(n, covered_avail)
         n_naked   = n - n_covered
@@ -794,12 +764,11 @@ def greedy_optimise(
 
         # ── Commit position: update all running totals ────────────────────
         margin = n_naked * naked_margin  # covered portion adds $0 margin
-        used_margin                    += margin                             # total margin consumed
-        portfolio_delta                += d * n                             # new-trade delta only
-        ticker_delta_used[cand.ticker]  = ticker_delta_used.get(cand.ticker, 0.0) + d * n
+        used_margin                    += margin             # total margin consumed
+        portfolio_delta                += d_actual * n       # new-trade delta (short-adjusted)
         ticker_margin_used[cand.ticker] = ticker_margin_used.get(cand.ticker, 0.0) + margin
         if cand.ticker in covered_used:
-            covered_used[cand.ticker] += n_covered   # mark shares as covering these contracts
+            covered_used[cand.ticker] += n_covered           # mark shares as covering these contracts
         if cand.option_type == "call" and n_naked > 0:
             naked_call_used[cand.ticker] = naked_call_used.get(cand.ticker, 0) + n_naked
 
@@ -809,7 +778,7 @@ def greedy_optimise(
             total_premium      = cand.bs["price"] * 100 * n,
             total_margin       = margin,
             total_theta        = abs(cand.bs["theta"]) * 100 * n,
-            total_delta        = d * n,
+            total_delta        = d_actual * n,              # short-adjusted: −d × n
             covered_contracts  = n_covered,
         ))
 
@@ -961,9 +930,6 @@ CONFIG = {
     # ── Allocation constraints ────────────────────────────────────────────────
     "max_contracts":             10,   # max contracts per single position
     "min_contracts":              5,   # skip a position if fewer than this many contracts can be filled
-    "max_delta_abs":            500,   # max portfolio net delta band (≥ max_contracts × max_delta × 100)
-    "max_ticker_delta_abs":     250,   # max |net delta| per individual ticker (must be ≥ min_contracts × max_delta × 100)
-    "target_delta":             0.0,   # target portfolio delta (0 = delta neutral)
     "max_margin_pct":          0.60,   # max total margin as % of free_cash
     "max_ticker_margin_pct":   0.40,   # max margin per ticker as fraction of total margin budget
     "max_naked_calls_per_ticker": 10,  # max naked short call contracts per ticker across portfolio
@@ -1060,13 +1026,10 @@ def run(cfg: dict = CONFIG):
     portfolio = greedy_optimise(
         candidates                 = candidates,
         free_cash                  = free_cash,
-        initial_portfolio_delta = initial_portfolio_delta,
-        initial_ticker_delta    = initial_ticker_delta,
+        initial_portfolio_delta    = initial_portfolio_delta,
+        initial_ticker_delta       = initial_ticker_delta,
         min_contracts              = cfg.get("min_contracts", 5),
         max_contracts              = cfg.get("max_contracts", 10),
-        max_delta_abs              = cfg.get("max_delta_abs", 100),
-        max_ticker_delta_abs       = cfg.get("max_ticker_delta_abs", 50),
-        target_delta               = cfg.get("target_delta", 0.0),
         max_margin_pct             = cfg.get("max_margin_pct", 0.6),
         max_ticker_margin_pct      = cfg.get("max_ticker_margin_pct", 0.40),
         holdings                   = holdings,
