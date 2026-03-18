@@ -129,6 +129,8 @@ class OptionContract:
     def __post_init__(self):
         from datetime import timedelta
         otm_pct = (self.strike - self.spot) / self.spot * 100
+        # Compute a default expiry date from DTE; fetch_market_data overrides this
+        # with the actual chain expiry string once chain data is available.
         self.expiry_date = (datetime.now(ET).date() + timedelta(days=self.dte)).strftime("%Y-%m-%d")
         self.label = (
             f"{self.ticker} {self.option_type.upper()} "
@@ -577,16 +579,16 @@ class Position:
 
 @dataclass
 class OptimizedPortfolio:
-    positions:      List[Position]
-    total_margin:   float
-    total_premium:  float
-    total_theta:    float
-    total_vega:     float
-    total_gamma:    float
-    cash_used_pct:  float
-    free_cash:      float
-    initial_delta:  float
-    total_delta:    float
+    positions:      List[Position]  # list of allocated positions
+    total_margin:   float           # total Reg-T margin consumed across all positions ($)
+    total_premium:  float           # total premium collected across all positions ($)
+    total_theta:    float           # total daily theta income across all positions ($/day)
+    total_vega:     float           # net vega exposure: $ change per +1% IV move
+    total_gamma:    float           # net gamma: rate of delta change per $1 move in underlying
+    cash_used_pct:  float           # total_margin as a percentage of free_cash budget
+    free_cash:      float           # margin budget available for new trades (after stock margin deduction)
+    initial_delta:  float           # portfolio delta BEFORE new trades (stocks + held options)
+    total_delta:    float           # portfolio delta AFTER new trades (initial + new-trade delta)
 
 def compute_initial_delta(
     holdings: dict[str, int],
@@ -638,8 +640,8 @@ def greedy_optimise(
     holdings:                Optional[dict] = None, # {ticker: share_count} for covered-call margin relief
     max_naked_calls_per_ticker: int       = 10,    # max naked short call contracts per ticker across portfolio
     cost_basis:              Optional[dict] = None, # {ticker: avg_cost_per_share} — covered calls must not risk a loss
-    initial_portfolio_delta: float = 0.0,           # NEW
-    initial_ticker_delta: dict[str, float] | None = None,  # NEW
+    initial_portfolio_delta: float = 0.0,                        # pre-existing delta from stocks + option holdings (used for reporting only)
+    initial_ticker_delta: dict[str, float] | None = None,        # per-ticker breakdown of pre-existing delta (used for reporting only)
 ) -> OptimizedPortfolio:
     """
     Greedy allocation — rank by rr_score, fill while margin budget, delta band,
@@ -790,13 +792,14 @@ def greedy_optimise(
             if n < min_contracts:
                 continue
 
+        # ── Commit position: update all running totals ────────────────────
         margin = n_naked * naked_margin  # covered portion adds $0 margin
-        used_margin  += margin
-        portfolio_delta   += d * n
-        ticker_delta_used[cand.ticker] = ticker_delta_used.get(cand.ticker, 0.0) + d * n
+        used_margin                    += margin                             # total margin consumed
+        portfolio_delta                += d * n                             # new-trade delta only
+        ticker_delta_used[cand.ticker]  = ticker_delta_used.get(cand.ticker, 0.0) + d * n
         ticker_margin_used[cand.ticker] = ticker_margin_used.get(cand.ticker, 0.0) + margin
         if cand.ticker in covered_used:
-            covered_used[cand.ticker] += n_covered
+            covered_used[cand.ticker] += n_covered   # mark shares as covering these contracts
         if cand.option_type == "call" and n_naked > 0:
             naked_call_used[cand.ticker] = naked_call_used.get(cand.ticker, 0) + n_naked
 
@@ -1043,8 +1046,7 @@ def run(cfg: dict = CONFIG):
     # ── 3. Scanner ───────────────────────────────────────────────────────────
     print_scanner(candidates, top_n=cfg["scanner_top_n"])
 
-    
-    # After fetching holdings and option_positions:
+    # ── 3b. Current portfolio delta (stocks + held options, before any new trade) ──
     initial_portfolio_delta, initial_ticker_delta = compute_initial_delta(
         holdings         = holdings,
         option_positions = option_positions,
