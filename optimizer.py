@@ -581,12 +581,11 @@ class OptimizedPortfolio:
     total_margin:   float
     total_premium:  float
     total_theta:    float
-    total_delta:    float
     total_vega:     float
     total_gamma:    float
     cash_used_pct:  float
     free_cash:      float
-    initial_delta:  float 
+    initial_delta:  float
     total_delta:    float
 
 def compute_initial_delta(
@@ -676,9 +675,9 @@ def greedy_optimise(
     ticker_margin_used: dict[str, float] = {}
 
     # Per-ticker delta tracking (for net-neutral enforcement)
-    # Seed running totals from pre-existing portfolio state
-    portfolio_delta = initial_portfolio_delta
-    ticker_delta_used = dict(initial_ticker_delta or {})
+    # Track new-trade delta only — initial_portfolio_delta is used for reporting only
+    portfolio_delta = 0.0
+    ticker_delta_used: dict[str, float] = {}
 
     # Covered calls on held tickers are evaluated first — they cost $0 margin and
     # reduce the long-delta exposure of the stock holdings.
@@ -692,10 +691,8 @@ def greedy_optimise(
 
     ranked = sorted(candidates, key=_rank_key)
 
-
     positions:   List[Position] = []
     used_margin  = 0.0
-    portfolio_delta   = 0.0
 
     for cand in ranked:
         d = cand.bs["delta"] * 100   # contract-level delta (per-share × 100)
@@ -821,12 +818,12 @@ def greedy_optimise(
         total_margin  = used_margin,
         total_premium = sum(p.total_premium for p in positions),
         total_theta   = sum(p.total_theta   for p in positions),
-        total_delta   = portfolio_delta,
+        total_delta   = initial_portfolio_delta + portfolio_delta,  # net after trades
         total_vega    = total_vega,
         total_gamma   = total_gamma,
         cash_used_pct = used_margin / free_cash * 100 if free_cash else 0,
         free_cash     = free_cash,
-        initial_delta = initial_portfolio_delta,   # add to dataclass
+        initial_delta = initial_portfolio_delta,
     )
 
 
