@@ -82,7 +82,7 @@ def render():
                 st.subheader("Put")
                 total_put_exposure = sum(put['exposure'] for put in puts)
                 total_put_value = sum(put['total_value'] for put in puts)
-                st.write(f"Total: {len(puts)} Exposure: ${total_put_exposure:,.2f}")
+                st.write(f"Total: {len(puts)} Exposure: {total_put_exposure:,.2f} Value: {total_put_value:,.2f}")
                 display_ui_table(puts, "expiration_date")
             else:
                 handle_error("No PUT option positions found.")
