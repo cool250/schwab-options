@@ -2,13 +2,13 @@ from datetime import datetime, timedelta
 import pytz
 
 import logging
-from broker.market_data import MarketData
+from broker import Client
 
 logger = logging.getLogger(__name__)
 
 class MarketService:
     def __init__(self):
-        self.market_data = MarketData()
+        self.client = Client()
 
     def highest_return(self, symbol: str, strike: float, from_date: str, to_date: str, contract_type="PUT"):
         """
@@ -27,7 +27,7 @@ class MarketService:
                 best_price: The price of the best option.
                 Returns None if no suitable option is found.
         """
-        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
+        option_chain = self.client.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
 
         results = self._process_option_chain(option_chain, strike, contract_type)
         if not results:
@@ -58,7 +58,7 @@ class MarketService:
             from_date = datetime.now(pytz.timezone("US/Eastern")).strftime('%Y-%m-%d')
             to_date = (datetime.now(pytz.timezone("US/Eastern")) + timedelta(days=8)).strftime('%Y-%m-%d')
 
-        option_chain = self.market_data.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
+        option_chain = self.client.get_chain(symbol, from_date, to_date, strike_count=50, strike=strike, contract_type=contract_type)
         return self._process_option_chain(option_chain, strike, contract_type)
 
     def _process_option_chain(self, option_chain, strike: float, contract_type: str):
@@ -134,7 +134,7 @@ class MarketService:
         Returns:
             float: The current price of the asset, or None if not found.
         """
-        stock_quotes = self.market_data.get_price(symbol)
+        stock_quotes = self.client.get_price(symbol)
         if stock_quotes:
             return stock_quotes.root.get(symbol).quote.lastPrice
         return None
@@ -149,5 +149,5 @@ class MarketService:
         Returns:
             list: A list of historical prices, or an empty list if not found.
         """
-        price_history = self.market_data.get_price_history(symbol, period_type=period_type, frequency_type=frequency_type, period=period)
+        price_history = self.client.get_price_history(symbol, period_type=period_type, frequency_type=frequency_type, period=period)
         return price_history.candles if price_history else []

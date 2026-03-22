@@ -26,8 +26,13 @@ def render():
         realized_gains_only = col3_input.radio("Realized Gains Only:", ["Yes", "No"], index=0)
 
         # Date range inputs with calendar picker
-        start_date = col1_input.date_input("From Date:", value=datetime.now(pytz.timezone("US/Eastern")) - timedelta(days=30))
-        end_date = col2_input.date_input("To Date:", value=datetime.now(pytz.timezone("US/Eastern")) - timedelta(days=1))
+        # Default start date: first day of current month in US/Eastern
+        et = pytz.timezone("US/Eastern")
+        today_et = datetime.now(et)
+        first_day_of_month = today_et.replace(day=1).date()
+        start_date = col1_input.date_input("From Date:", value=first_day_of_month)
+        # Default end date: yesterday (US/Eastern)
+        end_date = col2_input.date_input("To Date:", value=(datetime.now(pytz.timezone("US/Eastern"))))
 
         # Convert date objects to strings in the required format
         start_date_str = start_date.strftime("%Y-%m-%d")

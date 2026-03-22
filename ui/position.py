@@ -18,6 +18,7 @@ Usage:
 2. View the application in your browser at the provided URL (usually `http://localhost:8502`).
 """
 
+from turtle import pos
 import streamlit as st
 import pandas as pd
 
@@ -48,7 +49,7 @@ def render():
         service = PositionService()
 
         # Fetch data from the service
-        option_positions, exposure, balance, stocks = service.populate_positions()
+        options, balance, stocks = service.populate_positions()
 
         # Display balances
         if balance:
@@ -74,26 +75,21 @@ def render():
             handle_error("No stocks found.")
 
         # Display option positions
-        if option_positions:
-            puts, calls = option_positions
+        if options:
+            puts, calls = options
 
             if puts:
                 st.subheader("Put")
+                total_put_exposure = sum(put['exposure'] for put in puts)
+                total_put_value = sum(put['total_value'] for put in puts)
+                st.write(f"Total: {len(puts)} Exposure: {total_put_exposure:,.2f} Value: {total_put_value:,.2f}")
                 display_ui_table(puts, "expiration_date")
             else:
                 handle_error("No PUT option positions found.")
 
             if calls:
                 st.subheader("Call")
+                st.write(f"Total: {len(calls)} Value: ${sum(call['total_value'] for call in calls):,.2f}")
                 display_ui_table(calls, "expiration_date")
             else:
                 handle_error("No CALL option positions found.")
-
-        # Display overall exposure
-        if exposure:
-            exposure_list = [{"Ticker": ticker, "Exposure ($)": exposure} for ticker, exposure in exposure.items()] # convert dict to list of dicts
-            st.subheader("Exposure")
-            st.metric(label="Total Exposure", value=f"${sum(exposure.values()):,.2f}")
-            display_ui_table(exposure_list, "Ticker")
-        else:
-            handle_error("No data received or invalid data structure.")
