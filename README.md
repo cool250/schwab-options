@@ -1,6 +1,6 @@
 # Options Wheel
 
-Options Wheel is a Python-based trading application that interacts with the Schwab API to manage and analyze options (puts, calls), account positions, balances, and transaction history. It uses `Pydantic` for data validation, `FastAPI` for a REST API layer, `Streamlit` for an interactive dashboard UI, and a React frontend as an alternative web interface.
+Options Wheel is a Python-based trading application that interacts with the Schwab API to manage and analyze options (puts, calls), account positions, balances, and transaction history. It uses `Pydantic` for data validation, `FastAPI` for a REST API layer, and a React + Vite frontend for the dashboard UI.
 
 ---
 
@@ -11,7 +11,7 @@ Options Wheel is a Python-based trading application that interacts with the Schw
 - Track and match open/close option transactions with realized P&L.
 - AI agent for natural-language queries over account data.
 - FastAPI REST layer with auto-generated OpenAPI docs.
-- Streamlit dashboard (legacy) and a React + Vite frontend.
+- React + Vite frontend dashboard.
 
 ---
 
@@ -29,13 +29,11 @@ Options Wheel is a Python-based trading application that interacts with the Schw
 ├── data/                 # Pydantic data models
 ├── service/              # Business logic (MarketService, PositionService, etc.)
 ├── tools/                # Agent tools
-├── ui/                   # Streamlit UI pages
 ├── frontend/             # React + Vite frontend
 │   └── src/
 │       ├── pages/        # MarketData, Positions
 │       ├── components/   # Navbar, Spinner
 │       └── api/          # Fetch wrappers for FastAPI endpoints
-├── app.py                # Streamlit entry point
 └── main.py               # Token refresh utility
 ```
 
@@ -120,13 +118,5 @@ cd frontend && npm run dev
 - URL: `http://localhost:3000`
 - **Market Data** page: options chain analyzer with live price fetch, expiration tables, and max-return display.
 - **Positions** page: account balances, stocks, puts, and calls with one-click refresh.
-
----
-
-### 4. Start the Streamlit Dashboard (legacy)
-
-```bash
-uv run streamlit run app.py
-```
-
-- URL: `http://localhost:8501`
+- **Transactions** page: filter and browse option transactions with realized P&L.
+- **Monthly Gains** page: allocation breakdown by symbol with pie and bar charts.
