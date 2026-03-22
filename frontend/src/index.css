@@ -101,10 +101,13 @@ body {
 .main-content { max-width: 1120px; margin: 0 auto; padding: 36px 28px; }
 .page { display: flex; flex-direction: column; gap: 20px; }
 .page-title {
-  font-size: 1.375rem;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: -0.3px;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  background: linear-gradient(120deg, var(--primary) 0%, #7c3aed 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 .page-header { display: flex; align-items: center; justify-content: space-between; }
 
