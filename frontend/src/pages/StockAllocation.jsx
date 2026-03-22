@@ -117,8 +117,7 @@ export default function StockAllocation() {
                 ))}
               </select>
             </div>
-            <div className="form-group" style={{ justifyContent: 'flex-end' }}>
-              <label style={{ visibility: 'hidden' }}>_</label>
+            <div className="form-group form-group--end">
               <label className="toggle-label">
                 <input
                   type="checkbox"
@@ -129,8 +128,7 @@ export default function StockAllocation() {
                 <span>Realized Gains Only</span>
               </label>
             </div>
-            <div className="form-group" style={{ justifyContent: 'flex-end' }}>
-              <label style={{ visibility: 'hidden' }}>_</label>
+            <div className="form-group form-group--end">
               <button type="submit" className="btn btn-primary" disabled={loading}>
                 Submit
               </button>

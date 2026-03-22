@@ -74,7 +74,7 @@ export default function Transactions() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginTop: 8 }}>
+          <div className="form-actions">
             <label className="toggle-label">
               <input
                 type="checkbox"
@@ -100,7 +100,7 @@ export default function Transactions() {
             <div className="alert warning">No transactions found for the given criteria.</div>
           ) : (
             <div className="card">
-              <div style={{ display: 'flex', gap: 32, alignItems: 'baseline' }}>
+              <div className="section-header">
                 <h3 className="section-title">Transactions</h3>
                 <span className="summary-line">
                   {transactions.length} records &nbsp;|&nbsp; Total: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}

@@ -80,7 +80,7 @@ export default function MarketData() {
 
       <div className="card">
         {/* Ticker — outside the grid so price hint appears beneath it */}
-        <div className="form-group" style={{ maxWidth: 280 }}>
+        <div className="form-group form-group--sm">
           <label>Ticker Symbol</label>
           <input
             type="text"
@@ -91,7 +91,7 @@ export default function MarketData() {
             className="input"
           />
           {sym && priceStatus === 'ok' && currentPrice !== null && (
-            <span className={`price-badge ok`}>
+            <span className="price-badge ok">
               Current price for <strong>{sym}</strong>: ${currentPrice.toFixed(2)}
             </span>
           )}

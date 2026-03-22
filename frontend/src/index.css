@@ -214,6 +214,28 @@ body {
 
 .text-muted { color: var(--text-muted); font-size: 0.9rem; }
 
+/* ─── Table sort header ───────────────────────────────── */
+.th-sortable { cursor: pointer; user-select: none; }
+
+/* ─── Form helpers ────────────────────────────────────── */
+.form-group--sm  { max-width: 280px; }
+.form-group--end { justify-content: flex-end; }
+
+/* ─── Form action row (checkbox + submit) ─────────────── */
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-top: 8px;
+}
+
+/* ─── Section header (title + summary inline) ─────────── */
+.section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 32px;
+}
+
 /* ─── Charts ─────────────────────────────────────────── */
 .charts-row {
   display: grid;

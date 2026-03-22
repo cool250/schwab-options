@@ -52,7 +52,7 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey }
               <th
                 key={key}
                 onClick={() => toggleSort(key)}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
+                className="th-sortable"
               >
                 {label}
                 {sortCol === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
