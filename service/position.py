@@ -1,6 +1,6 @@
 from typing import Optional
 import logging
-from broker import Accounts, MarketData
+from broker import Client
 from data.account_data import SecuritiesAccount
 
 logger = logging.getLogger(__name__)
@@ -19,12 +19,12 @@ def parse_option_symbol(symbol):
 class PositionService:
 
     def __init__(self):
-        self.market_data = MarketData()
+        self.client = Client()
         self.position: Optional[SecuritiesAccount] = None
         self._initialize()
     
     def _initialize(self):
-        self.position = Accounts().fetch_positions()
+        self.position = self.client.fetch_positions()
     
     def get_positions(self):
         return self.position
@@ -48,7 +48,7 @@ class PositionService:
         if not ticker_list:
             return tickers
 
-        quotes = self.market_data.get_price(", ".join(ticker_list))
+        quotes = self.client.get_price(", ".join(ticker_list))
         quote_data = {
             symbol: asset.quote.mark
             for symbol, asset in getattr(quotes, "root", {}).items()

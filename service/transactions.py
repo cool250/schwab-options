@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import timedelta
 from typing import List, Dict, Any, Optional
 import logging
-from broker import Accounts, MarketData
+from broker import Client
 from utils.utils import get_date_object, get_date_string
 from pydantic import BaseModel
 
@@ -46,9 +46,7 @@ class TransactionService:
 
     def __init__(self):
         """Initialize the TransactionService with broker API clients."""
-        self.market_data = MarketData()
-        self.accounts_trading = Accounts()
-
+        self.client = Client()
     def get_transaction_history(self, start_date: str, end_date: str) -> List[Any]:
         """
         Fetch the raw transaction history for the account.
@@ -60,7 +58,7 @@ class TransactionService:
         Returns:
             list: Raw transaction records from the broker
         """
-        transactions = self.accounts_trading.fetch_transactions(start_date=start_date, end_date=end_date)
+        transactions = self.client.fetch_transactions(start_date=start_date, end_date=end_date)
         return transactions if transactions else []
     
     def get_option_transactions(self, stock_ticker: str, start_date: str, end_date: str, 
@@ -85,7 +83,7 @@ class TransactionService:
                                                      lookforward_days=5)
         
         # Fetch transactions with expanded date range
-        transactions = self.accounts_trading.fetch_transactions(
+        transactions = self.client.fetch_transactions(
             start_date=expanded_date_range["start_date"], 
             end_date=expanded_date_range["end_date"]
         )
