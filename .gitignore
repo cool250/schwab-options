@@ -59,6 +59,18 @@ coverage.xml
 .env
 .env.*
 
+# ─── Node / React frontend ────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+
+# ─── FastAPI / Uvicorn ────────────────────────────────
+*.pid
+
+# ─── Auth tokens ─────────────────────────────────────
+token.json
+
 .python-version
 token.json
 test-data.json

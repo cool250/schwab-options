@@ -1,52 +1,132 @@
-# Schwab Options
+# Options Wheel
 
-Schwab Options is a Python-based project that interacts with the Schwab API to fetch account details, transactions, and other trading-related data. It uses `Pydantic` for data validation, `Loguru` for logging, and `python-dotenv` for managing environment variables.
+Options Wheel is a Python-based trading application that interacts with the Schwab API to manage and analyze options (puts, calls), account positions, balances, and transaction history. It uses `Pydantic` for data validation, `FastAPI` for a REST API layer, `Streamlit` for an interactive dashboard UI, and a React frontend as an alternative web interface.
 
 ---
 
 ## Features
 
-- Fetch account hash values from the Schwab API.
-- Retrieve and parse transactions for a given date range.
-- Validate API responses using `Pydantic` models.
-- Log detailed information about transactions and transfer items.
+- Fetch account positions, balances, and option/stock holdings.
+- Analyze options chains — best annualized return, all expiration dates, price history.
+- Track and match open/close option transactions with realized P&L.
+- AI agent for natural-language queries over account data.
+- FastAPI REST layer with auto-generated OpenAPI docs.
+- Streamlit dashboard (legacy) and a React + Vite frontend.
+
+---
+
+## Project Structure
+
+```
+.
+├── api/                  # FastAPI layer
+│   ├── app.py            # Main FastAPI app (mounts all routers)
+│   ├── market.py         # /market routes
+│   ├── position.py       # /positions routes
+│   ├── transactions.py   # /transactions routes
+│   └── agent.py          # /agent routes
+├── broker/               # Schwab API client and auth
+├── data/                 # Pydantic data models
+├── service/              # Business logic (MarketService, PositionService, etc.)
+├── tools/                # Agent tools
+├── ui/                   # Streamlit UI pages
+├── frontend/             # React + Vite frontend
+│   └── src/
+│       ├── pages/        # MarketData, Positions
+│       ├── components/   # Navbar, Spinner
+│       └── api/          # Fetch wrappers for FastAPI endpoints
+├── app.py                # Streamlit entry point
+└── main.py               # Token refresh utility
+```
 
 ---
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
-
-- Python 3.8 or higher
-- `pip` (Python package manager)
+- Python 3.12+
+- [uv](https://github.com/astral-sh/uv) (Python package manager)
+- Node.js 18+ and npm (for the React frontend)
 
 ---
 
 ## Installation
 
-1. **Clone the Repository**:
+1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/schwab-options.git
-   cd schwab-options
+   git clone https://github.com/your-username/options-wheel.git
+   cd options-wheel
+   ```
+
+2. **Install Python dependencies**:
+   ```bash
+   uv sync
+   ```
+
+3. **Install frontend dependencies**:
+   ```bash
+   cd frontend && npm install
    ```
 
 ---
 
-## How to Start the API and UI Layers
+## How to Run
 
-### Start the FastAPI Server
+### 1. Refresh the Schwab Token (first time / when expired)
 
-1. Navigate to the project directory and run the following command to start the FastAPI server:
-   ```bash
-   uvicorn api:app --reload
-   ```
-2. The API will be available at `http://127.0.0.1:8000`.
+```bash
+uv run python main.py
+```
 
-### Start the Streamlit UI
-1. Navigate to the project directory and run the following command to start the Streamlit UI:
-   ```bash
-   streamlit run ui.py
-   ```
-2. The UI will be available in your browser at the URL provided by Streamlit (usually `http://localhost:8501`).
+Paste the redirect URL into the terminal when prompted.
 
-3. When Token needs to be refreshed run main.py and paste the token in the terminal
+---
+
+### 2. Start the FastAPI Server
+
+```bash
+uv run uvicorn api.app:app --reload
+```
+
+- API base URL: `http://localhost:8000`
+- Interactive docs: `http://localhost:8000/docs`
+
+#### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/market/price/{symbol}` | Current ticker price |
+| GET | `/market/history/{symbol}` | Price history |
+| GET | `/market/options/best` | Best annualized return for a strike |
+| GET | `/market/options/expirations` | All expiration dates for a strike |
+| GET | `/positions/` | All positions, balances, and stocks |
+| GET | `/positions/balances` | Account balances |
+| GET | `/positions/stocks` | Stock / ETF holdings |
+| GET | `/positions/options` | Open put and call positions |
+| GET | `/positions/exposure` | Total dollar exposure by ticker |
+| GET | `/transactions/` | Raw transaction history |
+| GET | `/transactions/options` | Matched open/close option transactions |
+| POST | `/agent/query` | Natural-language AI agent query |
+
+---
+
+### 3. Start the React Frontend
+
+Requires the FastAPI server to be running (requests are proxied via Vite).
+
+```bash
+cd frontend && npm run dev
+```
+
+- URL: `http://localhost:3000`
+- **Market Data** page: options chain analyzer with live price fetch, expiration tables, and max-return display.
+- **Positions** page: account balances, stocks, puts, and calls with one-click refresh.
+
+---
+
+### 4. Start the Streamlit Dashboard (legacy)
+
+```bash
+uv run streamlit run app.py
+```
+
+- URL: `http://localhost:8501`

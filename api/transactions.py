@@ -19,9 +19,9 @@ def get_transaction_history(
 
 @router.get("/options", summary="Parsed and matched option transactions")
 def get_option_transactions(
-    stock_ticker: str,
-    start_date: str,
-    end_date: str,
+    stock_ticker: str = "",
+    start_date: str = "",
+    end_date: str = "",
     contract_type: str = "PUT",
     realized_gains_only: bool = False,
     service: TransactionService = Depends(get_service),
