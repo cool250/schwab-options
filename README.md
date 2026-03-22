@@ -160,6 +160,32 @@ See [.env.example](.env.example) for all required variables.
 
 > **Token expiry**: Schwab tokens expire every 7 days. Re-run `uv run python main.py` locally, then update `TOKEN_JSON` on Heroku with the command above.
 
+### Updating the Schwab token on Heroku manually
+
+Schwab's OAuth tokens must be refreshed before they expire (every 7 days).
+
+**Step 1 — Refresh locally**
+```bash
+uv run python main.py
+```
+
+**Step 2 — Push the new token to Heroku**
+```bash
+heroku config:set TOKEN_JSON="$(python -c "import json; print(json.dumps(json.load(open('token.json'))))")" --app your-app-name
+```
+
+Heroku restarts the dyno automatically after the config var is updated.
+
+**Verify it was set:**
+```bash
+heroku config:get TOKEN_JSON --app your-app-name
+```
+
+**Check the token expiry locally:**
+```bash
+python -c "import json; d=json.load(open('token.json')); print(d.get('expires_in'), 'seconds')"
+```
+
 ### Deploy
 
 ```bash
