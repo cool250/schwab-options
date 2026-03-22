@@ -92,18 +92,18 @@ uv run uvicorn api.app:app --reload
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/market/price/{symbol}` | Current ticker price |
-| GET | `/market/history/{symbol}` | Price history |
-| GET | `/market/options/best` | Best annualized return for a strike |
-| GET | `/market/options/expirations` | All expiration dates for a strike |
-| GET | `/positions/` | All positions, balances, and stocks |
-| GET | `/positions/balances` | Account balances |
-| GET | `/positions/stocks` | Stock / ETF holdings |
-| GET | `/positions/options` | Open put and call positions |
-| GET | `/positions/exposure` | Total dollar exposure by ticker |
-| GET | `/transactions/` | Raw transaction history |
-| GET | `/transactions/options` | Matched open/close option transactions |
-| POST | `/agent/query` | Natural-language AI agent query |
+| GET | `/api/market/price/{symbol}` | Current ticker price |
+| GET | `/api/market/history/{symbol}` | Price history |
+| GET | `/api/market/options/best` | Best annualized return for a strike |
+| GET | `/api/market/options/expirations` | All expiration dates for a strike |
+| GET | `/api/positions/` | All positions, balances, and stocks |
+| GET | `/api/positions/balances` | Account balances |
+| GET | `/api/positions/stocks` | Stock / ETF holdings |
+| GET | `/api/positions/options` | Open put and call positions |
+| GET | `/api/positions/exposure` | Total dollar exposure by ticker |
+| GET | `/api/transactions/` | Raw transaction history |
+| GET | `/api/transactions/options` | Matched open/close option transactions |
+| POST | `/api/agent/query` | Natural-language AI agent query |
 
 ---
 
@@ -120,3 +120,57 @@ cd frontend && npm run dev
 - **Positions** page: account balances, stocks, puts, and calls with one-click refresh.
 - **Transactions** page: filter and browse option transactions with realized P&L.
 - **Monthly Gains** page: allocation breakdown by symbol with pie and bar charts.
+
+---
+
+## Deploying to Heroku
+
+The app uses a **single web dyno**: FastAPI serves both the REST API and the pre-built React frontend from `frontend/dist/`.
+
+### Prerequisites
+
+- [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli) installed and logged in
+- Git repo initialised
+
+### One-time setup
+
+```bash
+# Create the app
+heroku create your-app-name
+
+# Two buildpacks: Node (builds React) then Python (runs FastAPI)
+heroku buildpacks:add --index 1 heroku/nodejs
+heroku buildpacks:add --index 2 heroku/python
+```
+
+### Set environment variables
+
+```bash
+heroku config:set APP_KEY=...
+heroku config:set APP_SECRET=...
+heroku config:set APP_CALLBACK_URL=https://your-app.herokuapp.com/callback
+heroku config:set OPENAI_API_KEY=...
+heroku config:set SERPAPI_API_KEY=...
+
+# Paste the full token.json contents as a single-line JSON string
+heroku config:set TOKEN_JSON="$(python -c "import json; print(json.dumps(json.load(open('token.json'))))")"
+```
+
+See [.env.example](.env.example) for all required variables.
+
+> **Token expiry**: Schwab tokens expire every 7 days. Re-run `uv run python main.py` locally, then update `TOKEN_JSON` on Heroku with the command above.
+
+### Deploy
+
+```bash
+git push heroku main
+```
+
+Heroku will:
+1. Run `npm install && npm run build` inside `frontend/` (Node.js buildpack → `heroku-postbuild`).
+2. Install Python dependencies from `requirements.txt` (Python buildpack).
+3. Start the web dyno via `Procfile`: `uvicorn api.app:app --host 0.0.0.0 --port $PORT`.
+
+- API: `https://your-app.herokuapp.com/api/...`
+- OpenAPI docs: `https://your-app.herokuapp.com/docs`
+- React app: `https://your-app.herokuapp.com/`
