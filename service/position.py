@@ -22,79 +22,24 @@ class PositionService:
         self.client = Client()
         self.position: Optional[SecuritiesAccount] = None
         self._initialize()
-    
+
     def _initialize(self):
         self.position = self.client.fetch_positions()
-    
-    def get_positions(self):
-        return self.position
 
-    def get_option_positions_details(self):
-        """Fetch option positions details including current prices."""
-        puts = self._get_positions_with_prices("P")
-        calls = self._get_positions_with_prices("C")
-        return puts, calls
-
-    def _get_positions_with_prices(self, option_type):
-        """Fetch options of a specific type and populate their current prices."""
-        options = self.get_option_details(option_type)
-        options_with_prices = self.get_current_price(options)
-        return options_with_prices
-
-    def get_current_price(self, tickers):
-        """Fetch the current price for the given options."""
-        ticker_list = [ticker.get("symbol") for ticker in tickers if ticker.get("symbol")]
-
-        if not ticker_list:
-            return tickers
-
-        quotes = self.client.get_price(", ".join(ticker_list))
-        quote_data = {
-            symbol: asset.quote.mark
-            for symbol, asset in getattr(quotes, "root", {}).items()
-            if asset.quote and asset.quote.mark is not None
-        }
-
-        for ticker in tickers:
-            current_price = quote_data.get(ticker.get("symbol"), 0)
-            ticker["current_price"] = f"${current_price:,.3f}"
-
-        return tickers
+    # --- Top-level aggregator ---
 
     def populate_positions(self):
         """Populate option positions with current prices, total exposure, and account balances."""
-        option_positions = self.get_option_positions_details()
+        option_positions = self.get_option_position()
         account_balances = self.get_balances()
-        stocks = self.get_stocks()
+        stocks = self.get_stock_position()
 
         return option_positions, account_balances, stocks
 
+    # --- Public getters ---
 
-    def get_stocks(self):
-        """Fetch and log the account stocks."""
-        if self.position is None:
-            logger.warning("Position is not initialized.")
-            return []
-        securities_account: SecuritiesAccount = self.position
-
-        stocks = []
-
-        if not securities_account.positions:
-            logger.warning("No positions found in the securities account.")
-            return []
-
-        for position in securities_account.positions:
-            if position.instrument and position.instrument.assetType in ("EQUITY","COLLECTIVE_INVESTMENT"):
-                symbol = position.instrument.symbol
-                if symbol:
-                    quantity = position.longQuantity if position.longQuantity > 0 else -position.shortQuantity
-                    stocks.append({
-                        "symbol": symbol,
-                        "quantity": f"{quantity:,.0f}",
-                        "trade_price": f"${position.averagePrice:,.2f}",
-                    })
-        stocks = self.get_current_price(stocks)
-        return stocks
+    def get_positions(self):
+        return self.position
 
     def get_balances(self) -> dict:
         """Fetch and log the account balances."""
@@ -110,6 +55,59 @@ class PositionService:
         }
         logger.debug(f"Account Balances: {balances}")
         return balances
+
+    def get_stock_position(self):
+        """Fetch and log the account stocks."""
+        if self.position is None:
+            logger.warning("Position is not initialized.")
+            return []
+        securities_account: SecuritiesAccount = self.position
+
+        stocks = []
+
+        if not securities_account.positions:
+            logger.warning("No positions found in the securities account.")
+            return []
+
+        for position in securities_account.positions:
+            if position.instrument and position.instrument.assetType in ("EQUITY", "COLLECTIVE_INVESTMENT"):
+                symbol = position.instrument.symbol
+                if symbol:
+                    quantity = position.longQuantity if position.longQuantity > 0 else -position.shortQuantity
+                    stocks.append({
+                        "symbol": symbol,
+                        "quantity": f"{quantity:,.0f}",
+                        "trade_price": f"${position.averagePrice:,.2f}",
+                    })
+        stocks = self.get_current_price(stocks)
+        return stocks
+
+    def get_option_position(self):
+        """Fetch option positions details including current prices."""
+        puts = self._get_positions_with_prices("P")
+        calls = self._get_positions_with_prices("C")
+        return puts, calls
+
+    def get_total_exposure(self):
+        """Calculate and log the total exposure for short PUT option positions."""
+        puts = self.get_option_details("P")
+        exposure_by_symbol = {}
+
+        for put in puts:
+            ticker = put["ticker"]
+            exposure = put.get("exposure", 0)
+            exposure_by_symbol[ticker] = exposure_by_symbol.get(ticker, 0) + exposure
+
+        logger.debug(f"Total Exposure: {exposure_by_symbol}")
+        return exposure_by_symbol
+
+    # --- Private helpers ---
+
+    def _get_positions_with_prices(self, option_type):
+        """Fetch options of a specific type and populate their current prices."""
+        options = self.get_option_details(option_type)
+        options_with_prices = self.get_current_price(options)
+        return options_with_prices
 
     def get_option_details(self, option_type: str):
         """Extract details for each option position based on the option type."""
@@ -147,6 +145,26 @@ class PositionService:
                         option_positions_details.append(option_details)
         return option_positions_details
 
+    def get_current_price(self, tickers):
+        """Fetch the current price for the given options."""
+        ticker_list = [ticker.get("symbol") for ticker in tickers if ticker.get("symbol")]
+
+        if not ticker_list:
+            return tickers
+
+        quotes = self.client.get_price(", ".join(ticker_list))
+        quote_data = {
+            symbol: asset.quote.mark
+            for symbol, asset in getattr(quotes, "root", {}).items()
+            if asset.quote and asset.quote.mark is not None
+        }
+
+        for ticker in tickers:
+            current_price = quote_data.get(ticker.get("symbol"), 0)
+            ticker["current_price"] = f"${current_price:,.3f}"
+
+        return tickers
+
     @classmethod
     def _calculate_exposure(cls, position, strike_price):
         """Calculate exposure for PUT options."""
@@ -158,18 +176,5 @@ class PositionService:
             exposure -= strike_price * position.longQuantity * 100
 
         return exposure
-
-    def get_total_exposure(self):
-        """Calculate and log the total exposure for short PUT option positions."""
-        puts = self.get_option_details("P")
-        exposure_by_symbol = {}
-
-        for put in puts:
-            ticker = put["ticker"]
-            exposure = put.get("exposure", 0)
-            exposure_by_symbol[ticker] = exposure_by_symbol.get(ticker, 0) + exposure
-
-        logger.debug(f"Total Exposure: {exposure_by_symbol}")
-        return exposure_by_symbol
 
 
