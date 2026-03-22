@@ -1,52 +1,202 @@
-# Schwab Options
+# Options Wheel
 
-Schwab Options is a Python-based project that interacts with the Schwab API to fetch account details, transactions, and other trading-related data. It uses `Pydantic` for data validation, `Loguru` for logging, and `python-dotenv` for managing environment variables.
+Options Wheel is a Python-based trading application that interacts with the Schwab API to manage and analyze options (puts, calls), account positions, balances, and transaction history. It uses `Pydantic` for data validation, `FastAPI` for a REST API layer, and a React + Vite frontend for the dashboard UI.
 
 ---
 
 ## Features
 
-- Fetch account hash values from the Schwab API.
-- Retrieve and parse transactions for a given date range.
-- Validate API responses using `Pydantic` models.
-- Log detailed information about transactions and transfer items.
+- Fetch account positions, balances, and option/stock holdings.
+- Analyze options chains — best annualized return, all expiration dates, price history.
+- Track and match open/close option transactions with realized P&L.
+- AI agent for natural-language queries over account data.
+- FastAPI REST layer with auto-generated OpenAPI docs.
+- React + Vite frontend dashboard.
+
+---
+
+## Project Structure
+
+```
+.
+├── api/                  # FastAPI layer
+│   ├── app.py            # Main FastAPI app (mounts all routers)
+│   ├── market.py         # /market routes
+│   ├── position.py       # /positions routes
+│   ├── transactions.py   # /transactions routes
+│   └── agent.py          # /agent routes
+├── broker/               # Schwab API client and auth
+├── data/                 # Pydantic data models
+├── service/              # Business logic (MarketService, PositionService, etc.)
+├── tools/                # Agent tools
+├── frontend/             # React + Vite frontend
+│   └── src/
+│       ├── pages/        # MarketData, Positions
+│       ├── components/   # Navbar, Spinner
+│       └── api/          # Fetch wrappers for FastAPI endpoints
+└── main.py               # Token refresh utility
+```
 
 ---
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
-
-- Python 3.8 or higher
-- `pip` (Python package manager)
+- Python 3.12+
+- [uv](https://github.com/astral-sh/uv) (Python package manager)
+- Node.js 18+ and npm (for the React frontend)
 
 ---
 
 ## Installation
 
-1. **Clone the Repository**:
+1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/schwab-options.git
-   cd schwab-options
+   git clone https://github.com/your-username/options-wheel.git
+   cd options-wheel
+   ```
+
+2. **Install Python dependencies**:
+   ```bash
+   uv sync
+   ```
+
+3. **Install frontend dependencies**:
+   ```bash
+   cd frontend && npm install
    ```
 
 ---
 
-## How to Start the API and UI Layers
+## How to Run
 
-### Start the FastAPI Server
+### 1. Refresh the Schwab Token (first time / when expired)
 
-1. Navigate to the project directory and run the following command to start the FastAPI server:
-   ```bash
-   uvicorn api:app --reload
-   ```
-2. The API will be available at `http://127.0.0.1:8000`.
+```bash
+uv run python main.py
+```
 
-### Start the Streamlit UI
-1. Navigate to the project directory and run the following command to start the Streamlit UI:
-   ```bash
-   streamlit run ui.py
-   ```
-2. The UI will be available in your browser at the URL provided by Streamlit (usually `http://localhost:8501`).
+Paste the redirect URL into the terminal when prompted.
 
-3. When Token needs to be refreshed run main.py and paste the token in the terminal
+---
+
+### 2. Start the FastAPI Server
+
+```bash
+uv run uvicorn api.app:app --reload
+```
+
+- API base URL: `http://localhost:8000`
+- Interactive docs: `http://localhost:8000/docs`
+
+#### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/market/price/{symbol}` | Current ticker price |
+| GET | `/api/market/history/{symbol}` | Price history |
+| GET | `/api/market/options/best` | Best annualized return for a strike |
+| GET | `/api/market/options/expirations` | All expiration dates for a strike |
+| GET | `/api/positions/` | All positions, balances, and stocks |
+| GET | `/api/positions/balances` | Account balances |
+| GET | `/api/positions/stocks` | Stock / ETF holdings |
+| GET | `/api/positions/options` | Open put and call positions |
+| GET | `/api/positions/exposure` | Total dollar exposure by ticker |
+| GET | `/api/transactions/` | Raw transaction history |
+| GET | `/api/transactions/options` | Matched open/close option transactions |
+| POST | `/api/agent/query` | Natural-language AI agent query |
+
+---
+
+### 3. Start the React Frontend
+
+Requires the FastAPI server to be running (requests are proxied via Vite).
+
+```bash
+cd frontend && npm run dev
+```
+
+- URL: `http://localhost:3000`
+- **Market Data** page: options chain analyzer with live price fetch, expiration tables, and max-return display.
+- **Positions** page: account balances, stocks, puts, and calls with one-click refresh.
+- **Transactions** page: filter and browse option transactions with realized P&L.
+- **Monthly Gains** page: allocation breakdown by symbol with pie and bar charts.
+
+---
+
+## Deploying to Heroku
+
+The app uses a **single web dyno**: FastAPI serves both the REST API and the pre-built React frontend from `frontend/dist/`.
+
+### Prerequisites
+
+- [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli) installed and logged in
+- Git repo initialised
+
+### One-time setup
+
+```bash
+# Create the app
+heroku create your-app-name
+
+# Two buildpacks: Node (builds React) then Python (runs FastAPI)
+heroku buildpacks:add --index 1 heroku/nodejs
+heroku buildpacks:add --index 2 heroku/python
+```
+
+### Set environment variables
+
+```bash
+heroku config:set APP_KEY=...
+heroku config:set APP_SECRET=...
+heroku config:set APP_CALLBACK_URL=https://your-app.herokuapp.com/callback
+heroku config:set OPENAI_API_KEY=...
+heroku config:set SERPAPI_API_KEY=...
+
+# Paste the full token.json contents as a single-line JSON string
+heroku config:set TOKEN_JSON="$(python -c "import json; print(json.dumps(json.load(open('token.json'))))")"
+```
+
+See [.env.example](.env.example) for all required variables.
+
+> **Token expiry**: Schwab tokens expire every 7 days. Re-run `uv run python main.py` locally, then update `TOKEN_JSON` on Heroku with the command above.
+
+### Updating the Schwab token on Heroku manually
+
+Schwab's OAuth tokens must be refreshed before they expire (every 7 days).
+
+**Step 1 — Refresh locally**
+```bash
+uv run python main.py
+```
+
+**Step 2 — Push the new token to Heroku**
+```bash
+heroku config:set TOKEN_JSON="$(python -c "import json; print(json.dumps(json.load(open('token.json'))))")" --app your-app-name
+```
+
+Heroku restarts the dyno automatically after the config var is updated.
+
+**Verify it was set:**
+```bash
+heroku config:get TOKEN_JSON --app your-app-name
+```
+
+**Check the token expiry locally:**
+```bash
+python -c "import json; d=json.load(open('token.json')); print(d.get('expires_in'), 'seconds')"
+```
+
+### Deploy
+
+```bash
+git push heroku main
+```
+
+Heroku will:
+1. Run `npm install && npm run build` inside `frontend/` (Node.js buildpack → `heroku-postbuild`).
+2. Install Python dependencies from `requirements.txt` (Python buildpack).
+3. Start the web dyno via `Procfile`: `uvicorn api.app:app --host 0.0.0.0 --port $PORT`.
+
+- API: `https://your-app.herokuapp.com/api/...`
+- OpenAPI docs: `https://your-app.herokuapp.com/docs`
+- React app: `https://your-app.herokuapp.com/`

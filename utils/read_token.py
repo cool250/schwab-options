@@ -1,4 +1,5 @@
 import json
+import os
 from utils.utils import TOKEN_FILE_PATH
 
 # Define the file path as a constant
@@ -13,8 +14,13 @@ def save_dict_to_file(data: dict) -> None:
 
 def read_dict_from_file() -> dict:
     """
-    Read a dictionary from a file in JSON format.
+    Read token data from token.json, or fall back to the TOKEN_JSON
+    environment variable (used in environments with an ephemeral filesystem,
+    e.g. Heroku).
     """
+    env_token = os.getenv("TOKEN_JSON")
+    if env_token:
+        return json.loads(env_token)
     with open(FILE_PATH, 'r') as file:
         return json.load(file)
 
