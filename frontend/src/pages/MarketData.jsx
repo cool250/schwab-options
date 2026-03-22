@@ -17,6 +17,7 @@ export default function MarketData() {
   const [ticker, setTicker] = useState('')
   const [currentPrice, setCurrentPrice] = useState(null)
   const [priceStatus, setPriceStatus] = useState(null) // 'ok' | 'err' | null
+  const [lastFetchedTicker, setLastFetchedTicker] = useState('')
   const [strikePrice, setStrikePrice] = useState('')
   const [optionType, setOptionType] = useState('PUT')
   const [fromDate, setFromDate] = useState(todayStr)
@@ -28,11 +29,14 @@ export default function MarketData() {
 
   async function handleTickerBlur() {
     const t = ticker.trim().toUpperCase()
-    if (!t) { setCurrentPrice(null); setPriceStatus(null); return }
+    if (!t) { setCurrentPrice(null); setPriceStatus(null); setLastFetchedTicker(''); return }
+    if (t === lastFetchedTicker) return   // same ticker, nothing to do
     try {
       const data = await getTickerPrice(t)
       setCurrentPrice(data.price)
       setPriceStatus('ok')
+      setLastFetchedTicker(t)
+      setStrikePrice(String(Math.round(data.price)))
     } catch {
       setCurrentPrice(null)
       setPriceStatus('err')
