@@ -22,9 +22,11 @@ def get_app_credentials():
     app_secret = os.getenv("APP_SECRET")
     app_callback_url = os.getenv("APP_CALLBACK_URL")
 
-    if not app_key or not app_secret or not app_callback_url:
-        logger.error("Missing environment variables. Check your .env file.")
-        raise ValueError("Environment variables APP_KEY, APP_SECRET, or APP_CALLBACK_URL are missing.")
+    missing = [name for name, val in [("APP_KEY", app_key), ("APP_SECRET", app_secret), ("APP_CALLBACK_URL", app_callback_url)] if not val]
+    if missing:
+        logger.error("Missing environment variables: %s. Available env vars with 'APP' prefix: %s",
+                     missing, [k for k in os.environ if "APP" in k])
+        raise ValueError(f"Environment variables missing: {missing}")
 
     return app_key, app_secret, app_callback_url
 
