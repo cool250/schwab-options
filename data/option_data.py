@@ -71,7 +71,7 @@ class OptionChainResponse(BaseModel):
     isIndex: bool
     interestRate: float
     underlyingPrice: float
-    volatility: float
+    volatility: Optional[float] = None
     daysToExpiration: float
     dividendYield: Optional[float]
     numberOfContracts: int

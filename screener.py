@@ -72,9 +72,21 @@ def get_iv_rank(client: schwab_client.Client, symbol: str) -> Optional[float]:
         return None
 
     current_iv = resp.volatility  # current 30d IV as a percentage (e.g. 28.5)
-    if current_iv is None:
-        return None
-    current_iv = float(current_iv)
+    # Chain-level volatility is NaN/null for many ETFs (SPY, QQQ, etc.).
+    # Fall back to the median volatility of the nearest-DTE ATM put contracts.
+    if not current_iv or np.isnan(current_iv):
+        ivs = [
+            float(contract.volatility)
+            for strikes in (resp.putExpDateMap or {}).values()
+            for contracts in strikes.values()
+            for contract in contracts
+            if contract.volatility is not None and not np.isnan(contract.volatility) and contract.volatility > 0
+        ]
+        if not ivs:
+            return None
+        current_iv = float(np.median(ivs))
+    else:
+        current_iv = float(current_iv)
 
     # Pull 1yr daily price history to compute rolling HV as IV proxy
     hist_resp = client.get_price_history(
@@ -116,12 +128,17 @@ def get_put_candidates(
     client: schwab_client.Client,
     symbol: str,
     ivr: float,
+    delta_min: float = DELTA_MIN,
+    delta_max: float = DELTA_MAX,
+    dte_min: int = DTE_MIN,
+    dte_max: int = DTE_MAX,
+    min_bid: float = MIN_BID,
 ) -> list[dict]:
     """
     Pull puts in the DTE window and return those passing delta + bid filters.
     """
-    from_date = (date.today() + timedelta(days=DTE_MIN)).isoformat()
-    to_date   = (date.today() + timedelta(days=DTE_MAX)).isoformat()
+    from_date = (date.today() + timedelta(days=dte_min)).isoformat()
+    to_date   = (date.today() + timedelta(days=dte_max)).isoformat()
 
     resp = client.get_chain(
         symbol,
@@ -144,7 +161,7 @@ def get_put_candidates(
         except ValueError:
             continue
 
-        if not (DTE_MIN <= dte <= DTE_MAX):
+        if not (dte_min <= dte <= dte_max):
             continue
 
         for strike_str, contracts in strikes.items():
@@ -163,9 +180,9 @@ def get_put_candidates(
                 abs_delta = abs(float(delta))
                 bid_price = float(bid)
 
-                if not (DELTA_MIN <= abs_delta <= DELTA_MAX):
+                if not (delta_min <= abs_delta <= delta_max):
                     continue
-                if bid_price < MIN_BID:
+                if bid_price < min_bid:
                     continue
 
                 mid = round((float(bid) + float(ask)) / 2, 2) if ask else bid_price
@@ -218,12 +235,24 @@ def score_candidate(row: dict) -> float:
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
-def run_screener() -> pd.DataFrame:
+def run_screener(
+    watchlist: list[str] | None = None,
+    min_ivr: float = MIN_IVR,
+    delta_min: float = DELTA_MIN,
+    delta_max: float = DELTA_MAX,
+    dte_min: int = DTE_MIN,
+    dte_max: int = DTE_MAX,
+    min_bid: float = MIN_BID,
+    progress_callback=None,
+) -> pd.DataFrame:
     client = get_client()
     all_candidates = []
+    symbols = watchlist if watchlist is not None else WATCHLIST
 
-    for symbol in WATCHLIST:
+    for symbol in symbols:
         print(f"  Scanning {symbol}...", end=" ")
+        if progress_callback:
+            progress_callback(symbol)
 
         ivr = get_iv_rank(client, symbol)
         if ivr is None:
@@ -232,11 +261,16 @@ def run_screener() -> pd.DataFrame:
 
         print(f"IVR={ivr:.0f}", end=" ")
 
-        if ivr < MIN_IVR:
-            print(f"— below threshold ({MIN_IVR}), skip.")
+        if ivr < min_ivr:
+            print(f"— below threshold ({min_ivr}), skip.")
             continue
 
-        candidates = get_put_candidates(client, symbol, ivr)
+        candidates = get_put_candidates(
+            client, symbol, ivr,
+            delta_min=delta_min, delta_max=delta_max,
+            dte_min=dte_min, dte_max=dte_max,
+            min_bid=min_bid,
+        )
         print(f"— {len(candidates)} candidates found.")
         all_candidates.extend(candidates)
 

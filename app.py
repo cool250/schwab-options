@@ -1,5 +1,5 @@
 import streamlit as st
-from ui import market_data, position, chat, transactions, stock_allocation
+from ui import market_data, position, chat, transactions, stock_allocation, screener
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
@@ -68,8 +68,8 @@ st.set_page_config(layout="wide")
 st.title("Options Trading Dashboard")
 
 
-tab1_view, tab2_view, tab3_view, tab4_view, tab5_view = st.tabs(
-    ["Positions", "Market Data", "Chat", "Transactions", "Stock Allocation"]
+tab1_view, tab2_view, tab3_view, tab4_view, tab5_view, tab6_view = st.tabs(
+    ["Positions", "Market Data", "Chat", "Transactions", "Stock Allocation", "Screener"]
 )
 
 with tab1_view:
@@ -86,3 +86,6 @@ with tab4_view:
 
 with tab5_view:
     stock_allocation.render()
+
+with tab6_view:
+    screener.render()
