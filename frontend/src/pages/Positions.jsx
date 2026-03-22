@@ -1,25 +1,19 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { getPositions } from '../api/client'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
 export default function Positions() {
   const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  async function handleRefresh() {
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await getPositions()
-      setData(result)
-    } catch {
-      setError('Failed to load positions. Make sure the API server is running.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    getPositions()
+      .then(setData)
+      .catch(() => setError('Failed to load positions. Make sure the API server is running.'))
+      .finally(() => setLoading(false))
+  }, [])
 
   const puts = data?.puts ?? []
   const calls = data?.calls ?? []
@@ -34,9 +28,6 @@ export default function Positions() {
     <div className="page">
       <div className="page-header">
         <h2 className="page-title">Positions</h2>
-        <button onClick={handleRefresh} className="btn btn-primary" disabled={loading}>
-          {loading ? 'Loading…' : 'Refresh Data'}
-        </button>
       </div>
 
       {error && <div className="alert error">{error}</div>}
