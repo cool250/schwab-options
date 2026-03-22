@@ -1,7 +1,18 @@
 const BASE = '/api'
 
+function getToken() {
+  return sessionStorage.getItem('auth_token')
+}
+
 async function request(path) {
-  const res = await fetch(`${BASE}${path}`)
+  const token = getToken()
+  const headers = token ? { Authorization: `Bearer ${token}` } : {}
+  const res = await fetch(`${BASE}${path}`, { headers })
+  if (res.status === 401) {
+    sessionStorage.removeItem('auth_token')
+    window.location.href = '/login'
+    throw new Error('Session expired. Please log in again.')
+  }
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)

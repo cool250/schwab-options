@@ -1,6 +1,9 @@
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 export default function Navbar() {
+  const { logout } = useAuth()
+
   return (
     <nav className="navbar">
       <span className="navbar-brand">Options Wheel</span>
@@ -30,6 +33,9 @@ export default function Navbar() {
           Monthly Gains
         </NavLink>
       </div>
+      <button onClick={logout} className="btn btn-secondary navbar-logout">
+        Sign out
+      </button>
     </nav>
   )
 }
