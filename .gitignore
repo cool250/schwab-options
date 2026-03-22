@@ -71,7 +71,6 @@ frontend/.cache/
 # ─── Auth tokens ─────────────────────────────────────
 token.json
 
-.python-version
 token.json
 test-data.json
 market-data.json
