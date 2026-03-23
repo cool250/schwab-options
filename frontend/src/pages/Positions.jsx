@@ -38,6 +38,14 @@ export default function Positions() {
           {/* Balances */}
           {balances && (
             <div className="metrics-row">
+              {balances.cash != null && (
+                <div className="metric">
+                  <span className="metric-label">Cash Balance</span>
+                  <span className="metric-value">
+                    ${balances.cash.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
               {balances.margin != null && (
                 <div className="metric">
                   <span className="metric-label">Margin Balance</span>

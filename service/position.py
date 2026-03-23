@@ -51,7 +51,8 @@ class PositionService:
         balances = {
             "margin": securities_account.currentBalances.marginBalance,
             "mutualFundValue": securities_account.currentBalances.mutualFundValue,
-            "account": securities_account.currentBalances.liquidationValue
+            "account": securities_account.currentBalances.liquidationValue,
+            "cash": securities_account.currentBalances.cashBalance,
         }
         logger.debug(f"Account Balances: {balances}")
         return balances
