@@ -145,18 +145,36 @@ heroku buildpacks:add --index 2 heroku/python
 
 ### Set environment variables
 
+| Variable | Required | Description |
+|---|---|---|
+| `APP_KEY` | Yes | Schwab API app key |
+| `APP_SECRET` | Yes | Schwab API app secret |
+| `APP_CALLBACK_URL` | Yes | OAuth redirect URI registered in Schwab developer portal |
+| `OPENAI_API_KEY` | Yes | OpenAI API key for the AI agent |
+| `SERPAPI_API_KEY` | Yes | SerpAPI key for web search in the AI agent |
+| `SECRET_KEY` | Yes | Secret key for signing JWT session tokens |
+| `ADMIN_USERNAME` | Yes | Login username for the dashboard |
+| `ADMIN_PASSWORD` | Yes | Login password for the dashboard |
+| `TOKEN_JSON` | Yes | Full Schwab OAuth token as a single-line JSON string (initial seed) |
+| `USE_DB` | No | Set to `true` to store the token in Redis instead of the env var |
+| `REDIS_URL` | If `USE_DB=true` | Redis connection URL (set automatically by the Heroku Redis addon) |
+
 ```bash
 heroku config:set APP_KEY=...
 heroku config:set APP_SECRET=...
 heroku config:set APP_CALLBACK_URL=https://your-app.herokuapp.com/callback
 heroku config:set OPENAI_API_KEY=...
 heroku config:set SERPAPI_API_KEY=...
+heroku config:set SECRET_KEY=...
+heroku config:set ADMIN_USERNAME=...
+heroku config:set ADMIN_PASSWORD=...
 
 # Paste the full token.json contents as a single-line JSON string
 heroku config:set TOKEN_JSON="$(python -c "import json; print(json.dumps(json.load(open('token.json'))))")"
-```
 
-See [.env.example](.env.example) for all required variables.
+# Optional: enable Redis token storage
+heroku config:set USE_DB=true
+```
 
 > **Token expiry**: Schwab tokens expire every 7 days. Re-run `uv run python main.py` locally, then update `TOKEN_JSON` on Heroku with the command above.
 

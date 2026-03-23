@@ -10,7 +10,7 @@ REDIS_TOKEN_KEY = "TOKEN_JSON"
 
 def _get_redis() -> redis.Redis:
     url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    return redis.from_url(url, decode_responses=True)
+    return redis.from_url(url, ssl_certs_reqs=None, decode_responses=True)
 
 def _use_db() -> bool:
     return os.getenv("USE_DB", "").lower() in ("1", "true", "yes")
