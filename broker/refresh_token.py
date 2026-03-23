@@ -4,6 +4,7 @@ import requests
 import logging
 
 from utils import get_app_credentials, get_response_token
+from utils.read_token import save_dict_to_file
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,6 @@ def refresh_tokens():
         return None
 
     # Read the refresh token value from the token.json file
-    file_path = "token.json"
     refresh_token_value = get_response_token()
 
     if refresh_token_value == "Token not found":
@@ -51,9 +51,7 @@ def refresh_tokens():
 
     logger.debug(refresh_token_dict)
 
-    # Convert and save as JSON
-    with open(file_path, 'w') as json_file:
-        json.dump(refresh_token_dict, json_file, indent=4)
+    save_dict_to_file(refresh_token_dict)
 
     logger.info("Token dict refreshed.")
 

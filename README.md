@@ -200,3 +200,60 @@ Heroku will:
 - API: `https://your-app.herokuapp.com/api/...`
 - OpenAPI docs: `https://your-app.herokuapp.com/docs`
 - React app: `https://your-app.herokuapp.com/`
+
+---
+
+## Token Storage
+
+The app supports two backends for storing the Schwab OAuth token, controlled by the `USE_DB` environment variable.
+
+| `USE_DB` | Backend | When to use |
+|---|---|---|
+| `false` / unset | `token.json` file (or `TOKEN_JSON` env var) | Local development |
+| `true` | Redis (`REDIS_URL`) | Production / Heroku |
+
+### Local development (default — no Redis needed)
+
+Token is read from `token.json` in the project root. No extra configuration required.
+
+### Local development with Redis
+
+```bash
+# Start Redis
+brew services start redis
+
+# Seed Redis with your current token
+python3 -c "
+import json, redis
+r = redis.from_url('redis://localhost:6379', decode_responses=True)
+r.set('schwab_token', open('token.json').read())
+print('Token seeded to Redis')
+"
+```
+
+Add to `.env`:
+```
+USE_DB=true
+REDIS_URL=redis://localhost:6379
+```
+
+### Heroku (Redis)
+
+```bash
+# Add the Redis addon (sets REDIS_URL automatically)
+heroku addons:create heroku-redis:mini --app your-app-name
+
+# Enable Redis storage
+heroku config:set USE_DB=true --app your-app-name
+
+# Seed the token into Redis (one-time / after each 7-day Schwab expiry)
+heroku run python3 -c "
+import json, os, redis
+r = redis.from_url(os.environ['REDIS_URL'], decode_responses=True)
+token = os.environ['TOKEN_JSON']
+r.set('schwab_token', token)
+print('Token seeded')
+" --app your-app-name
+```
+
+After seeding, tokens are automatically refreshed in Redis on every `401` response — no manual re-seeding needed until the refresh token itself expires (~7 days).
