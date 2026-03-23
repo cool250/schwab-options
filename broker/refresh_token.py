@@ -4,7 +4,7 @@ import requests
 import logging
 
 from utils import get_app_credentials, get_response_token
-from utils.read_token import save_dict_to_file
+from utils.read_token import save_token
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def refresh_tokens():
 
     logger.debug(refresh_token_dict)
 
-    save_dict_to_file(refresh_token_dict)
+    save_token(refresh_token_dict)
 
     logger.info("Token dict refreshed.")
 

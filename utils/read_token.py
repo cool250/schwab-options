@@ -6,7 +6,7 @@ from utils.utils import TOKEN_FILE_PATH
 # Define the file path as a constant
 FILE_PATH = TOKEN_FILE_PATH
 
-REDIS_TOKEN_KEY = "schwab_token"
+REDIS_TOKEN_KEY = "TOKEN_JSON"
 
 def _get_redis() -> redis.Redis:
     url = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -15,19 +15,24 @@ def _get_redis() -> redis.Redis:
 def _use_db() -> bool:
     return os.getenv("USE_DB", "").lower() in ("1", "true", "yes")
 
-def save_dict_to_file(data: dict) -> None:
+def save_token(data: dict) -> None:
     if _use_db():
         _get_redis().set(REDIS_TOKEN_KEY, json.dumps(data))
     else:
         with open(FILE_PATH, 'w') as file:
             json.dump(data, file, indent=4)
 
-def read_dict_from_file() -> dict:
+def read_token() -> dict:
     if _use_db():
         raw = _get_redis().get(REDIS_TOKEN_KEY)
         if raw:
             return json.loads(raw)
-        raise ValueError("Token not found in Redis. Set the token first.")
+        # Fall back to TOKEN_JSON env var and seed Redis with it
+        env_token = os.getenv("TOKEN_JSON")
+        if env_token:
+            _get_redis().set(REDIS_TOKEN_KEY, env_token)
+            return json.loads(env_token)
+        raise ValueError("Token not found in Redis or TOKEN_JSON env var.")
     env_token = os.getenv("TOKEN_JSON")
     if env_token:
         return json.loads(env_token)
@@ -35,17 +40,9 @@ def read_dict_from_file() -> dict:
         return json.load(file)
 
 def get_response_token() -> str:
-    data = read_dict_from_file()
+    data = read_token()
     return data.get("refresh_token", "Token not found")
 
 def get_access_token() -> str:
-    data = read_dict_from_file()
+    data = read_token()
     return data.get("access_token", "Token not found")
-
-# Example usage
-if __name__ == "__main__":
-    response_token = get_response_token()
-    print("Response Token:", response_token)
-
-    access_token = get_access_token()
-    print("Access Token:", access_token)

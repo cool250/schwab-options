@@ -226,7 +226,7 @@ brew services start redis
 python3 -c "
 import json, redis
 r = redis.from_url('redis://localhost:6379', decode_responses=True)
-r.set('schwab_token', open('token.json').read())
+r.set('TOKEN_JSON', open('token.json').read())
 print('Token seeded to Redis')
 "
 ```
