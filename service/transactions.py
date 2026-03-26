@@ -294,8 +294,9 @@ class TransactionService:
             if len(trade_group) > 1:
                 # Multiple trades with the same characteristics - combine them
                 total_amount = sum(t["amount"] for t in trade_group)
-                # Calculate weighted average price
-                weighted_price = sum(t["price"] * t["amount"] for t in trade_group) / total_amount if total_amount != 0 else 0
+                # Calculate weighted average price using absolute quantities to handle signed amounts correctly
+                total_abs = sum(abs(t["amount"]) for t in trade_group)
+                weighted_price = sum(t["price"] * abs(t["amount"]) for t in trade_group) / total_abs if total_abs != 0 else 0
                 
                 # Create a combined trade record
                 combined_trade = {
@@ -339,12 +340,20 @@ class TransactionService:
                         f"Unmatched trade quantities for {contract_key}: "
                         f"Open qty {open_trade['amount']}, Close qty {close_trade['amount']}"
                     )
-                    # Adjust remaining quantities back in the trades
+                    # Adjust remaining quantities back in the trades and recalculate total_amount
                     if abs(open_trade["amount"]) > abs(matched_amount):
                         open_trade["amount"] -= amount
+                        open_trade["total_amount"] = (
+                            open_trade["price"] * -open_trade["amount"] * 100
+                            - self.COMMISSION_PER_SHARE * abs(open_trade["amount"]) * 100
+                        )
                         opens.insert(0, open_trade)  # Reinsert with updated amount
                     if abs(close_trade["amount"]) > abs(matched_amount):
                         close_trade["amount"] += amount  # Close trade amount is negative
+                        close_trade["total_amount"] = (
+                            close_trade["price"] * -close_trade["amount"] * 100
+                            - self.COMMISSION_PER_SHARE * abs(close_trade["amount"]) * 100
+                        )
                         closes.insert(0, close_trade)  # Reinsert with updated amount
                 else: 
                     # Take full amount if they match
@@ -381,7 +390,7 @@ class TransactionService:
                     position_effect="MATCHED",
                     option_type=open_trade.get("option_type"),
                     type=trade_type,
-                    total_amount=(price_difference - self.COMMISSION_PER_SHARE) * -amount * 100
+                    total_amount=price_difference * -amount * 100 - (self.COMMISSION_PER_SHARE * abs(amount) * 100)
                 ).model_dump())
 
             # Add any remaining unmatched trades to the unmatched list

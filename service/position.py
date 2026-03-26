@@ -132,6 +132,9 @@ class PositionService:
                             quantity = position.longQuantity
                         elif position.shortQuantity and position.shortQuantity > 0:
                             quantity = -position.shortQuantity
+                        else:
+                            logger.warning(f"Position {symbol} has no long or short quantity, skipping.")
+                            continue
                         exposure = PositionService._calculate_exposure(position, strike_price)
                         option_details = {
                             "ticker": ticker,
@@ -153,7 +156,7 @@ class PositionService:
         if not ticker_list:
             return tickers
 
-        quotes = self.client.get_price(", ".join(ticker_list))
+        quotes = self.client.get_price(",".join(ticker_list))
         quote_data = {
             symbol: asset.quote.mark
             for symbol, asset in getattr(quotes, "root", {}).items()
