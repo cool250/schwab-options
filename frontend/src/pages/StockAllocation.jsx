@@ -102,7 +102,7 @@ export default function StockAllocation() {
 
       <div className="card">
         <form onSubmit={handleSubmit}>
-          <div className="form-row">
+          <div className="form-row form-row--2">
             <div className="form-group">
               <label>Year</label>
               <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="input">
@@ -117,22 +117,20 @@ export default function StockAllocation() {
                 ))}
               </select>
             </div>
-            <div className="form-group form-group--end">
-              <label className="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={realizedOnly}
-                  onChange={(e) => setRealizedOnly(e.target.checked)}
-                  className="toggle-checkbox"
-                />
-                <span>Realized Gains Only</span>
-              </label>
-            </div>
-            <div className="form-group form-group--end">
-              <button type="submit" className="btn btn-primary" disabled={loading}>
-                Submit
-              </button>
-            </div>
+          </div>
+          <div className="form-actions">
+            <label className="toggle-label">
+              <input
+                type="checkbox"
+                checked={realizedOnly}
+                onChange={(e) => setRealizedOnly(e.target.checked)}
+                className="toggle-checkbox"
+              />
+              <span>Realized Gains Only</span>
+            </label>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              Submit
+            </button>
           </div>
         </form>
       </div>
