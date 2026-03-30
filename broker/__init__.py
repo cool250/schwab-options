@@ -13,7 +13,7 @@ sub-modules::
 
     from broker import (
         Client,
-        TokenProvider, EnvTokenProvider,
+        TokenProvider, create_token_provider,
         BrokerError, BrokerAuthError, BrokerAPIError, BrokerValidationError,
         StockQuotes, PriceHistoryResponse, OptionChainResponse,
         SecuritiesAccount, Activity,
@@ -21,20 +21,20 @@ sub-modules::
 """
 
 from .client import Client
-from .token_provider import TokenProvider, EnvTokenProvider
+from .auth import TokenProvider, create_token_provider
 from .exceptions import BrokerError, BrokerAuthError, BrokerAPIError, BrokerValidationError
 
 # Response models — re-exported so callers can type-hint without importing from data/
-from data.account_data import SecuritiesAccount, Activity
-from data.market_data import StockQuotes, PriceHistoryResponse
-from data.option_data import OptionChainResponse
+from broker.data.account_data import SecuritiesAccount, Activity
+from broker.data.market_data import StockQuotes, PriceHistoryResponse
+from broker.data.option_data import OptionChainResponse
 
 __all__ = [
     # Entry point
     "Client",
     # Token providers
     "TokenProvider",
-    "EnvTokenProvider",
+    "create_token_provider",
     # Exceptions
     "BrokerError",
     "BrokerAuthError",

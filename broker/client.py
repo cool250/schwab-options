@@ -1,12 +1,11 @@
 import logging
 from typing import Optional
 
-from broker.accounts import Accounts
-from broker.market_data import MarketData
-from broker.token_provider import TokenProvider
-from data.account_data import SecuritiesAccount, Activity
-from data.market_data import PriceHistoryResponse, StockQuotes
-from data.option_data import OptionChainResponse
+from broker.clients import Accounts, MarketData
+from broker.auth import TokenProvider
+from broker.data.account_data import SecuritiesAccount, Activity
+from broker.data.market_data import PriceHistoryResponse, StockQuotes
+from broker.data.option_data import OptionChainResponse
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ class Client:
     **Custom token provider**::
 
         from broker import Client
-        from broker.token_provider import TokenProvider
+        from broker.auth import TokenProvider
 
         class VaultProvider(TokenProvider):
             def get_access_token(self):   return vault.get("schwab_access_token")
@@ -51,7 +50,7 @@ class Client:
             quote = client.get_price("AAPL")
         except BrokerAuthError:
             # Refresh token expired — re-authenticate
-            broker.authenticate.get_access_token()
+            broker.auth.authenticate.get_access_token()
         except BrokerAPIError as e:
             print(f"HTTP {e.status_code}")
         except BrokerValidationError:

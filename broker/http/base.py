@@ -5,7 +5,7 @@ import logging
 import requests
 
 from broker.exceptions import BrokerAuthError, BrokerAPIError
-from broker.token_provider import TokenProvider, EnvTokenProvider
+from broker.auth import TokenProvider, create_token_provider
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class APIClient:
     """
 
     def __init__(self, base_url: str, token_provider: TokenProvider | None = None) -> None:
-        self._token_provider: TokenProvider = token_provider or EnvTokenProvider()
+        self._token_provider: TokenProvider = token_provider or create_token_provider()
         self.base_url = base_url
         self.access_token = self._token_provider.get_access_token()
         self.headers = {
@@ -144,7 +144,7 @@ class APIClient:
             if attempt >= max_retries:
                 raise BrokerAuthError(
                     f"Authentication failed after {max_retries} attempts. "
-                    "Re-authenticate using broker.authenticate.get_access_token()."
+                    "Re-authenticate using broker.auth.authenticate.get_access_token()."
                 )
             logger.warning(
                 "401 Unauthorized — refreshing token (attempt %d/%d)…", attempt, max_retries

@@ -7,15 +7,15 @@ Concrete implementations:
 * :class:`RedisTokenProvider` — persists tokens in Redis (suitable for
   ephemeral/cloud environments such as Heroku).
 
-The default :class:`EnvTokenProvider` selects the backend automatically:
-it uses :class:`RedisTokenProvider` when the ``USE_DB`` environment variable
+The :func:`create_token_provider` factory selects the backend automatically:
+it returns :class:`RedisTokenProvider` when the ``USE_DB`` environment variable
 is set to a truthy value, and falls back to :class:`FileTokenProvider`
 otherwise.
 
 To use a custom storage backend, subclass :class:`TokenProvider` and pass
 an instance to :class:`broker.client.Client`::
 
-    from broker.token_provider import TokenProvider
+    from broker.auth import TokenProvider
 
     class MyProvider(TokenProvider):
         def get_access_token(self) -> str:
@@ -51,7 +51,6 @@ import requests
 logger = logging.getLogger(__name__)
 
 _SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
-_DEFAULT_TOKEN_FILE = "token.json"
 
 
 def get_app_credentials() -> tuple[str, str, str]:
@@ -66,9 +65,6 @@ def get_app_credentials() -> tuple[str, str, str]:
         raise ValueError(f"Environment variables missing: {missing}")
 
     return app_key, app_secret, app_callback_url
-
-_REDIS_TOKEN_KEY = "TOKEN_JSON"
-
 
 class TokenProvider(ABC):
     """Abstract interface for Schwab OAuth token storage and retrieval."""
@@ -133,6 +129,7 @@ class FileTokenProvider(TokenProvider):
     Reads and writes tokens from/to *file_path* (defaults to ``token.json``
     in the project root).
     """
+    _DEFAULT_TOKEN_FILE = "token.json"
 
     def __init__(self, file_path: str = _DEFAULT_TOKEN_FILE) -> None:
         self._file_path = file_path
@@ -173,6 +170,8 @@ class RedisTokenProvider(TokenProvider):
     is used to re-seed Redis.
     """
 
+    _REDIS_TOKEN_KEY = "TOKEN_JSON"
+
     def __init__(self, redis_url: str | None = None) -> None:
         url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
         if url.startswith("rediss://"):
@@ -182,9 +181,9 @@ class RedisTokenProvider(TokenProvider):
             self._redis = redis.from_url(url, decode_responses=True)
 
     def _read(self) -> dict:
-        raw = self._redis.get(_REDIS_TOKEN_KEY)
+        raw = self._redis.get(self._REDIS_TOKEN_KEY)
         if raw:
-            data = json.loads(raw)
+            data = json.loads(str(raw))
             if time.time() < data.get("expires_at", 0):
                 return data
             # Token has expired — fall back to TOKEN_JSON env var.
@@ -192,7 +191,7 @@ class RedisTokenProvider(TokenProvider):
         env_token = os.getenv("TOKEN_JSON")
         if env_token:
             data = json.loads(env_token)
-            self._redis.set(_REDIS_TOKEN_KEY, json.dumps(self._with_expiry(data)))
+            self._redis.set(self._REDIS_TOKEN_KEY, json.dumps(self._with_expiry(data)))
             return data
         raise ValueError("Token not found in Redis and TOKEN_JSON env var is not set.")
 
@@ -207,40 +206,21 @@ class RedisTokenProvider(TokenProvider):
         return token
 
     def save_tokens(self, token_data: dict) -> None:
-        self._redis.set(_REDIS_TOKEN_KEY, json.dumps(self._with_expiry(token_data)))
-        logger.debug("Tokens saved to Redis key '%s'", _REDIS_TOKEN_KEY)
+        self._redis.set(self._REDIS_TOKEN_KEY, json.dumps(self._with_expiry(token_data)))
+        logger.debug("Tokens saved to Redis key '%s'", self._REDIS_TOKEN_KEY)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
         return get_app_credentials()
 
 
-class EnvTokenProvider(TokenProvider):
+def create_token_provider() -> TokenProvider:
     """
-    Environment-driven token provider.
+    Factory that returns the appropriate :class:`TokenProvider` based on env vars.
 
-    Delegates to :class:`RedisTokenProvider` when ``USE_DB`` is set to a
-    truthy value (``1``, ``true``, or ``yes``); otherwise delegates to
-    :class:`FileTokenProvider`.
-
-    App credentials are read from the ``APP_KEY``, ``APP_SECRET``, and
-    ``APP_CALLBACK_URL`` environment variables.
+    Returns :class:`RedisTokenProvider` when ``USE_DB`` is set to a truthy value
+    (``1``, ``true``, or ``yes``); otherwise returns :class:`FileTokenProvider`.
     """
-
-    def __init__(self) -> None:
-        use_db = os.getenv("USE_DB", "").lower() in ("1", "true", "yes")
-        self._backend: TokenProvider = RedisTokenProvider() if use_db else FileTokenProvider()
-        logger.debug(
-            "EnvTokenProvider using %s backend", type(self._backend).__name__
-        )
-
-    def get_access_token(self) -> str:
-        return self._backend.get_access_token()
-
-    def get_refresh_token(self) -> str:
-        return self._backend.get_refresh_token()
-
-    def save_tokens(self, token_data: dict) -> None:
-        self._backend.save_tokens(token_data)
-
-    def get_app_credentials(self) -> tuple[str, str, str]:
-        return self._backend.get_app_credentials()
+    use_db = os.getenv("USE_DB", "").lower() in ("1", "true", "yes")
+    provider = RedisTokenProvider() if use_db else FileTokenProvider()
+    logger.debug("Token provider: %s", type(provider).__name__)
+    return provider

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from service.market import MarketService
 from service.transactions import TransactionService
-from broker.authenticate import get_access_token
+from broker.auth.authenticate import get_access_token
 from service.position import PositionService
 from service.agent import AgentService
 

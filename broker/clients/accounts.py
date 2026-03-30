@@ -2,10 +2,10 @@ import logging
 from typing import Optional
 from pydantic import ValidationError
 
-from broker.base import APIClient
+from broker.http import APIClient
 from broker.exceptions import BrokerAPIError, BrokerValidationError
-from broker.token_provider import TokenProvider
-from data.account_data import AccountHash, SecuritiesAccount, Activity
+from broker.auth import TokenProvider
+from broker.data.account_data import AccountHash, SecuritiesAccount, Activity
 from utils import convert_to_iso8601
 
 logger = logging.getLogger(__name__)

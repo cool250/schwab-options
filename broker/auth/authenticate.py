@@ -5,7 +5,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from broker.token_provider import get_app_credentials
+from broker.auth.token_provider import get_app_credentials
 
 
 def construct_init_auth_url() -> tuple[str, str, str, str]:
@@ -85,7 +85,7 @@ def get_access_token() -> str:
 
     logger.debug(init_tokens_dict)
 
-    from broker.token_provider import FileTokenProvider
+    from broker.auth.token_provider import FileTokenProvider
     FileTokenProvider().save_tokens(init_tokens_dict)
 
     logger.info("Token dict refreshed.")

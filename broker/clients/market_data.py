@@ -1,11 +1,11 @@
 import logging
 from pydantic import ValidationError
 
-from broker.base import APIClient
+from broker.http import APIClient
 from broker.exceptions import BrokerValidationError
-from broker.token_provider import TokenProvider
-from data.market_data import PriceHistoryResponse, StockQuotes
-from data.option_data import OptionChainResponse
+from broker.auth import TokenProvider
+from broker.data.market_data import PriceHistoryResponse, StockQuotes
+from broker.data.option_data import OptionChainResponse
 
 logger = logging.getLogger(__name__)
 
