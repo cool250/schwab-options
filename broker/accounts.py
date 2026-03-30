@@ -1,75 +1,126 @@
 import logging
-from pydantic import ValidationError
 from typing import Optional
+from pydantic import ValidationError
+
 from broker.base import APIClient
+from broker.exceptions import BrokerAPIError, BrokerValidationError
+from broker.token_provider import TokenProvider
 from data.account_data import AccountHash, SecuritiesAccount, Activity
 from utils import convert_to_iso8601
 
 logger = logging.getLogger(__name__)
 
+_TRADER_BASE = "https://api.schwabapi.com/trader/v1"
+
+
 class Accounts(APIClient):
-    def __init__(self):
-        super().__init__("https://api.schwabapi.com/trader/v1")
-        self.account_hash_value: Optional[str] = None
-        self._initialize_account_hash()
+    """Schwab account sub-client — positions and transaction history."""
+
+    def __init__(self, token_provider: TokenProvider | None = None) -> None:
+        super().__init__(_TRADER_BASE, token_provider)
+        self._account_hash_value: Optional[str] = None
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _initialize_account_hash(self) -> None:
-        """Initialize the account hash value by fetching it from the API."""
-        url = f"{self.base_url}/accounts/accountNumbers"
-        response_data = self._fetch_data(url)
-
-        if not response_data:
-            raise RuntimeError("Failed to retrieve account hash value after retries.")
-
+        """Fetch and cache the account hash (called lazily on first use)."""
+        response_data = self._fetch_data(f"{self.base_url}/accounts/accountNumbers")
         try:
             account_hash = AccountHash(**response_data[0])
-            self.account_hash_value = account_hash.hashValue
-        except (IndexError, ValidationError) as e:
-            logger.error(f"Error parsing account hash value: {e}")
+            self._account_hash_value = account_hash.hashValue
+        except (IndexError, ValidationError) as exc:
+            raise BrokerValidationError(
+                f"Could not parse account hash from response: {exc}"
+            ) from exc
 
-    def fetch_positions(self) -> Optional[SecuritiesAccount]:
+    @property
+    def _account_hash(self) -> str:
+        """Return the cached account hash, initialising it on first access."""
+        if self._account_hash_value is None:
+            self._initialize_account_hash()
+        return self._account_hash_value  # type: ignore[return-value]
 
-        """Retrieve the account details, fetching positions if necessary."""
-        url = f"{self.base_url}/accounts/{self.account_hash_value}"
-        params = {"fields": "positions"}
-        response_data = super()._fetch_data(url, params)
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-        if not response_data:
-            logger.error("Failed to retrieve positions.")
-            return None
+    def fetch_positions(self) -> SecuritiesAccount:
+        """
+        Retrieve current account positions.
+
+        Returns
+        -------
+        SecuritiesAccount
+            Validated Pydantic model containing positions and balances.
+
+        Raises
+        ------
+        BrokerAuthError
+            On authentication failure.
+        BrokerAPIError
+            On HTTP error after retries, or if the response is missing the
+            ``securitiesAccount`` field.
+        BrokerValidationError
+            When the response cannot be parsed into :class:`SecuritiesAccount`.
+        """
+        url = f"{self.base_url}/accounts/{self._account_hash}"
+        response_data = self._fetch_data(url, {"fields": "positions"})
 
         securities_account_data = response_data.get("securitiesAccount")
         if not securities_account_data:
-            logger.error("No securities account data found in response.")
-            return None
+            raise BrokerAPIError(
+                "Response missing expected 'securitiesAccount' field."
+            )
 
         try:
-            securities_account = SecuritiesAccount(**securities_account_data)
-            self.position = securities_account
-            return securities_account
-        except ValidationError as e:
-            logger.error(f"Error parsing securities account: {e}")
-            return None
+            return SecuritiesAccount(**securities_account_data)
+        except ValidationError as exc:
+            raise BrokerValidationError(
+                f"Error parsing SecuritiesAccount: {exc}"
+            ) from exc
 
-    def fetch_transactions(self, start_date: str, end_date: str, symbol: Optional[str] = None) -> Optional[list[Activity]]:
-        """Fetch transactions for the given date range and transaction type."""
+    def fetch_transactions(
+        self,
+        start_date: str,
+        end_date: str,
+        symbol: Optional[str] = None,
+    ) -> list[Activity]:
+        """
+        Fetch account transactions for a date range.
 
-        start_date_iso = convert_to_iso8601(start_date)
-        end_date_iso = convert_to_iso8601(end_date)
+        Parameters
+        ----------
+        start_date:
+            Start date in ``YYYY-MM-DD`` format.
+        end_date:
+            End date in ``YYYY-MM-DD`` format.
+        symbol:
+            Optional ticker to narrow results to a single underlying.
 
-        url = f"{self.base_url}/accounts/{self.account_hash_value}/transactions"
-        params = {"startDate": start_date_iso, "endDate": end_date_iso}
+        Returns
+        -------
+        list[Activity]
+            A (possibly empty) list of validated transaction records.
+
+        Raises
+        ------
+        BrokerAuthError / BrokerAPIError / BrokerValidationError
+        """
+        params: dict = {
+            "startDate": convert_to_iso8601(start_date),
+            "endDate": convert_to_iso8601(end_date),
+        }
         if symbol is not None:
             params["symbol"] = symbol
-        response_data = super()._fetch_data(url, params)
 
-        if not response_data:
-            logger.error("Failed to retrieve transactions.")
-            return None
+        url = f"{self.base_url}/accounts/{self._account_hash}/transactions"
+        response_data = self._fetch_data(url, params)
 
         try:
-            transactions = [Activity(**item) for item in response_data]
-            return transactions
-        except ValidationError as e:
-            logger.error(f"Error parsing transactions: {e}")
-            return None
+            return [Activity(**item) for item in response_data]
+        except ValidationError as exc:
+            raise BrokerValidationError(
+                f"Error parsing Activity list: {exc}"
+            ) from exc

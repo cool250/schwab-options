@@ -1,9 +1,12 @@
 from typing import Optional
 import logging
+
 from broker import Client
+from broker.exceptions import BrokerError
 from data.account_data import SecuritiesAccount
 
 logger = logging.getLogger(__name__)
+
 
 def parse_option_symbol(symbol):
     """Parse the option symbol to extract ticker, strike price, and expiration date."""
@@ -16,6 +19,7 @@ def parse_option_symbol(symbol):
         logger.error(f"Error parsing option symbol {symbol}: {e}")
         return None, None, None
 
+
 class PositionService:
 
     def __init__(self):
@@ -24,7 +28,11 @@ class PositionService:
         self._initialize()
 
     def _initialize(self):
-        self.position = self.client.fetch_positions()
+        try:
+            self.position = self.client.fetch_positions()
+        except BrokerError as e:
+            logger.error("Failed to fetch positions: %s", e)
+            self.position = None
 
     # --- Top-level aggregator ---
 
@@ -156,12 +164,16 @@ class PositionService:
         if not ticker_list:
             return tickers
 
-        quotes = self.client.get_price(",".join(ticker_list))
-        quote_data = {
-            symbol: asset.quote.mark
-            for symbol, asset in getattr(quotes, "root", {}).items()
-            if asset.quote and asset.quote.mark is not None
-        }
+        try:
+            quotes = self.client.get_price(",".join(ticker_list))
+            quote_data = {
+                symbol: asset.quote.mark
+                for symbol, asset in getattr(quotes, "root", {}).items()
+                if asset.quote and asset.quote.mark is not None
+            }
+        except BrokerError as e:
+            logger.error("Failed to fetch current prices: %s", e)
+            quote_data = {}
 
         for ticker in tickers:
             current_price = quote_data.get(ticker.get("symbol"), 0)
@@ -180,5 +192,3 @@ class PositionService:
             exposure -= strike_price * position.longQuantity * 100
 
         return exposure
-
-

@@ -1,35 +1,49 @@
 import logging
+from pydantic import ValidationError
+
+from broker.base import APIClient
+from broker.exceptions import BrokerValidationError
+from broker.token_provider import TokenProvider
 from data.market_data import PriceHistoryResponse, StockQuotes
 from data.option_data import OptionChainResponse
-from pydantic import ValidationError
-from broker.base import APIClient
 
 logger = logging.getLogger(__name__)
 
+_MARKET_BASE = "https://api.schwabapi.com/marketdata/v1"
+
+
 class MarketData(APIClient):
-    def __init__(self):
-        super().__init__("https://api.schwabapi.com/marketdata/v1")
-        self.headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Accept": "application/json",
-        }
+    """Schwab market-data sub-client — quotes, price history, option chains."""
 
-    def get_price(self, symbol: str) -> StockQuotes | None:
+    def __init__(self, token_provider: TokenProvider | None = None) -> None:
+        super().__init__(_MARKET_BASE, token_provider)
+
+    def get_price(self, symbol: str) -> StockQuotes:
         """
-        Retrieve the stock price for the specified symbol(s).
+        Retrieve the current quote for one or more symbols.
 
+        Parameters
+        ----------
+        symbol:
+            Ticker symbol or comma-separated list of symbols.
+
+        Returns
+        -------
+        StockQuotes
+            Validated quote data keyed by symbol.
+
+        Raises
+        ------
+        BrokerAuthError / BrokerAPIError / BrokerValidationError
         """
-
-        url = f"{self.base_url}/quotes"
-        params = {"symbols": symbol, "fields": "quote"}
-        response_data = self._fetch_data(url, params)
-        if response_data:
-            try:
-                stock_quotes = StockQuotes(**response_data)
-                return stock_quotes
-            except ValidationError as e:
-                logger.error(f"Error parsing stock quotes: {e}")
-        return None
+        response_data = self._fetch_data(
+            f"{self.base_url}/quotes",
+            {"symbols": symbol, "fields": "quote"},
+        )
+        try:
+            return StockQuotes(**response_data)
+        except ValidationError as exc:
+            raise BrokerValidationError(f"Error parsing StockQuotes: {exc}") from exc
 
     def get_price_history(
         self,
@@ -37,25 +51,47 @@ class MarketData(APIClient):
         period_type: str = "month",
         period: int = 2,
         frequency_type: str = "daily",
-    ) -> PriceHistoryResponse | None:
+    ) -> PriceHistoryResponse:
         """
-        Fetch the price history for a given symbol.
+        Fetch OHLCV price history for a symbol.
+
+        Parameters
+        ----------
+        symbol:
+            Ticker symbol.
+        period_type:
+            Unit of the period (``"day"``, ``"month"``, ``"year"``,
+            ``"ytd"``).  Defaults to ``"month"``.
+        period:
+            Number of *period_type* units to fetch.  Defaults to ``2``.
+        frequency_type:
+            Bar frequency (``"minute"``, ``"daily"``, ``"weekly"``,
+            ``"monthly"``).  Defaults to ``"daily"``.
+
+        Returns
+        -------
+        PriceHistoryResponse
+            Symbol and list of :class:`~data.market_data.Candle` objects.
+
+        Raises
+        ------
+        BrokerAuthError / BrokerAPIError / BrokerValidationError
         """
-        url = f"{self.base_url}/pricehistory"
-        params = {
-            "symbol": symbol,
-            "periodType": period_type,
-            "period": period,
-            "frequencyType": frequency_type,
-        }
-        response_data = self._fetch_data(url, params)
-        if response_data:
-            try:
-                market_data_response = PriceHistoryResponse(**response_data)
-                return market_data_response
-            except ValidationError as e:
-                logger.error(f"Error parsing price history: {e}")
-        return None
+        response_data = self._fetch_data(
+            f"{self.base_url}/pricehistory",
+            {
+                "symbol": symbol,
+                "periodType": period_type,
+                "period": period,
+                "frequencyType": frequency_type,
+            },
+        )
+        try:
+            return PriceHistoryResponse(**response_data)
+        except ValidationError as exc:
+            raise BrokerValidationError(
+                f"Error parsing PriceHistoryResponse: {exc}"
+            ) from exc
 
     def get_chain(
         self,
@@ -63,27 +99,52 @@ class MarketData(APIClient):
         from_date: str,
         to_date: str,
         strike_count: int = 10,
-        strike: float = 0.0,
+        strike: float | None = None,
         contract_type: str = "ALL",
-    ) -> OptionChainResponse | None:
+    ) -> OptionChainResponse:
         """
-        Fetch the option chain for a given symbol.
+        Fetch the option chain for a symbol.
+
+        Parameters
+        ----------
+        symbol:
+            Underlying ticker symbol.
+        from_date:
+            First expiration date to include (``YYYY-MM-DD``).
+        to_date:
+            Last expiration date to include (``YYYY-MM-DD``).
+        strike_count:
+            Number of strikes above and below the at-the-money price to
+            return.  Defaults to ``10``.
+        strike:
+            Filter to a specific strike price.  Omit (or pass ``None``)
+            to return all strikes within *strike_count*.
+        contract_type:
+            ``"PUT"``, ``"CALL"``, or ``"ALL"``.  Defaults to ``"ALL"``.
+
+        Returns
+        -------
+        OptionChainResponse
+            Full validated option chain.
+
+        Raises
+        ------
+        BrokerAuthError / BrokerAPIError / BrokerValidationError
         """
-        url = f"{self.base_url}/chains"
-        params = {
+        params: dict = {
             "symbol": symbol,
             "strikeCount": strike_count,
-            "strike": strike,
             "contractType": contract_type,
             "fromDate": from_date,
             "toDate": to_date,
         }
+        if strike is not None:
+            params["strike"] = strike
 
-        response_data = self._fetch_data(url, params)
-        if response_data:
-            try:
-                option_chain = OptionChainResponse(**response_data)
-                return option_chain
-            except ValidationError as e:
-                logger.error(f"Error parsing option chain: {e}")
-        return None
+        response_data = self._fetch_data(f"{self.base_url}/chains", params)
+        try:
+            return OptionChainResponse(**response_data)
+        except ValidationError as exc:
+            raise BrokerValidationError(
+                f"Error parsing OptionChainResponse: {exc}"
+            ) from exc

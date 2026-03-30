@@ -1,4 +1,25 @@
+from dotenv import load_dotenv
+load_dotenv()
+
+import logging
+import logging.handlers
 from pathlib import Path
+
+_log_dir = Path(__file__).resolve().parent.parent / "logs"
+_log_dir.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.handlers.RotatingFileHandler(
+            _log_dir / "api.log",
+            maxBytes=5 * 1024 * 1024,  # 5 MB
+            backupCount=5,
+        ),
+        logging.StreamHandler(),
+    ],
+)
 from fastapi import FastAPI, Depends
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException

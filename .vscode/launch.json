@@ -9,6 +9,17 @@
             "module": "streamlit",
             "args": ["run", "${workspaceFolder}/app.py"],
             "console": "integratedTerminal",
+        },
+        {
+            "name": "Uvicorn (uv)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/.venv/bin/uvicorn",
+            "args": ["api.app:app", "--reload", "--log-level", "debug"],
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "console": "integratedTerminal",
+            "jinja": true
         }
     ]
 }

@@ -1,7 +1,10 @@
 import json
+import logging
 import os
 import redis
 from utils.utils import TOKEN_FILE_PATH
+
+logger = logging.getLogger(__name__)
 
 # Define the file path as a constant
 FILE_PATH = TOKEN_FILE_PATH
@@ -44,8 +47,12 @@ def read_token() -> dict:
 
 def get_response_token() -> str:
     data = read_token()
-    return data.get("refresh_token", "Token not found")
+    token = data.get("refresh_token", "Token not found")
+    logger.debug("refresh_token: %s", token)
+    return token
 
 def get_access_token() -> str:
     data = read_token()
-    return data.get("access_token", "Token not found")
+    token = data.get("access_token", "Token not found")
+    logger.debug("access_token: %s", token)
+    return token

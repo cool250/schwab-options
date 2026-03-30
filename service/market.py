@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 import pytz
-
 import logging
+
 from broker import Client
+from broker.exceptions import BrokerError
 
 logger = logging.getLogger(__name__)
+
 
 class MarketService:
     def __init__(self):
@@ -22,12 +24,13 @@ class MarketService:
 
         Returns:
             tuple: (max_return (float), best_expiration_date (str), best_price (float))
-                max_return: The highest annualized return found.
-                best_expiration_date: The expiration date of the best option.
-                best_price: The price of the best option.
                 Returns None if no suitable option is found.
         """
-        option_chain = self.client.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
+        try:
+            option_chain = self.client.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
+        except BrokerError as e:
+            logger.error("Failed to fetch option chain for %s: %s", symbol, e)
+            return None
 
         results = self._process_option_chain(option_chain, strike, contract_type)
         if not results:
@@ -52,13 +55,17 @@ class MarketService:
         Returns:
             list: A list of dictionaries containing expiration date, price, and annualized return.
         """
-        # Ensure from_date is not in the past for practical purposes from LLM
         if from_date < datetime.now(pytz.timezone("US/Eastern")).strftime('%Y-%m-%d'):
             logger.info("from_date is in the past. Using current date instead.")
             from_date = datetime.now(pytz.timezone("US/Eastern")).strftime('%Y-%m-%d')
             to_date = (datetime.now(pytz.timezone("US/Eastern")) + timedelta(days=8)).strftime('%Y-%m-%d')
 
-        option_chain = self.client.get_chain(symbol, from_date, to_date, strike_count=50, strike=strike, contract_type=contract_type)
+        try:
+            option_chain = self.client.get_chain(symbol, from_date, to_date, strike_count=50, strike=strike, contract_type=contract_type)
+        except BrokerError as e:
+            logger.error("Failed to fetch option chain for %s: %s", symbol, e)
+            return []
+
         return self._process_option_chain(option_chain, strike, contract_type)
 
     def _process_option_chain(self, option_chain, strike: float, contract_type: str):
@@ -68,17 +75,11 @@ class MarketService:
         Parameters:
             option_chain: The option chain data.
             strike (float): The strike price to filter options.
-            process_function (callable): A function to process each valid option.
 
         Returns:
             list: A list of processed results.
         """
-        if not option_chain:
-            logger.warning("No option chain data found.")
-            return []
-
         results = []
-
         strike = int(strike)
 
         def process_option(option, exp_date):
@@ -98,7 +99,6 @@ class MarketService:
                             if option.mark is None or option.daysToExpiration is None:
                                 logger.debug("Skipping option with invalid data.")
                                 continue
-
                             result = process_option(option, exp_date)
                             if result:
                                 results.append(result)
@@ -110,9 +110,8 @@ class MarketService:
         elif contract_type == "ALL":
             process_options(option_chain.putExpDateMap)
             process_options(option_chain.callExpDateMap)
-
         else:
-            logger.warning(f"Unknown contract type: {contract_type}")
+            logger.warning("Unknown contract type: %s", contract_type)
 
         return results
 
@@ -134,10 +133,12 @@ class MarketService:
         Returns:
             float: The current price of the asset, or None if not found.
         """
-        stock_quotes = self.client.get_price(symbol)
-        if stock_quotes:
+        try:
+            stock_quotes = self.client.get_price(symbol)
             return stock_quotes.root.get(symbol).quote.lastPrice
-        return None
+        except BrokerError as e:
+            logger.error("Failed to fetch price for %s: %s", symbol, e)
+            return None
 
     def get_price_history(self, symbol, period_type, frequency_type, period):
         """
@@ -149,5 +150,9 @@ class MarketService:
         Returns:
             list: A list of historical prices, or an empty list if not found.
         """
-        price_history = self.client.get_price_history(symbol, period_type=period_type, frequency_type=frequency_type, period=period)
-        return price_history.candles if price_history else []
+        try:
+            price_history = self.client.get_price_history(symbol, period_type=period_type, frequency_type=frequency_type, period=period)
+            return price_history.candles
+        except BrokerError as e:
+            logger.error("Failed to fetch price history for %s: %s", symbol, e)
+            return []

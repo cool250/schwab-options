@@ -10,6 +10,7 @@ from datetime import timedelta
 from typing import List, Dict, Any, Optional
 import logging
 from broker import Client
+from broker.exceptions import BrokerError
 from utils.utils import get_date_object, get_date_string
 from pydantic import BaseModel
 
@@ -58,8 +59,11 @@ class TransactionService:
         Returns:
             list: Raw transaction records from the broker
         """
-        transactions = self.client.fetch_transactions(start_date=start_date, end_date=end_date)
-        return transactions if transactions else []
+        try:
+            return self.client.fetch_transactions(start_date=start_date, end_date=end_date)
+        except BrokerError as e:
+            logger.error("Failed to fetch transaction history: %s", e)
+            return []
     
     def get_option_transactions(self, stock_ticker: str, start_date: str, end_date: str, 
                              contract_type: str = "ALL", realized_gains_only: bool = True) -> List[Dict]:
@@ -83,13 +87,16 @@ class TransactionService:
                                                      lookforward_days=5)
         
         # Fetch transactions with expanded date range
-        transactions = self.client.fetch_transactions(
-            start_date=expanded_date_range["start_date"], 
-            end_date=expanded_date_range["end_date"]
-        )
-        
+        try:
+            transactions = self.client.fetch_transactions(
+                start_date=expanded_date_range["start_date"],
+                end_date=expanded_date_range["end_date"],
+            )
+        except BrokerError as e:
+            logger.error("Failed to fetch transactions: %s", e)
+            return []
+
         if not transactions:
-            logger.error("No transactions found for the given date range.")
             return []
 
         # Extract and process option transactions
