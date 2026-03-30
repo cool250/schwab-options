@@ -9,9 +9,6 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
-TOKEN_FILE_PATH = "token.json"
-
-
 def convert_to_iso8601(date_string: str) -> str:
         """
         Convert a date string in 'YYYY-MM-DD' format to ISO 8601 format with milliseconds and UTC timezone.

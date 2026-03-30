@@ -48,11 +48,10 @@ from abc import ABC, abstractmethod
 import redis
 import requests
 
-from utils.utils import TOKEN_FILE_PATH
-
 logger = logging.getLogger(__name__)
 
 _SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
+_DEFAULT_TOKEN_FILE = "token.json"
 
 
 def get_app_credentials() -> tuple[str, str, str]:
@@ -135,7 +134,7 @@ class FileTokenProvider(TokenProvider):
     in the project root).
     """
 
-    def __init__(self, file_path: str = TOKEN_FILE_PATH) -> None:
+    def __init__(self, file_path: str = _DEFAULT_TOKEN_FILE) -> None:
         self._file_path = file_path
 
     def _read(self) -> dict:
