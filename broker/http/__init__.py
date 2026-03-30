@@ -1,3 +1,3 @@
-from .base import APIClient
+from .base import BaseClient
 
-__all__ = ["APIClient"]
+__all__ = ["BaseClient"]

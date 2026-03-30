@@ -17,7 +17,7 @@ _SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
 _refresh_lock = threading.Lock()
 
 
-class APIClient:
+class BaseClient:
     """
     Base HTTP client for Schwab API sub-clients.
 

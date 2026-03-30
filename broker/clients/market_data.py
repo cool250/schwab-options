@@ -1,7 +1,7 @@
 import logging
 from pydantic import ValidationError
 
-from broker.http import APIClient
+from broker.http import BaseClient
 from broker.exceptions import BrokerValidationError
 from broker.auth import TokenProvider
 from broker.data.market_data import PriceHistoryResponse, StockQuotes
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 _MARKET_BASE = "https://api.schwabapi.com/marketdata/v1"
 
 
-class MarketData(APIClient):
+class MarketData(BaseClient):
     """Schwab market-data sub-client — quotes, price history, option chains."""
 
     def __init__(self, token_provider: TokenProvider | None = None) -> None:

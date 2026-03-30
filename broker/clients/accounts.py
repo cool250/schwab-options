@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 from pydantic import ValidationError
 
-from broker.http import APIClient
+from broker.http import BaseClient
 from broker.exceptions import BrokerAPIError, BrokerValidationError
 from broker.auth import TokenProvider
 from broker.data.account_data import AccountHash, SecuritiesAccount, Activity
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 _TRADER_BASE = "https://api.schwabapi.com/trader/v1"
 
 
-class Accounts(APIClient):
+class Accounts(BaseClient):
     """Schwab account sub-client — positions and transaction history."""
 
     def __init__(self, token_provider: TokenProvider | None = None) -> None:
