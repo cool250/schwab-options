@@ -131,8 +131,19 @@ class FileTokenProvider(TokenProvider):
     """
     _DEFAULT_TOKEN_FILE = "token.json"
 
-    def __init__(self, file_path: str = _DEFAULT_TOKEN_FILE) -> None:
+    def __init__(
+        self,
+        file_path: str = _DEFAULT_TOKEN_FILE,
+        app_key: str | None = None,
+        app_secret: str | None = None,
+        callback_url: str | None = None,
+    ) -> None:
         self._file_path = file_path
+        self._credentials: tuple[str, str, str] | None = (
+            (app_key, app_secret, callback_url)  # type: ignore[assignment]
+            if app_key and app_secret and callback_url
+            else None
+        )
 
     def _read(self) -> dict:
         with open(self._file_path, "r") as f:
@@ -154,7 +165,7 @@ class FileTokenProvider(TokenProvider):
         logger.debug("Tokens saved to %s", self._file_path)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
-        return get_app_credentials()
+        return self._credentials or get_app_credentials()
 
 
 class RedisTokenProvider(TokenProvider):
@@ -172,13 +183,24 @@ class RedisTokenProvider(TokenProvider):
 
     _REDIS_TOKEN_KEY = "TOKEN_JSON"
 
-    def __init__(self, redis_url: str | None = None) -> None:
+    def __init__(
+        self,
+        redis_url: str | None = None,
+        app_key: str | None = None,
+        app_secret: str | None = None,
+        callback_url: str | None = None,
+    ) -> None:
         url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
         if url.startswith("rediss://"):
             # Heroku Redis uses TLS; skip cert verification for self-signed certs.
             self._redis = redis.from_url(url, decode_responses=True, ssl_cert_reqs="none")
         else:
             self._redis = redis.from_url(url, decode_responses=True)
+        self._credentials: tuple[str, str, str] | None = (
+            (app_key, app_secret, callback_url)  # type: ignore[assignment]
+            if app_key and app_secret and callback_url
+            else None
+        )
 
     def _read(self) -> dict:
         raw = self._redis.get(self._REDIS_TOKEN_KEY)
@@ -210,7 +232,7 @@ class RedisTokenProvider(TokenProvider):
         logger.debug("Tokens saved to Redis key '%s'", self._REDIS_TOKEN_KEY)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
-        return get_app_credentials()
+        return self._credentials or get_app_credentials()
 
 
 def create_token_provider() -> TokenProvider:

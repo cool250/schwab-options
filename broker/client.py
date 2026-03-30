@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from broker.clients import Accounts, MarketData
-from broker.auth import TokenProvider
+from broker.auth import FileTokenProvider, RedisTokenProvider, create_token_provider
 from broker.data.account_data import SecuritiesAccount, Activity
 from broker.data.market_data import PriceHistoryResponse, StockQuotes
 from broker.data.option_data import OptionChainResponse
@@ -17,28 +17,31 @@ class Client:
     All methods return validated Pydantic models and raise typed exceptions
     on failure (see :mod:`broker.exceptions`).
 
-    **Default usage** (tokens from env / ``token.json`` / Redis)::
+    **File-backed** (explicit credentials)::
 
-        from broker import Client
+        client = Client(
+            api_key="APIKEY",
+            app_secret="APP_SECRET",
+            callback_url="https://127.0.0.1",
+            token_path="/tmp/token.json",
+        )
+
+    **Redis-backed**::
+
+        client = Client(
+            api_key="APIKEY",
+            app_secret="APP_SECRET",
+            callback_url="https://127.0.0.1",
+            redis_url="redis://localhost:6379",
+        )
+
+    **Env-driven** (credentials from env vars, backend from ``USE_DB``)::
 
         client = Client()
-        quote   = client.get_price("AAPL")
-        history = client.get_price_history("AAPL")
-        chain   = client.get_chain("AAPL", "2026-03-01", "2026-04-01")
-        pos     = client.fetch_positions()
-        txns    = client.fetch_transactions("2026-01-01", "2026-03-29")
 
     **Custom token provider**::
 
-        from broker import Client
         from broker.auth import TokenProvider
-
-        class VaultProvider(TokenProvider):
-            def get_access_token(self):   return vault.get("schwab_access_token")
-            def get_refresh_token(self):  return vault.get("schwab_refresh_token")
-            def save_tokens(self, data):  vault.put("schwab_access_token", data["access_token"])
-                                          vault.put("schwab_refresh_token", data["refresh_token"])
-            def get_app_credentials(self): return vault.get("app_key"), vault.get("app_secret"), vault.get("callback")
 
         client = Client(token_provider=VaultProvider())
 
@@ -49,16 +52,38 @@ class Client:
         try:
             quote = client.get_price("AAPL")
         except BrokerAuthError:
-            # Refresh token expired — re-authenticate
             broker.auth.authenticate.get_access_token()
         except BrokerAPIError as e:
             print(f"HTTP {e.status_code}")
         except BrokerValidationError:
-            # API schema changed
             ...
     """
 
-    def __init__(self, token_provider: TokenProvider | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        app_secret: str | None = None,
+        callback_url: str | None = None,
+        token_path: str = "token.json",
+        redis_url: str | None = None,
+    ) -> None:
+        if redis_url is not None:
+            token_provider = RedisTokenProvider(
+                redis_url=redis_url,
+                app_key=api_key,
+                app_secret=app_secret,
+                callback_url=callback_url,
+            )
+        elif api_key or app_secret or callback_url:
+            token_provider = FileTokenProvider(
+                file_path=token_path,
+                app_key=api_key,
+                app_secret=app_secret,
+                callback_url=callback_url,
+            )
+        else:
+            token_provider = create_token_provider()
+
         self._accounts = Accounts(token_provider)
         self._market_data = MarketData(token_provider)
 
