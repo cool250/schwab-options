@@ -10,14 +10,14 @@ from utils import convert_to_iso8601
 
 logger = logging.getLogger(__name__)
 
-_TRADER_BASE = "https://api.schwabapi.com/trader/v1"
-
 
 class Accounts(BaseClient):
     """Schwab account sub-client — positions and transaction history."""
 
+    _ACCOUNT_BASE = "https://api.schwabapi.com/trader/v1"
+
     def __init__(self, token_provider: TokenProvider | None = None) -> None:
-        super().__init__(_TRADER_BASE, token_provider)
+        super().__init__(self._ACCOUNT_BASE, token_provider)
         self._account_hash_value: Optional[str] = None
 
     # ------------------------------------------------------------------

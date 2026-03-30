@@ -9,14 +9,14 @@ from broker.data.option_data import OptionChainResponse
 
 logger = logging.getLogger(__name__)
 
-_MARKET_BASE = "https://api.schwabapi.com/marketdata/v1"
-
 
 class MarketData(BaseClient):
     """Schwab market-data sub-client — quotes, price history, option chains."""
 
+    _MARKET_BASE = "https://api.schwabapi.com/marketdata/v1"
+
     def __init__(self, token_provider: TokenProvider | None = None) -> None:
-        super().__init__(_MARKET_BASE, token_provider)
+        super().__init__(self._MARKET_BASE, token_provider)
 
     def get_price(self, symbol: str) -> StockQuotes:
         """
