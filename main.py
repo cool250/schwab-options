@@ -3,7 +3,7 @@ from service.market import MarketService
 from service.transactions import TransactionService
 from broker.auth.authenticate import get_access_token
 from service.position import PositionService
-from service.agent import AgentService
+from service.optimizer import WheelOptimizer
 
 import pytz
 
@@ -64,15 +64,16 @@ def transaction():
     option_transactions = service.get_option_transactions("SPY", "2025-03-01", "2025-03-30")
     print("Option Transactions:", option_transactions)
 
-def llm():
-    service = AgentService()
-    query = "Get the option chain for SPY PUTs with strike price around current price"
-    response = service.invoke_llm(query)
-    print("LLM Response:", response)
+
+def optimizer():
+    recs = WheelOptimizer(max_dte=7).optimize(extra_symbols=["SPY", "QQQ"])
+    for r in recs[:10]:
+        print(r)
 
 
 if __name__ == "__main__":
-    authenticate()
+    # authenticate()
     # price_history()
     # transaction()
     # position()
+    optimizer()

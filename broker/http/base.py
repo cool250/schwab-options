@@ -32,9 +32,10 @@ class BaseClient:
     def __init__(self, base_url: str, token_provider: TokenProvider | None = None) -> None:
         self._token_provider: TokenProvider = token_provider or create_token_provider()
         self.base_url = base_url
-        self.access_token = self._token_provider.get_access_token()
-        self.headers = {
-            "Authorization": f"Bearer {self.access_token}",
+
+    def _auth_headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self._token_provider.get_access_token()}",
             "Accept": "application/json",
         }
 
@@ -42,24 +43,16 @@ class BaseClient:
     # Token management
     # ------------------------------------------------------------------
 
-    def _update_access_token(self) -> None:
+    def _refresh_access_token(self) -> None:
         """
         Exchange the refresh token for a new access token via Schwab.
 
         Thread-safe: uses a global lock so that only one thread performs the
         HTTP refresh at a time.  If another thread already refreshed the token
-        while this one was waiting, we simply adopt the new token from storage
-        without making a redundant (and fatal) second refresh call.
+        while this one was waiting, the next _auth_headers() call will
+        automatically pick up the new token from the provider.
         """
         with _refresh_lock:
-            # Another thread may have already refreshed while we waited.
-            stored_token = self._token_provider.get_access_token()
-            if stored_token != self.access_token:
-                logger.info("Token was refreshed by another thread — adopting new token.")
-                self.access_token = stored_token
-                self.headers["Authorization"] = f"Bearer {self.access_token}"
-                return
-
             app_key, app_secret, _ = self._token_provider.get_app_credentials()
             refresh_token = self._token_provider.get_refresh_token()
 
@@ -80,8 +73,6 @@ class BaseClient:
                 )
 
             self._token_provider.save_tokens(response.json())
-            self.access_token = self._token_provider.get_access_token()
-            self.headers["Authorization"] = f"Bearer {self.access_token}"
             logger.info("Access token refreshed successfully.")
 
     # ------------------------------------------------------------------
@@ -125,7 +116,7 @@ class BaseClient:
             url = self.base_url
 
         try:
-            response = requests.get(url, headers=self.headers, params=params)
+            response = requests.get(url, headers=self._auth_headers(), params=params)
         except requests.RequestException as exc:
             if attempt < max_retries:
                 logger.warning("Request error (attempt %d/%d): %s", attempt, max_retries, exc)
@@ -149,7 +140,7 @@ class BaseClient:
             logger.warning(
                 "401 Unauthorized — refreshing token (attempt %d/%d)…", attempt, max_retries
             )
-            self._update_access_token()
+            self._refresh_access_token()
             time.sleep(2 ** attempt)
             return self._fetch_data(url, params, attempt + 1, max_retries)
 
