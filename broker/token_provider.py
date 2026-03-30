@@ -1,8 +1,16 @@
 """
 Token provider abstraction for the broker SDK.
 
-The default :class:`EnvTokenProvider` reads tokens from ``token.json``,
-the ``TOKEN_JSON`` env var, or Redis (when ``USE_DB=true``).
+Concrete implementations:
+
+* :class:`FileTokenProvider` — persists tokens to a local ``token.json`` file.
+* :class:`RedisTokenProvider` — persists tokens in Redis (suitable for
+  ephemeral/cloud environments such as Heroku).
+
+The default :class:`EnvTokenProvider` selects the backend automatically:
+it uses :class:`RedisTokenProvider` when the ``USE_DB`` environment variable
+is set to a truthy value, and falls back to :class:`FileTokenProvider`
+otherwise.
 
 To use a custom storage backend, subclass :class:`TokenProvider` and pass
 an instance to :class:`broker.client.Client`::
@@ -30,7 +38,18 @@ an instance to :class:`broker.client.Client`::
     client = Client(token_provider=MyProvider())
 """
 
+import json
+import logging
+import os
 from abc import ABC, abstractmethod
+
+import redis
+
+from utils.utils import TOKEN_FILE_PATH, get_app_credentials
+
+logger = logging.getLogger(__name__)
+
+_REDIS_TOKEN_KEY = "TOKEN_JSON"
 
 
 class TokenProvider(ABC):
@@ -63,28 +82,121 @@ class TokenProvider(ABC):
         """
 
 
-class EnvTokenProvider(TokenProvider):
+class FileTokenProvider(TokenProvider):
     """
-    Default token provider.
+    Token provider backed by a local JSON file.
 
-    Reads/writes tokens from ``token.json`` (local file), the ``TOKEN_JSON``
-    environment variable, or Redis when ``USE_DB=true``.  App credentials
-    are read from the ``APP_KEY``, ``APP_SECRET``, and ``APP_CALLBACK_URL``
-    environment variables.
+    Reads and writes tokens from/to *file_path* (defaults to ``token.json``
+    in the project root).  If the ``TOKEN_JSON`` environment variable is set
+    it is used as an in-memory override and takes priority over the file.
     """
+
+    def __init__(self, file_path: str = TOKEN_FILE_PATH) -> None:
+        self._file_path = file_path
+
+    def _read(self) -> dict:
+        env_token = os.getenv("TOKEN_JSON")
+        if env_token:
+            return json.loads(env_token)
+        with open(self._file_path, "r") as f:
+            return json.load(f)
 
     def get_access_token(self) -> str:
-        from utils.read_token import get_access_token as _get
-        return _get()
+        token = self._read().get("access_token", "")
+        logger.debug("access_token read from file")
+        return token
 
     def get_refresh_token(self) -> str:
-        from utils.read_token import get_response_token as _get
-        return _get()
+        token = self._read().get("refresh_token", "")
+        logger.debug("refresh_token read from file")
+        return token
 
     def save_tokens(self, token_data: dict) -> None:
-        from utils.read_token import save_token
-        save_token(token_data)
+        with open(self._file_path, "w") as f:
+            json.dump(token_data, f, indent=4)
+        logger.debug("Tokens saved to %s", self._file_path)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
-        from utils.utils import get_app_credentials
         return get_app_credentials()
+
+
+class RedisTokenProvider(TokenProvider):
+    """
+    Token provider backed by Redis.
+
+    Suitable for cloud/ephemeral environments (e.g. Heroku) where the local
+    filesystem is not durable.  Reads the Redis URL from the ``REDIS_URL``
+    environment variable (defaults to ``redis://localhost:6379``).
+
+    On first use, if the key is absent in Redis and the ``TOKEN_JSON``
+    environment variable is set, the value is seeded into Redis automatically.
+    """
+
+    def __init__(self, redis_url: str | None = None) -> None:
+        url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
+        if url.startswith("rediss://"):
+            # Heroku Redis uses TLS; skip cert verification for self-signed certs.
+            self._redis = redis.from_url(url, decode_responses=True, ssl_cert_reqs="none")
+        else:
+            self._redis = redis.from_url(url, decode_responses=True)
+
+    def _read(self) -> dict:
+        raw = self._redis.get(_REDIS_TOKEN_KEY)
+        if raw:
+            return json.loads(raw)
+        # Seed Redis from the TOKEN_JSON env var on first run.
+        env_token = os.getenv("TOKEN_JSON")
+        if env_token:
+            self._redis.set(_REDIS_TOKEN_KEY, env_token)
+            logger.info("Seeded Redis token from TOKEN_JSON env var.")
+            return json.loads(env_token)
+        raise ValueError("Token not found in Redis or TOKEN_JSON env var.")
+
+    def get_access_token(self) -> str:
+        token = self._read().get("access_token", "")
+        logger.debug("access_token read from Redis")
+        return token
+
+    def get_refresh_token(self) -> str:
+        token = self._read().get("refresh_token", "")
+        logger.debug("refresh_token read from Redis")
+        return token
+
+    def save_tokens(self, token_data: dict) -> None:
+        self._redis.set(_REDIS_TOKEN_KEY, json.dumps(token_data))
+        logger.debug("Tokens saved to Redis key '%s'", _REDIS_TOKEN_KEY)
+
+    def get_app_credentials(self) -> tuple[str, str, str]:
+        return get_app_credentials()
+
+
+class EnvTokenProvider(TokenProvider):
+    """
+    Environment-driven token provider.
+
+    Delegates to :class:`RedisTokenProvider` when ``USE_DB`` is set to a
+    truthy value (``1``, ``true``, or ``yes``); otherwise delegates to
+    :class:`FileTokenProvider`.
+
+    App credentials are read from the ``APP_KEY``, ``APP_SECRET``, and
+    ``APP_CALLBACK_URL`` environment variables.
+    """
+
+    def __init__(self) -> None:
+        use_db = os.getenv("USE_DB", "").lower() in ("1", "true", "yes")
+        self._backend: TokenProvider = RedisTokenProvider() if use_db else FileTokenProvider()
+        logger.debug(
+            "EnvTokenProvider using %s backend", type(self._backend).__name__
+        )
+
+    def get_access_token(self) -> str:
+        return self._backend.get_access_token()
+
+    def get_refresh_token(self) -> str:
+        return self._backend.get_refresh_token()
+
+    def save_tokens(self, token_data: dict) -> None:
+        self._backend.save_tokens(token_data)
+
+    def get_app_credentials(self) -> tuple[str, str, str]:
+        return self._backend.get_app_credentials()
