@@ -1,4 +1,3 @@
-import json
 import base64
 import requests
 import webbrowser
@@ -6,7 +5,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from utils import get_app_credentials, TOKEN_FILE_PATH
+from utils import get_app_credentials
 
 
 def construct_init_auth_url() -> tuple[str, str, str, str]:
@@ -86,10 +85,8 @@ def get_access_token() -> str:
 
     logger.debug(init_tokens_dict)
 
-    # Convert and save as JSON
-    with open(TOKEN_FILE_PATH, "w") as json_file:
-        logger.debug(init_tokens_dict)
-        json.dump(init_tokens_dict, json_file, indent=4)
+    from broker.token_provider import FileTokenProvider
+    FileTokenProvider().save_tokens(init_tokens_dict)
 
     logger.info("Token dict refreshed.")
 

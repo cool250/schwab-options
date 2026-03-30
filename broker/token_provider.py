@@ -41,6 +41,7 @@ an instance to :class:`broker.client.Client`::
 import json
 import logging
 import os
+import time
 from abc import ABC, abstractmethod
 
 import redis
@@ -81,23 +82,22 @@ class TokenProvider(ABC):
         a refresh token for a new access token.
         """
 
+    def _with_expiry(self, token_data: dict) -> dict:
+        return {**token_data, "expires_at": time.time() + token_data.get("expires_in", 1800)}
+
 
 class FileTokenProvider(TokenProvider):
     """
     Token provider backed by a local JSON file.
 
     Reads and writes tokens from/to *file_path* (defaults to ``token.json``
-    in the project root).  If the ``TOKEN_JSON`` environment variable is set
-    it is used as an in-memory override and takes priority over the file.
+    in the project root).
     """
 
     def __init__(self, file_path: str = TOKEN_FILE_PATH) -> None:
         self._file_path = file_path
 
     def _read(self) -> dict:
-        env_token = os.getenv("TOKEN_JSON")
-        if env_token:
-            return json.loads(env_token)
         with open(self._file_path, "r") as f:
             return json.load(f)
 
@@ -113,7 +113,7 @@ class FileTokenProvider(TokenProvider):
 
     def save_tokens(self, token_data: dict) -> None:
         with open(self._file_path, "w") as f:
-            json.dump(token_data, f, indent=4)
+            json.dump(self._with_expiry(token_data), f, indent=4)
         logger.debug("Tokens saved to %s", self._file_path)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
@@ -128,8 +128,9 @@ class RedisTokenProvider(TokenProvider):
     filesystem is not durable.  Reads the Redis URL from the ``REDIS_URL``
     environment variable (defaults to ``redis://localhost:6379``).
 
-    On first use, if the key is absent in Redis and the ``TOKEN_JSON``
-    environment variable is set, the value is seeded into Redis automatically.
+    Tokens are stored with an ``expires_at`` unix timestamp derived from
+    ``expires_in``.  When the stored token has expired, ``TOKEN_JSON`` env var
+    is used to re-seed Redis.
     """
 
     def __init__(self, redis_url: str | None = None) -> None:
@@ -143,14 +144,17 @@ class RedisTokenProvider(TokenProvider):
     def _read(self) -> dict:
         raw = self._redis.get(_REDIS_TOKEN_KEY)
         if raw:
-            return json.loads(raw)
-        # Seed Redis from the TOKEN_JSON env var on first run.
+            data = json.loads(raw)
+            if time.time() < data.get("expires_at", 0):
+                return data
+            # Token has expired — fall back to TOKEN_JSON env var.
+            logger.info("Redis token has expired; re-seeding from TOKEN_JSON env var.")
         env_token = os.getenv("TOKEN_JSON")
         if env_token:
-            self._redis.set(_REDIS_TOKEN_KEY, env_token)
-            logger.info("Seeded Redis token from TOKEN_JSON env var.")
-            return json.loads(env_token)
-        raise ValueError("Token not found in Redis or TOKEN_JSON env var.")
+            data = json.loads(env_token)
+            self._redis.set(_REDIS_TOKEN_KEY, json.dumps(self._with_expiry(data)))
+            return data
+        raise ValueError("Token not found in Redis and TOKEN_JSON env var is not set.")
 
     def get_access_token(self) -> str:
         token = self._read().get("access_token", "")
@@ -163,7 +167,7 @@ class RedisTokenProvider(TokenProvider):
         return token
 
     def save_tokens(self, token_data: dict) -> None:
-        self._redis.set(_REDIS_TOKEN_KEY, json.dumps(token_data))
+        self._redis.set(_REDIS_TOKEN_KEY, json.dumps(self._with_expiry(token_data)))
         logger.debug("Tokens saved to Redis key '%s'", _REDIS_TOKEN_KEY)
 
     def get_app_credentials(self) -> tuple[str, str, str]:

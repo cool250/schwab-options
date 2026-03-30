@@ -3,13 +3,24 @@ load_dotenv()
 
 import logging
 import logging.handlers
+import sys
 from pathlib import Path
 
 _log_dir = Path(__file__).resolve().parent.parent / "logs"
 _log_dir.mkdir(exist_ok=True)
 
+def _resolve_log_level() -> int:
+    _mapping = logging.getLevelNamesMapping()
+    if "--log-level" in sys.argv:
+        idx = sys.argv.index("--log-level")
+        if idx + 1 < len(sys.argv):
+            return _mapping.get(sys.argv[idx + 1].upper(), logging.INFO)
+    return logging.INFO
+
+_log_level = _resolve_log_level()
+
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=_log_level,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.handlers.RotatingFileHandler(
@@ -17,9 +28,11 @@ logging.basicConfig(
             maxBytes=5 * 1024 * 1024,  # 5 MB
             backupCount=5,
         ),
-        logging.StreamHandler(),
     ],
 )
+
+logging.getLogger(__name__).info("Log level: %s", logging.getLevelName(_log_level))
+
 from fastapi import FastAPI, Depends
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
