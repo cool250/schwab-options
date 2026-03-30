@@ -38,6 +38,7 @@ an instance to :class:`broker.client.Client`::
     client = Client(token_provider=MyProvider())
 """
 
+import base64
 import json
 import logging
 import os
@@ -45,10 +46,27 @@ import time
 from abc import ABC, abstractmethod
 
 import redis
+import requests
 
-from utils.utils import TOKEN_FILE_PATH, get_app_credentials
+from utils.utils import TOKEN_FILE_PATH
 
 logger = logging.getLogger(__name__)
+
+_SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
+
+
+def get_app_credentials() -> tuple[str, str, str]:
+    """Return (app_key, app_secret, app_callback_url) from environment variables."""
+    app_key = os.getenv("APP_KEY")
+    app_secret = os.getenv("APP_SECRET")
+    app_callback_url = os.getenv("APP_CALLBACK_URL")
+
+    if not app_key or not app_secret or not app_callback_url:
+        missing = [n for n, v in [("APP_KEY", app_key), ("APP_SECRET", app_secret), ("APP_CALLBACK_URL", app_callback_url)] if not v]
+        logger.error("Missing environment variables: %s", missing)
+        raise ValueError(f"Environment variables missing: {missing}")
+
+    return app_key, app_secret, app_callback_url
 
 _REDIS_TOKEN_KEY = "TOKEN_JSON"
 
@@ -84,6 +102,29 @@ class TokenProvider(ABC):
 
     def _with_expiry(self, token_data: dict) -> dict:
         return {**token_data, "expires_at": time.time() + token_data.get("expires_in", 1800)}
+
+    def refresh_tokens(self) -> None:
+        """Exchange the stored refresh token for a new access/refresh token pair."""
+        app_key, app_secret, _ = self.get_app_credentials()
+        refresh_token_value = self.get_refresh_token()
+
+        response = requests.post(
+            _SCHWAB_TOKEN_URL,
+            headers={
+                "Authorization": f"Basic {base64.b64encode(f'{app_key}:{app_secret}'.encode()).decode()}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token_value},
+        )
+
+        if response.status_code != 200:
+            logger.error("Error refreshing access token: %s", response.text)
+            raise RuntimeError(f"Token refresh failed ({response.status_code}): {response.text}")
+
+        token_data = response.json()
+        logger.debug(token_data)
+        self.save_tokens(token_data)
+        logger.info("Tokens refreshed successfully.")
 
 
 class FileTokenProvider(TokenProvider):

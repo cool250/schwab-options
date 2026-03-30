@@ -5,7 +5,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from utils import get_app_credentials
+from broker.token_provider import get_app_credentials
 
 
 def construct_init_auth_url() -> tuple[str, str, str, str]:

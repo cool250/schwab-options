@@ -1,5 +1,4 @@
 from datetime import datetime
-import os
 from typing import Optional, Tuple
 
 from dotenv import load_dotenv
@@ -12,23 +11,6 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 TOKEN_FILE_PATH = "token.json"
 
-def get_app_credentials():
-    """
-    Retrieve app credentials from environment variables.
-    Returns:
-        tuple: A tuple containing app_key, app_secret, and app_callback_url.
-    """
-    app_key = os.getenv("APP_KEY")
-    app_secret = os.getenv("APP_SECRET")
-    app_callback_url = os.getenv("APP_CALLBACK_URL")
-
-    missing = [name for name, val in [("APP_KEY", app_key), ("APP_SECRET", app_secret), ("APP_CALLBACK_URL", app_callback_url)] if not val]
-    if missing:
-        logger.error("Missing environment variables: %s. Available env vars with 'APP' prefix: %s",
-                     missing, [k for k in os.environ if "APP" in k])
-        raise ValueError(f"Environment variables missing: {missing}")
-
-    return app_key, app_secret, app_callback_url
 
 def convert_to_iso8601(date_string: str) -> str:
         """
