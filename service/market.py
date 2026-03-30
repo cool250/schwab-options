@@ -96,7 +96,7 @@ class MarketService:
                 for strike_price, options in strikes.items():
                     if float(strike_price) in (strike-1, strike, strike+1):
                         for option in options:
-                            if option.mark is None or option.daysToExpiration is None:
+                            if option.mark is None or option.daysToExpiration is None or option.daysToExpiration == 0:
                                 logger.debug("Skipping option with invalid data.")
                                 continue
                             result = process_option(option, exp_date)
@@ -115,10 +115,10 @@ class MarketService:
 
         return results
 
-    def _calculate_annualized_return(self, price: float, strike: float, days: int) -> float:
+    def _calculate_annualized_return(self, price: float, strike: float, days: int) -> float | None:
         """Calculate the annualized return for an option."""
         if days == 0:
-            return float('-inf')
+            return None
         simple_return = price / strike
         annualized_return = simple_return * (365 / days) * 100
         return round(annualized_return, 2)

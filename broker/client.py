@@ -67,20 +67,23 @@ class Client:
         token_path: str = "token.json",
         redis_url: str | None = None,
     ) -> None:
-        if redis_url is not None:
-            token_provider = RedisTokenProvider(
-                redis_url=redis_url,
-                app_key=api_key,
-                app_secret=app_secret,
-                callback_url=callback_url,
-            )
-        elif api_key or app_secret or callback_url:
-            token_provider = FileTokenProvider(
-                file_path=token_path,
-                app_key=api_key,
-                app_secret=app_secret,
-                callback_url=callback_url,
-            )
+        if api_key and app_secret and callback_url:
+            if redis_url is not None:
+                token_provider = RedisTokenProvider(
+                    redis_url=redis_url,
+                    app_key=api_key,
+                    app_secret=app_secret,
+                    callback_url=callback_url,
+                )
+            elif token_path:
+                token_provider = FileTokenProvider(
+                    file_path=token_path,
+                    app_key=api_key,
+                    app_secret=app_secret,
+                    callback_url=callback_url,
+                )
+            else:
+                raise ValueError("Either token_path or redis_url must be provided.")
         else:
             token_provider = create_token_provider()
 
