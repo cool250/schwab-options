@@ -184,7 +184,7 @@ class WheelOptimizer:
         if not chain.callExpDateMap:
             return []
 
-        results = []
+        best_per_expiry: dict[str, OptionRecommendation] = {}
         for exp_date, strikes in chain.callExpDateMap.items():
             for strike_str, options in strikes.items():
                 strike = float(strike_str)
@@ -195,21 +195,24 @@ class WheelOptimizer:
                         continue
                     # Collateral = underlying value (covered = shares owned)
                     collateral = spot * _CONTRACT_SIZE * contracts
-                    results.append(OptionRecommendation(
-                        symbol=symbol,
-                        option_type="CALL",
-                        option_symbol=opt.symbol,
-                        strike=strike,
-                        expiration_date=exp_date,
-                        dte=opt.daysToExpiration,
-                        premium=opt.mark,
-                        premium_total=opt.mark * _CONTRACT_SIZE * contracts,
-                        annualized_return=self._ann_return(opt.mark, spot, opt.daysToExpiration),
-                        contracts=contracts,
-                        margin_required=collateral,
-                        delta=opt.delta,
-                    ))
-        return results
+                    ann_return = self._ann_return(opt.mark, spot, opt.daysToExpiration)
+                    existing = best_per_expiry.get(exp_date)
+                    if existing is None or ann_return > existing.annualized_return:
+                        best_per_expiry[exp_date] = OptionRecommendation(
+                            symbol=symbol,
+                            option_type="CALL",
+                            option_symbol=opt.symbol,
+                            strike=strike,
+                            expiration_date=exp_date,
+                            dte=opt.daysToExpiration,
+                            premium=opt.mark,
+                            premium_total=opt.mark * _CONTRACT_SIZE * contracts,
+                            annualized_return=ann_return,
+                            contracts=contracts,
+                            margin_required=collateral,
+                            delta=opt.delta,
+                        )
+        return list(best_per_expiry.values())
 
     def _scan_puts(
         self,
@@ -233,7 +236,7 @@ class WheelOptimizer:
         if not chain.putExpDateMap:
             return []
 
-        results = []
+        best_per_expiry: dict[str, OptionRecommendation] = {}
         for exp_date, strikes in chain.putExpDateMap.items():
             for strike_str, options in strikes.items():
                 strike = float(strike_str)
@@ -246,21 +249,24 @@ class WheelOptimizer:
                 for opt in options:
                     if not self._valid(opt):
                         continue
-                    results.append(OptionRecommendation(
-                        symbol=symbol,
-                        option_type="PUT",
-                        option_symbol=opt.symbol,
-                        strike=strike,
-                        expiration_date=exp_date,
-                        dte=opt.daysToExpiration,
-                        premium=opt.mark,
-                        premium_total=opt.mark * _CONTRACT_SIZE * contracts,
-                        annualized_return=self._ann_return(opt.mark, strike, opt.daysToExpiration),
-                        contracts=contracts,
-                        margin_required=margin_per_contract * contracts,
-                        delta=opt.delta,
-                    ))
-        return results
+                    ann_return = self._ann_return(opt.mark, strike, opt.daysToExpiration)
+                    existing = best_per_expiry.get(exp_date)
+                    if existing is None or ann_return > existing.annualized_return:
+                        best_per_expiry[exp_date] = OptionRecommendation(
+                            symbol=symbol,
+                            option_type="PUT",
+                            option_symbol=opt.symbol,
+                            strike=strike,
+                            expiration_date=exp_date,
+                            dte=opt.daysToExpiration,
+                            premium=opt.mark,
+                            premium_total=opt.mark * _CONTRACT_SIZE * contracts,
+                            annualized_return=ann_return,
+                            contracts=contracts,
+                            margin_required=margin_per_contract * contracts,
+                            delta=opt.delta,
+                        )
+        return list(best_per_expiry.values())
 
     def _valid(self, opt: OptionDetail) -> bool:
         return (

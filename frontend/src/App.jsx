@@ -7,6 +7,7 @@ import MarketData from './pages/MarketData'
 import Positions from './pages/Positions'
 import Transactions from './pages/Transactions'
 import StockAllocation from './pages/StockAllocation'
+import Optimizer from './pages/Optimizer'
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
                     <Route path="/positions" element={<Positions />} />
                     <Route path="/transactions" element={<Transactions />} />
                     <Route path="/allocation" element={<StockAllocation />} />
+                    <Route path="/optimizer" element={<Optimizer />} />
                   </Routes>
                 </main>
               </ProtectedRoute>

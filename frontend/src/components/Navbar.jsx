@@ -32,6 +32,12 @@ export default function Navbar() {
         >
           Monthly Gains
         </NavLink>
+        <NavLink
+          to="/optimizer"
+          className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+        >
+          Optimizer
+        </NavLink>
       </div>
       <button onClick={logout} className="btn btn-secondary navbar-logout">
         Sign out

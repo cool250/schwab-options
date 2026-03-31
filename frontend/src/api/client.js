@@ -49,6 +49,12 @@ export function getOptionTransactions(stockTicker, startDate, endDate, contractT
   return request(`/transactions/options?${p}`)
 }
 
+export function getOptimizerRecs({ extraSymbols = '', maxDte = 7 } = {}) {
+  const p = new URLSearchParams({ max_dte: maxDte })
+  if (extraSymbols) p.set('extra_symbols', extraSymbols)
+  return request(`/optimizer/?${p}`)
+}
+
 export function getMonthlyAllocations(year, month, realizedGainsOnly) {
   const startDate = `${year}-${String(month).padStart(2, '0')}-01`
   const lastDay = new Date(year, month, 0).getDate()
