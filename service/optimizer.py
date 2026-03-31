@@ -91,6 +91,7 @@ class WheelOptimizer:
         """
         buying_power = self._buying_power()
         stocks = self._position_svc.get_stock_position()
+        stock_cost_basis = self._stock_cost_basis()
 
         from_date = datetime.now(_EASTERN).strftime("%Y-%m-%d")
         to_date = (datetime.now(_EASTERN) + timedelta(days=self._max_dte)).strftime("%Y-%m-%d")
@@ -103,8 +104,9 @@ class WheelOptimizer:
             if qty < 100:
                 continue
             contracts = int(qty // 100)
+            cost_basis = stock_cost_basis.get(stock["symbol"], 0.0)
             recommendations.extend(
-                self._scan_calls(stock["symbol"], contracts, from_date, to_date)
+                self._scan_calls(stock["symbol"], contracts, from_date, to_date, cost_basis)
             )
 
         # Cash-Secured Puts — scan held tickers plus any extras.
@@ -143,12 +145,28 @@ class WheelOptimizer:
             logger.error("Price fetch failed for %s: %s", symbol, e)
             return None
 
+    def _stock_cost_basis(self) -> dict[str, float]:
+        """Return ``{ticker: average_purchase_price}`` for all equity positions."""
+        result: dict[str, float] = {}
+        positions = (
+            self._position_svc.position.positions
+            if self._position_svc.position and self._position_svc.position.positions
+            else []
+        )
+        for pos in positions:
+            if not pos.instrument or pos.instrument.assetType not in ("EQUITY", "COLLECTIVE_INVESTMENT"):
+                continue
+            if pos.instrument.symbol and pos.averagePrice:
+                result[pos.instrument.symbol] = pos.averagePrice
+        return result
+
     def _scan_calls(
         self,
         symbol: str,
         contracts: int,
         from_date: str,
         to_date: str,
+        cost_basis: float = 0.0,
     ) -> list[OptionRecommendation]:
         spot = self._spot(symbol)
         if spot is None:
@@ -169,7 +187,7 @@ class WheelOptimizer:
         for exp_date, strikes in chain.callExpDateMap.items():
             for strike_str, options in strikes.items():
                 strike = float(strike_str)
-                if strike <= spot:                # skip ITM
+                if strike <= spot or strike <= cost_basis:  # skip ITM and below cost basis
                     continue
                 for opt in options:
                     if not self._valid(opt):
