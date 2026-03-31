@@ -280,8 +280,17 @@ body {
 }
 
 /* ─── Table ──────────────────────────────────────────── */
-.table-scroll { overflow-x: auto; border-radius: var(--radius-sm); }
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.855rem; }
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch; /* iOS momentum scrolling */
+  border-radius: var(--radius-sm);
+  /* break out of card padding so the scroll edge aligns with the card edge */
+  margin-left: -24px;
+  margin-right: -24px;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+.data-table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 0.855rem; }
 .data-table th {
   padding: 12px 14px;
   font-size: 0.775rem;
