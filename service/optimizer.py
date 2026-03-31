@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 _EASTERN = pytz.timezone("US/Eastern")
 _CONTRACT_SIZE = 100          # shares per option contract
+_STRIKE_COUNT = 50
 
 
 @dataclass
@@ -60,7 +61,7 @@ class OptionRecommendation:
             f"${self.strike:>8.2f}  exp {self.expiration_date[:10]}  "
             f"DTE={self.dte:2d}  premium=${self.premium:.3f}  "
             f"ann={self.annualized_return:.1f}%  "
-            f"contracts={self.contracts}  margin=${self.margin_required:,.0f}"
+            f"contracts={self.contracts}  margin=${self.margin_required:,.0f}  delta={self.delta:.2f}"
         )
 
 
@@ -174,7 +175,7 @@ class WheelOptimizer:
 
         try:
             chain = self._client.get_chain(
-                symbol, from_date, to_date, strike_count=20, contract_type="CALL"
+                symbol, from_date, to_date, strike_count=_STRIKE_COUNT, contract_type="CALL"
             )
         except BrokerError as e:
             logger.error("Call chain failed for %s: %s", symbol, e)
@@ -223,7 +224,7 @@ class WheelOptimizer:
 
         try:
             chain = self._client.get_chain(
-                symbol, from_date, to_date, strike_count=20, contract_type="PUT"
+                symbol, from_date, to_date, strike_count=_STRIKE_COUNT, contract_type="PUT"
             )
         except BrokerError as e:
             logger.error("Put chain failed for %s: %s", symbol, e)
@@ -265,6 +266,8 @@ class WheelOptimizer:
         return (
             opt.mark is not None
             and opt.mark > 0
+            and opt.delta is not None
+            and 0.25 <= abs(opt.delta) <= 0.35
             and opt.daysToExpiration is not None
             and 0 < opt.daysToExpiration <= self._max_dte
             and not opt.inTheMoney
