@@ -5,6 +5,6 @@
     "heroku-postbuild": "cd frontend && npm install && npm run build"
   },
   "engines": {
-    "node": ">=18"
+    "node": "24.x"
   }
 }
