@@ -11,7 +11,6 @@ export default function Navbar() {
     <nav className="navbar">
       <span className="navbar-brand">
         <img src="/nutrade_icon.svg" alt="NuTrade" className="navbar-logo" />
-        Options Wheel
       </span>
 
       <button
