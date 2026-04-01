@@ -82,13 +82,9 @@ body {
   align-items: center;
   gap: 8px;
 }
-.navbar-brand::before {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  background: var(--primary);
-  border-radius: 50%;
+.navbar-logo {
+  width: 200px;
+  object-fit: contain;
 }
 .navbar-links { display: flex; gap: 2px; }
 .nav-link {
@@ -439,11 +435,8 @@ body {
   text-align: center;
 }
 .login-logo {
-  display: inline-block;
-  width: 36px;
-  height: 36px;
-  background: var(--primary);
-  border-radius: 50%;
+  width: 200px;
+  object-fit: contain;
   margin-bottom: 4px;
 }
 .login-title  { font-size: 1.4rem; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }

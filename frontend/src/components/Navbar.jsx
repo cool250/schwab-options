@@ -6,7 +6,10 @@ export default function Navbar() {
 
   return (
     <nav className="navbar">
-      <span className="navbar-brand">Options Wheel</span>
+      <span className="navbar-brand">
+        <img src="/nutrade_icon.svg" alt="NuTrade" className="navbar-logo" />
+        Options Wheel
+      </span>
       <div className="navbar-links">
         <NavLink
           to="/market"

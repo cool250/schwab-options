@@ -38,8 +38,7 @@ export default function Login() {
     <div className="login-wrapper">
       <div className="login-card">
         <div className="login-header">
-          <span className="login-logo" />
-          <h1 className="login-title">Options Wheel</h1>
+          <img src="/nutrade_icon.svg" alt="NuTrade" className="login-logo" />
           <p className="login-subtitle">Sign in to continue</p>
         </div>
 

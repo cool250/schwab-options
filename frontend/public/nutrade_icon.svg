@@ -1,0 +1,18 @@
+<svg width="400" height="120" viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Icon mark on dark pill -->
+  <rect x="0" y="34" width="52" height="52" rx="10" fill="#0f1e35"/>
+  <!-- Candlestick bars -->
+  <rect x="11" y="65" width="7" height="13" fill="#e05c5c" rx="1"/>
+  <rect x="22" y="58" width="7" height="18" fill="#00c896" rx="1"/>
+  <rect x="33" y="52" width="7" height="20" fill="#f0b429" rx="1"/>
+  <!-- Baseline -->
+  <line x1="8" y1="79" x2="45" y2="79" stroke="#2a4a6a" stroke-width="1"/>
+
+  <!-- Wordmark -->
+  <text x="64" y="62" font-family="Arial, sans-serif" font-size="32" font-weight="700" fill="#0f1e35">Nu<tspan fill="#00a07a">Trade</tspan></text>
+
+  <!-- Tagline -->
+  <text x="65" y="82" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#00a07a" letter-spacing="2">SMARTER MARKETS</text>
+
+</svg>
