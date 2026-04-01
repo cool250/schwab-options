@@ -66,7 +66,6 @@ body {
   min-height: 60px;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 8px 36px;
   position: sticky;
   top: 0;
@@ -99,6 +98,23 @@ body {
 }
 .nav-link:hover { color: var(--text); background: var(--bg); }
 .nav-link.active { color: var(--primary); background: var(--primary-light); font-weight: 600; }
+
+/* Hamburger button — hidden on desktop */
+.navbar-hamburger {
+  display: none;
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text);
+  padding: 6px 8px;
+}
+/* Mobile sign-out inside the dropdown — hidden on desktop */
+.navbar-logout--mobile { display: none; }
+/* Desktop sign-out — shown on desktop */
+.navbar-logout--desktop { display: block; }
 
 /* ─── Page layout ────────────────────────────────────── */
 .main-content { max-width: 1120px; margin: 0 auto; padding: 36px 28px; }
@@ -401,9 +417,43 @@ body {
   .form-row, .form-row--2 { grid-template-columns: 1fr; }
   .input { max-width: 100%; min-width: 0; }
   .main-content { padding: 16px; }
-  .navbar       { padding: 8px 16px; }
-  .navbar-links { width: 100%; padding-bottom: 8px; }
-  .navbar-logout { margin-left: 0; }
+}
+
+/* ─── Mobile navbar (hamburger) ──────────────────────── */
+@media (max-width: 768px) {
+  .navbar {
+    padding: 0 16px;
+    flex-wrap: wrap;
+    gap: 0;
+  }
+  .navbar-brand  { flex: 1; padding: 10px 0; }
+  .navbar-hamburger { display: block; }
+
+  /* Desktop sign-out hidden; mobile one inside dropdown shown */
+  .navbar-logout--desktop { display: none; }
+
+  /* Collapsed by default */
+  .navbar-links {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 0 12px;
+    border-top: 1px solid var(--border);
+  }
+  /* Open state */
+  .navbar-links.open { display: flex; }
+
+  .nav-link {
+    padding: 10px 12px;
+    font-size: 0.95rem;
+  }
+  .navbar-logout--mobile {
+    display: block;
+    margin-top: 6px;
+    width: 100%;
+    text-align: left;
+  }
 }
 
 /* ─── Login page ─────────────────────────────────────── */
