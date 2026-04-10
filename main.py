@@ -72,8 +72,8 @@ def optimizer():
 
 
 if __name__ == "__main__":
-    # authenticate()
+    authenticate()
     # price_history()
     # transaction()
     # position()
-    optimizer()
+    # optimizer()

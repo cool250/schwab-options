@@ -56,8 +56,13 @@ export default function MarketData() {
     try {
       const data = await getMaxReturn(ticker.trim().toUpperCase(), parseFloat(strikePrice), fromDate, toDate, optionType)
       setResults(data)
-    } catch {
-      setError('Failed to fetch max return data.')
+    } catch (err) {
+      const msg = err?.message ?? ''
+      if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
+        setError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
+      } else {
+        setError('Failed to fetch max return data.')
+      }
     } finally {
       setLoading(false)
     }
@@ -69,8 +74,13 @@ export default function MarketData() {
     try {
       const data = await getAllExpirations(ticker.trim().toUpperCase(), parseFloat(strikePrice), fromDate, toDate, optionType)
       setResults(data)
-    } catch {
-      setError('Failed to fetch expiration data.')
+    } catch (err) {
+      const msg = err?.message ?? ''
+      if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
+        setError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
+      } else {
+        setError('Failed to fetch expiration data.')
+      }
     } finally {
       setLoading(false)
     }

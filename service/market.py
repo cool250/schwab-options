@@ -3,7 +3,7 @@ import pytz
 import logging
 
 from broker import Client
-from broker.exceptions import BrokerError
+from broker.exceptions import BrokerAuthError, BrokerError
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,8 @@ class MarketService:
         """
         try:
             option_chain = self.client.get_chain(symbol, from_date, to_date, strike_count=20, contract_type=contract_type)
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Failed to fetch option chain for %s: %s", symbol, e)
             return None
@@ -62,6 +64,8 @@ class MarketService:
 
         try:
             option_chain = self.client.get_chain(symbol, from_date, to_date, strike_count=50, strike=strike, contract_type=contract_type)
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Failed to fetch option chain for %s: %s", symbol, e)
             return []
@@ -136,6 +140,8 @@ class MarketService:
         try:
             stock_quotes = self.client.get_price(symbol)
             return stock_quotes.root.get(symbol).quote.lastPrice
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Failed to fetch price for %s: %s", symbol, e)
             return None
@@ -153,6 +159,8 @@ class MarketService:
         try:
             price_history = self.client.get_price_history(symbol, period_type=period_type, frequency_type=frequency_type, period=period)
             return price_history.candles
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Failed to fetch price history for %s: %s", symbol, e)
             return []

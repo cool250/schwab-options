@@ -2,7 +2,7 @@ from typing import Optional
 import logging
 
 from broker import Client
-from broker.exceptions import BrokerError
+from broker.exceptions import BrokerAuthError, BrokerError
 from broker.data.account_data import SecuritiesAccount
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,8 @@ class PositionService:
     def _initialize(self):
         try:
             self.position = self.client.fetch_positions()
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Failed to fetch positions: %s", e)
             self.position = None

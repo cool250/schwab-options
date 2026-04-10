@@ -30,8 +30,13 @@ export default function Transactions() {
     try {
       const data = await getOptionTransactions(ticker.trim().toUpperCase(), startDate, endDate, contractType, realizedOnly)
       setTransactions(data)
-    } catch {
-      setError('Failed to fetch transactions. Make sure the API server is running.')
+    } catch (err) {
+      const msg = err?.message ?? ''
+      if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
+        setError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
+      } else {
+        setError('Failed to fetch transactions. Make sure the API server is running.')
+      }
     } finally {
       setLoading(false)
     }

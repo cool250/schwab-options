@@ -29,7 +29,7 @@ import pytz
 
 from broker import Client
 from broker.data.option_data import OptionDetail
-from broker.exceptions import BrokerError
+from broker.exceptions import BrokerAuthError, BrokerError
 from service.position import PositionService
 
 logger = logging.getLogger(__name__)
@@ -142,6 +142,8 @@ class WheelOptimizer:
             quotes = self._client.get_price(symbol)
             asset = quotes.root.get(symbol)
             return asset.quote.lastPrice if asset and asset.quote else None
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Price fetch failed for %s: %s", symbol, e)
             return None
@@ -177,6 +179,8 @@ class WheelOptimizer:
             chain = self._client.get_chain(
                 symbol, from_date, to_date, strike_count=_STRIKE_COUNT, contract_type="CALL"
             )
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Call chain failed for %s: %s", symbol, e)
             return []
@@ -229,6 +233,8 @@ class WheelOptimizer:
             chain = self._client.get_chain(
                 symbol, from_date, to_date, strike_count=_STRIKE_COUNT, contract_type="PUT"
             )
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Put chain failed for %s: %s", symbol, e)
             return []

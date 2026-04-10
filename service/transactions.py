@@ -10,7 +10,7 @@ from datetime import timedelta
 from typing import List, Dict, Any, Optional
 import logging
 from broker import Client
-from broker.exceptions import BrokerError
+from broker.exceptions import BrokerAuthError, BrokerError
 from utils.utils import get_date_object, get_date_string
 from pydantic import BaseModel
 
@@ -61,6 +61,8 @@ class TransactionService:
         """
         try:
             return self.client.fetch_transactions(start_date=start_date, end_date=end_date)
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Failed to fetch transaction history: %s", e)
             return []
@@ -92,6 +94,8 @@ class TransactionService:
                 start_date=expanded_date_range["start_date"],
                 end_date=expanded_date_range["end_date"],
             )
+        except BrokerAuthError:
+            raise
         except BrokerError as e:
             logger.error("Failed to fetch transactions: %s", e)
             return []

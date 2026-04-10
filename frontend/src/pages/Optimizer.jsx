@@ -40,7 +40,14 @@ export default function Optimizer() {
     setData(null)
     getOptimizerRecs({ extraSymbols, maxDte })
       .then(setData)
-      .catch((e) => setError(e.message || 'Failed to load recommendations.'))
+      .catch((e) => {
+        const msg = e?.message ?? ''
+        if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
+          setError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
+        } else {
+          setError(msg || 'Failed to load recommendations.')
+        }
+      })
       .finally(() => setLoading(false))
   }, [extraSymbols, maxDte])
 

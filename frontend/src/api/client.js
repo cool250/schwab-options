@@ -15,7 +15,12 @@ async function request(path) {
   }
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(text || res.statusText)
+    let message = text || res.statusText
+    try {
+      const json = JSON.parse(text)
+      if (json.detail) message = json.detail
+    } catch {}
+    throw new Error(message)
   }
   return res.json()
 }

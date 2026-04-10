@@ -11,7 +11,14 @@ export default function Positions() {
   useEffect(() => {
     getPositions()
       .then(setData)
-      .catch(() => setError('Failed to load positions. Make sure the API server is running.'))
+      .catch((err) => {
+        const msg = err?.message ?? ''
+        if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
+          setError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
+        } else {
+          setError('Failed to load positions. Make sure the API server is running.')
+        }
+      })
       .finally(() => setLoading(false))
   }, [])
 

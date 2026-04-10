@@ -33,9 +33,11 @@ logging.basicConfig(
 
 logging.getLogger(__name__).info("Log level: %s", logging.getLevelName(_log_level))
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from broker.exceptions import BrokerAuthError
 from api.auth import router as auth_router, require_auth
 from api.market import router as market_router
 from api.optimizer import router as optimizer_router
@@ -61,6 +63,11 @@ app = FastAPI(
     version="1.0.0",
     description="REST API for the Options Wheel trading application.",
 )
+
+
+@app.exception_handler(BrokerAuthError)
+async def broker_auth_error_handler(request: Request, exc: BrokerAuthError):
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(market_router, prefix="/api/market", tags=["Market"], dependencies=[Depends(require_auth)])
