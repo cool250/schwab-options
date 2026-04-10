@@ -3,6 +3,18 @@ import { getPositions } from '../api/client'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
+const OPTION_COLUMNS = [
+  { key: 'ticker',          label: 'Ticker' },
+  { key: 'strike_price',    label: 'Strike' },
+  { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
+  { key: 'quantity',        label: 'Quantity',     align: 'right' },
+  { key: 'trade_price',     label: 'Trade Price',  align: 'right' },
+  { key: 'current_price',   label: 'Current Price',  align: 'right' },
+  { key: 'total_value',     label: 'Total Value',  align: 'right' },
+  { key: 'exposure',        label: 'Exposure',     align: 'right' },
+  { key: 'symbol',          label: 'Symbol' },
+]
+
 export default function Positions() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -91,7 +103,7 @@ export default function Positions() {
                 Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
                 Value: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </p>
-              <DataTable data={puts} defaultSortKey="expiration_date" />
+              <DataTable data={puts} columns={OPTION_COLUMNS} defaultSortKey="days_to_expiry" />
             </div>
           ) : (
             <div className="alert warning">No PUT option positions found.</div>
@@ -105,7 +117,7 @@ export default function Positions() {
                 Total: {calls.length}&nbsp;&nbsp;|&nbsp;&nbsp;
                 Value: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </p>
-              <DataTable data={calls} defaultSortKey="expiration_date" />
+              <DataTable data={calls} columns={OPTION_COLUMNS} defaultSortKey="days_to_expiry" />
             </div>
           ) : (
             <div className="alert warning">No CALL option positions found.</div>

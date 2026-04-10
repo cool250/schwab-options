@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from typing import Optional
 import logging
 
@@ -149,11 +150,17 @@ class PositionService:
                             logger.warning(f"Position {symbol} has no long or short quantity, skipping.")
                             continue
                         exposure = PositionService._calculate_exposure(position, strike_price)
+                        if expiration_date:
+                            exp = datetime.strptime(expiration_date, "%y-%m-%d").date()
+                            days_to_expiry = (exp - date.today()).days
+                        else:
+                            days_to_expiry = None
                         option_details = {
                             "ticker": ticker,
                             "symbol": symbol,
                             "strike_price": f"${strike_price:,.0f}",
                             "expiration_date": expiration_date,
+                            "days_to_expiry": days_to_expiry,
                             "quantity": f"{quantity:,.0f}",
                             "exposure": exposure,
                             "trade_price": f"${position.averagePrice:,.2f}",
