@@ -28,14 +28,14 @@ export default function Navbar() {
         <NavLink to="/transactions" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Transactions</NavLink>
         <NavLink to="/allocation"   className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Monthly Gains</NavLink>
         <NavLink to="/optimizer"    className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Optimizer</NavLink>
-        <button onClick={() => { logout(); close() }} className="btn btn-secondary navbar-logout navbar-logout--mobile">
+        <a href="#" onClick={(e) => { e.preventDefault(); logout(); close() }} className="navbar-logout navbar-logout--mobile">
           Sign out
-        </button>
+        </a>
       </div>
 
-      <button onClick={logout} className="btn btn-secondary navbar-logout navbar-logout--desktop">
+      <a href="#" onClick={(e) => { e.preventDefault(); logout() }} className="navbar-logout navbar-logout--desktop">
         Sign out
-      </button>
+      </a>
     </nav>
   )
 }
