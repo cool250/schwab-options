@@ -30,8 +30,6 @@ class PositionService:
     def _initialize(self):
         try:
             self.position = self.client.fetch_positions()
-        except BrokerAuthError:
-            raise
         except BrokerError as e:
             logger.error("Failed to fetch positions: %s", e)
             self.position = None
@@ -57,12 +55,17 @@ class PositionService:
             logger.warning("Position is not initialized.")
             return {"error": "Position is not initialized."}
         securities_account: SecuritiesAccount = self.position
+        current = securities_account.currentBalances
+        if current is None:
+            logger.warning("Current balances are not available.")
+            return {"error": "Current balances are not available."}
 
+        margin = current.marginBalance
+        cash = current.cashBalance
         balances = {
-            "margin": securities_account.currentBalances.marginBalance,
-            "mutualFundValue": securities_account.currentBalances.mutualFundValue,
-            "account": securities_account.currentBalances.liquidationValue,
-            "cash": securities_account.currentBalances.cashBalance,
+            "mutualFundValue": current.mutualFundValue,
+            "account": current.liquidationValue,
+            "cash_balance": cash if (margin is None or margin >= 0) else margin,
         }
         logger.debug(f"Account Balances: {balances}")
         return balances

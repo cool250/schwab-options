@@ -45,19 +45,11 @@ export default function Positions() {
           {/* Balances */}
           {balances && (
             <div className="metrics-row">
-              {balances.cash != null && (
+              {balances.cash_balance != null && (
                 <div className="metric">
                   <span className="metric-label">Cash Balance</span>
                   <span className="metric-value">
-                    ${balances.cash.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-              {balances.margin != null && (
-                <div className="metric">
-                  <span className="metric-label">Margin Balance</span>
-                  <span className="metric-value">
-                    ${balances.margin.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    ${balances.cash_balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               )}
