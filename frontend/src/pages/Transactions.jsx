@@ -3,6 +3,17 @@ import { getOptionTransactions } from '../api/client'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
+const COLUMNS = [
+  { key: 'symbol',          label: 'Symbol' },
+  { key: 'close_date',    label: 'Closed Date' },
+  { key: 'amount',        label: 'Quantity',     align: 'right' },
+  { key: 'close_price',   label: 'Closing Price',  align: 'right' },
+  { key: 'open_price',     label: 'Opening Price',  align: 'right' },
+  { key: 'total_amount',     label: 'Proceeds',  align: 'right' },
+  { key: 'option_type',     label: 'Option Type' },
+  { key: 'type',     label: 'Trade Type' },
+]
+
 function firstOfMonth() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
@@ -111,7 +122,7 @@ export default function Transactions() {
                   {transactions.length} records &nbsp;|&nbsp; Total: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </span>
               </div>
-              <DataTable data={transactions} defaultSortKey="expirationDate" />
+              <DataTable data={transactions} columns={COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" />
             </div>
           )}
         </>

@@ -397,7 +397,7 @@ class TransactionService:
                     price=price_difference,  # P/L per contract
                     open_price=open_trade.get("price"),  # Original entry price
                     close_price=close_trade.get("price"),  # Exit price
-                    amount=amount,
+                    amount=abs(amount),
                     position_effect="MATCHED",
                     option_type=open_trade.get("option_type"),
                     type=trade_type,

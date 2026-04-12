@@ -28,9 +28,9 @@ function getCellClass(key, val) {
  *   defaultSortKey  — column key to sort by on first render
  *   maxHeight       — optional CSS max-height for the scroll container (e.g. "480px")
  */
-export default function DataTable({ data, columns: columnsProp, defaultSortKey, maxHeight }) {
+export default function DataTable({ data, columns: columnsProp, defaultSortKey, defaultSortDir = 'asc', maxHeight }) {
   const [sortCol, setSortCol] = useState(defaultSortKey ?? null)
-  const [sortDir, setSortDir] = useState('asc')
+  const [sortDir, setSortDir] = useState(defaultSortDir)
 
   if (!data || data.length === 0) return null
 

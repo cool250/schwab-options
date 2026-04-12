@@ -497,8 +497,7 @@ body {
 /* ─── Navbar logout button ───────────────────────────── */
 .navbar-logout {
   margin-left: auto;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.95rem;
   letter-spacing: 0.03em;
   color: var(--error);
   text-decoration: none;
