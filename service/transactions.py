@@ -122,7 +122,7 @@ class TransactionService:
         result_transactions = []
         for transaction in matched_transactions:
             # Skip if we only want realized gains and anything is still open
-            if realized_gains_only and transaction["type"] not in ["EXPIRATION", "CLOSED"]:
+            if realized_gains_only and transaction["type"] not in ["EXPIRED", "CLOSED"]:
                 continue
                 
             # Only include transactions that closed within our original date range
