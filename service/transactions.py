@@ -43,7 +43,7 @@ class TransactionService:
     """
 
     # Constants
-    COMMISSION_PER_SHARE = 0.35/100  # $0.0035 per share
+    COMMISSION_PER_CONTRACT = 0.35  # $0.35 per contract
 
     def __init__(self):
         """Initialize the TransactionService with broker API clients."""
@@ -209,7 +209,7 @@ class TransactionService:
                     price = float(getattr(item, "price", 0))
                     strike_price = getattr(item.instrument, "strikePrice")
                     amount = float(getattr(item, "amount", 0))
-                    position_effect = getattr(item, "positionEffect")
+                    position_effect = getattr(item, "positionEffect", None)
                     
                     # Safely handle date conversion
                     try:
@@ -238,7 +238,7 @@ class TransactionService:
                         option_type=option_type,
                         type=type_of_transaction,
                         description=description,
-                        total_amount=price * -amount * 100 - (self.COMMISSION_PER_SHARE * abs(amount) * 100),
+                        total_amount=price * -amount * 100 - (self.COMMISSION_PER_CONTRACT * abs(amount)),
                         open_price=price if position_effect == "OPENING" else 0.0,
                         close_price=price if position_effect == "CLOSING" else 0.0
                     ).model_dump())
@@ -310,10 +310,12 @@ class TransactionService:
                 weighted_price = sum(t["price"] * abs(t["amount"]) for t in trade_group) / total_abs if total_abs != 0 else 0
                 
                 # Create a combined trade record
+                combined_total_amount = sum(t["total_amount"] for t in trade_group)
                 combined_trade = {
                     **trade_group[0],  # Use first trade as template
                     "amount": total_amount,
-                    "price": weighted_price
+                    "price": weighted_price,
+                    "total_amount": combined_total_amount,
                 }
             else:
                 # Only one trade with these characteristics
@@ -356,14 +358,14 @@ class TransactionService:
                         open_trade["amount"] -= amount
                         open_trade["total_amount"] = (
                             open_trade["price"] * -open_trade["amount"] * 100
-                            - self.COMMISSION_PER_SHARE * abs(open_trade["amount"]) * 100
+                            - self.COMMISSION_PER_CONTRACT * abs(open_trade["amount"])
                         )
                         opens.insert(0, open_trade)  # Reinsert with updated amount
                     if abs(close_trade["amount"]) > abs(matched_amount):
                         close_trade["amount"] += amount  # Close trade amount is negative
                         close_trade["total_amount"] = (
                             close_trade["price"] * -close_trade["amount"] * 100
-                            - self.COMMISSION_PER_SHARE * abs(close_trade["amount"]) * 100
+                            - self.COMMISSION_PER_CONTRACT * abs(close_trade["amount"])
                         )
                         closes.insert(0, close_trade)  # Reinsert with updated amount
                 else: 
@@ -401,7 +403,7 @@ class TransactionService:
                     position_effect="MATCHED",
                     option_type=open_trade.get("option_type"),
                     type=trade_type,
-                    total_amount=price_difference * -amount * 100 - (self.COMMISSION_PER_SHARE * abs(amount) * 100)
+                    total_amount=price_difference * -amount * 100 - (self.COMMISSION_PER_CONTRACT * abs(amount))
                 ).model_dump())
 
             # Add any remaining unmatched trades to the unmatched list
@@ -429,18 +431,22 @@ class TransactionService:
             close_trade (dict): The trade record to analyze
             
         Returns:
-            str: The identified trade type - "EXPIRATION", "ASSIGNMENT", "CLOSED", or "UNKNOWN"
+            str: The identified trade type - "EXPIRATION", "ASSIGNMENT", or "CLOSED"
         """
         # For RECEIVE_AND_DELIVER transaction types, check the description for specific keywords
         if close_trade.get("type") == "RECEIVE_AND_DELIVER":
             description = close_trade.get("description", "")
-            
+
             if "Expiration" in description:
-                return "EXPIRATION"
+                return "EXPIRED"
             elif "Assignment" in description:
-                return "ASSIGNMENT"
+                return "ASSIGNED"
             else:
-                return "UNKNOWN"
+                logger.warning(
+                    "Unrecognized RECEIVE_AND_DELIVER description for %s: %r — treating as CLOSED",
+                    close_trade.get("symbol"), description
+                )
+                return "CLOSED"
         
         # If not a special case, it's a normal close
         return "CLOSED"
