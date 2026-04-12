@@ -412,11 +412,15 @@ body {
   .metric         { border-right: none; margin-right: 0; padding-right: 0; }
   .result-metrics { grid-template-columns: 1fr; }
   .charts-row     { grid-template-columns: 1fr; }
+  .main-content   { padding: 20px 16px; }
+  .page           { gap: 14px; }
+  .card           { padding: 16px; }
+  .card-header    { margin: -16px -16px 8px -16px; }
 }
 @media (max-width: 480px) {
   .form-row, .form-row--2 { grid-template-columns: 1fr; }
   .input { max-width: 100%; min-width: 0; }
-  .main-content { padding: 16px; }
+  .main-content { padding: 12px; }
 }
 
 /* ─── Mobile navbar (hamburger) ──────────────────────── */
