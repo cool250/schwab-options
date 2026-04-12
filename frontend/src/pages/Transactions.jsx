@@ -9,9 +9,9 @@ const COLUMNS = [
   { key: 'amount',        label: 'Quantity',     align: 'right' },
   { key: 'close_price',   label: 'Closing Price',  align: 'right' },
   { key: 'open_price',     label: 'Opening Price',  align: 'right' },
-  { key: 'total_amount',     label: 'Proceeds',  align: 'right' },
+  { key: 'total_amount',     label: 'Total',  align: 'right' },
   { key: 'option_type',     label: 'Option Type' },
-  { key: 'type',     label: 'Trade Type' },
+  { key: 'type',     label: 'Status' },
 ]
 
 function firstOfMonth() {

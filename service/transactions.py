@@ -43,7 +43,7 @@ class TransactionService:
     """
 
     # Constants
-    COMMISSION_PER_SHARE = 0.65/100  # $0.0065 per share
+    COMMISSION_PER_SHARE = 0.35/100  # $0.0035 per share
 
     def __init__(self):
         """Initialize the TransactionService with broker API clients."""
