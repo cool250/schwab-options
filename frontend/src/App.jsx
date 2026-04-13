@@ -22,7 +22,7 @@ export default function App() {
                 <Navbar />
                 <main className="main-content">
                   <Routes>
-                    <Route path="/" element={<Navigate to="/market" replace />} />
+                    <Route path="/" element={<Navigate to="/positions" replace={true} />} />
                     <Route path="/market" element={<MarketData />} />
                     <Route path="/positions" element={<Positions />} />
                     <Route path="/transactions" element={<Transactions />} />
