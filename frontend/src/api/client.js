@@ -7,7 +7,7 @@ function getToken() {
 async function request(path) {
   const token = getToken()
   const headers = token ? { Authorization: `Bearer ${token}` } : {}
-  const res = await fetch(`${BASE}${path}`, { headers })
+  const res = await fetch(`${BASE}${path}`, { headers, cache: 'no-store' })
   if (res.status === 401) {
     sessionStorage.removeItem('auth_token')
     window.location.href = '/login'

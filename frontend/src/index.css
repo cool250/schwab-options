@@ -135,7 +135,7 @@ body {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
-.page-header { display: flex; align-items: center; justify-content: space-between; }
+.page-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 
 /* ─── Card ───────────────────────────────────────────── */
 .card {
@@ -438,6 +438,7 @@ body {
     gap: 0;
   }
   .navbar-brand  { flex: 1; padding: 10px 0; }
+  .navbar-logo   { width: 140px; }
   .navbar-hamburger { display: block; }
 
   /* Desktop sign-out hidden; mobile one inside dropdown shown */
@@ -469,7 +470,7 @@ body {
 
 /* ─── Login page ─────────────────────────────────────── */
 .login-wrapper {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
