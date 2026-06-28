@@ -45,6 +45,26 @@ class TransactionService:
     # Constants
     COMMISSION_PER_CONTRACT = 0.35  # $0.35 per contract
 
+    # Futures prefix rules: first letter after stripping '/' → root symbol
+    _FUTURES_PREFIX_MAP = {
+        "E": "ES",
+        "Q": "NQ",
+    }
+
+    @classmethod
+    def _normalize_futures_symbol(cls, symbol: str) -> str:
+        """Return the CME root symbol for a Schwab futures contract symbol.
+
+        Handles formats like '.QN4M26:XCME', '.E3DM26_P7050:XCME' → 'NQ', 'ES'.
+        Non-futures symbols (no leading '.') are returned unchanged.
+        """
+        if not symbol.startswith("."):
+            return symbol
+
+        base = symbol.split(":")[0].lstrip(".")
+        first_letter = base[0] if base else ""
+        return cls._FUTURES_PREFIX_MAP.get(first_letter, symbol)
+
     def __init__(self):
         """Initialize the TransactionService with broker API clients."""
         self.client = Client()
@@ -193,7 +213,9 @@ class TransactionService:
                         continue
                     
                     # Extract option details
-                    underlying_symbol = getattr(item.instrument, "underlyingSymbol")
+                    underlying_symbol = self._normalize_futures_symbol(
+                        getattr(item.instrument, "underlyingSymbol")
+                    )
                     option_type = getattr(item.instrument, "putCall")
                     
                     # Filter for selected option type
