@@ -129,7 +129,9 @@ class BaseClient:
         logger.debug("status=%s  url=%s", response.status_code, response.url)
 
         if response.status_code == 200:
-            return response.json()
+            data = response.json()
+            logger.debug("response body: %s", data)
+            return data
 
         if response.status_code == 401:
             if attempt >= max_retries:

@@ -9,8 +9,19 @@ from broker.data.account_data import SecuritiesAccount
 logger = logging.getLogger(__name__)
 
 
+_FUTURES_PREFIX_MAP = {"E": "ES", "Q": "NQ"}
+
+
+def _normalize_futures_underlying(symbol: str) -> str:
+    """Normalize a Schwab futures underlying symbol (e.g. '.E3DM26') to its CME root ('ES')."""
+    if not symbol.startswith("."):
+        return symbol
+    base = symbol.split(":")[0].lstrip(".")
+    return _FUTURES_PREFIX_MAP.get(base[0] if base else "", symbol)
+
+
 def parse_option_symbol(symbol):
-    """Parse the option symbol to extract ticker, strike price, and expiration date."""
+    """Parse an OCC equity option symbol into (ticker, strike_price, expiration_date)."""
     try:
         strike_price = float(symbol[13:21]) / 1000
         ticker = symbol[:6].strip()
@@ -141,32 +152,35 @@ class PositionService:
                 symbol = position.instrument.symbol
                 if symbol and len(symbol) > 15 and symbol[-9] == option_type:
                     ticker, strike_price, expiration_date = parse_option_symbol(symbol)
-                    if ticker:
-                        if position.longQuantity and position.longQuantity > 0:
-                            quantity = position.longQuantity
-                        elif position.shortQuantity and position.shortQuantity > 0:
-                            quantity = -position.shortQuantity
-                        else:
-                            logger.warning(f"Position {symbol} has no long or short quantity, skipping.")
-                            continue
-                        exposure = PositionService._calculate_exposure(position, strike_price)
-                        if expiration_date:
-                            exp = datetime.strptime(expiration_date, "%y-%m-%d").date()
-                            days_to_expiry = (exp - date.today()).days
-                        else:
-                            days_to_expiry = None
-                        option_details = {
-                            "ticker": ticker,
-                            "symbol": symbol,
-                            "strike_price": f"${strike_price:,.0f}",
-                            "expiration_date": expiration_date,
-                            "days_to_expiry": days_to_expiry,
-                            "quantity": f"{quantity:,.0f}",
-                            "exposure": exposure,
-                            "trade_price": f"${position.averagePrice:,.2f}",
-                            "total_value": position.averagePrice * -quantity * 100
-                        }
-                        option_positions_details.append(option_details)
+                else:
+                    continue
+
+                if ticker:
+                    if position.longQuantity and position.longQuantity > 0:
+                        quantity = position.longQuantity
+                    elif position.shortQuantity and position.shortQuantity > 0:
+                        quantity = -position.shortQuantity
+                    else:
+                        logger.warning(f"Position {symbol} has no long or short quantity, skipping.")
+                        continue
+                    exposure = PositionService._calculate_exposure(position, strike_price)
+                    if expiration_date:
+                        exp = datetime.strptime(expiration_date, "%y-%m-%d").date()
+                        days_to_expiry = (exp - date.today()).days
+                    else:
+                        days_to_expiry = None
+                    option_details = {
+                        "ticker": ticker,
+                        "symbol": symbol,
+                        "strike_price": f"${strike_price:,.0f}",
+                        "expiration_date": expiration_date,
+                        "days_to_expiry": days_to_expiry,
+                        "quantity": f"{quantity:,.0f}",
+                        "exposure": exposure,
+                        "trade_price": f"${position.averagePrice:,.2f}",
+                        "total_value": (position.averagePrice or 0) * -quantity * 100
+                    }
+                    option_positions_details.append(option_details)
         return option_positions_details
 
     def get_current_price(self, tickers):
