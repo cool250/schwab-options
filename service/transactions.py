@@ -42,8 +42,16 @@ class TransactionService:
     option transactions, including matching opening and closing trades.
     """
 
-    # Constants
-    COMMISSION_PER_CONTRACT = 0.35  # $0.35 per contract
+
+    # Contract multipliers (points per contract) for non-standard underlyings
+    _CONTRACT_MULTIPLIER = {
+        "ES": 50,
+        "NQ": 20,
+    }
+
+    @classmethod
+    def _get_multiplier(cls, underlying_symbol: str) -> int:
+        return cls._CONTRACT_MULTIPLIER.get(underlying_symbol, 100)
 
     # Futures prefix rules: first letter after stripping '/' → root symbol
     _FUTURES_PREFIX_MAP = {
@@ -260,7 +268,7 @@ class TransactionService:
                         option_type=option_type,
                         type=type_of_transaction,
                         description=description,
-                        total_amount=price * -amount * 100 - (self.COMMISSION_PER_CONTRACT * abs(amount)),
+                        total_amount=price * -amount * self._get_multiplier(underlying_symbol),
                         open_price=price if position_effect == "OPENING" else 0.0,
                         close_price=price if position_effect == "CLOSING" else 0.0
                     ).model_dump())
@@ -376,18 +384,17 @@ class TransactionService:
                         f"Open qty {open_trade['amount']}, Close qty {close_trade['amount']}"
                     )
                     # Adjust remaining quantities back in the trades and recalculate total_amount
+                    multiplier = self._get_multiplier(open_trade["underlying_symbol"])
                     if abs(open_trade["amount"]) > abs(matched_amount):
                         open_trade["amount"] -= amount
                         open_trade["total_amount"] = (
-                            open_trade["price"] * -open_trade["amount"] * 100
-                            - self.COMMISSION_PER_CONTRACT * abs(open_trade["amount"])
+                            open_trade["price"] * -open_trade["amount"] * multiplier
                         )
                         opens.insert(0, open_trade)  # Reinsert with updated amount
                     if abs(close_trade["amount"]) > abs(matched_amount):
                         close_trade["amount"] += amount  # Close trade amount is negative
                         close_trade["total_amount"] = (
-                            close_trade["price"] * -close_trade["amount"] * 100
-                            - self.COMMISSION_PER_CONTRACT * abs(close_trade["amount"])
+                            close_trade["price"] * -close_trade["amount"] * multiplier
                         )
                         closes.insert(0, close_trade)  # Reinsert with updated amount
                 else: 
@@ -425,7 +432,7 @@ class TransactionService:
                     position_effect="MATCHED",
                     option_type=open_trade.get("option_type"),
                     type=trade_type,
-                    total_amount=price_difference * -amount * 100 - (self.COMMISSION_PER_CONTRACT * abs(amount))
+                    total_amount=price_difference * -amount * self._get_multiplier(open_trade.get("underlying_symbol", ""))
                 ).model_dump())
 
             # Add any remaining unmatched trades to the unmatched list
