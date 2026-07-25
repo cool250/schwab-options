@@ -26,7 +26,8 @@ async function request(path) {
 }
 
 export function getTickerPrice(symbol) {
-  return request(`/market/price/${encodeURIComponent(symbol)}`)
+  const p = new URLSearchParams({ symbol })
+  return request(`/market/price?${p}`)
 }
 
 export function getMaxReturn(symbol, strike, fromDate, toDate, contractType) {

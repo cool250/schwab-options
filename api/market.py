@@ -8,13 +8,13 @@ def get_service() -> MarketService:
     return MarketService()
 
 
-@router.get("/price/{symbol}", summary="Get current ticker price")
+@router.get("/price", summary="Get current ticker price")
 def get_ticker_price(symbol: str, service: MarketService = Depends(get_service)):
     price = service.get_ticker_price(symbol)
     return {"symbol": symbol, "price": price}
 
 
-@router.get("/history/{symbol}", summary="Get price history")
+@router.get("/history", summary="Get price history")
 def get_price_history(
     symbol: str,
     period_type: str = "month",
