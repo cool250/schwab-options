@@ -139,7 +139,8 @@ class MarketService:
         """
         try:
             stock_quotes = self.client.get_price(symbol)
-            return stock_quotes.root.get(symbol).quote.lastPrice
+            asset = next(iter(stock_quotes.root.values()), None)
+            return asset.quote.lastPrice if asset and asset.quote else None
         except BrokerAuthError:
             raise
         except BrokerError as e:
