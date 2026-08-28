@@ -35,6 +35,11 @@ export function getMaxReturn(symbol, strike, fromDate, toDate, contractType) {
   return request(`/market/options/best?${p}`)
 }
 
+export function getOptionChain(symbol, dte) {
+  const p = new URLSearchParams({ symbol, dte })
+  return request(`/market/options/chain?${p}`)
+}
+
 export function getAllExpirations(symbol, strike, fromDate, toDate, contractType) {
   const p = new URLSearchParams({ symbol, strike, from_date: fromDate, to_date: toDate, contract_type: contractType })
   return request(`/market/options/expirations?${p}`)

@@ -8,6 +8,7 @@ import Positions from './pages/Positions'
 import Transactions from './pages/Transactions'
 import StockAllocation from './pages/StockAllocation'
 import Optimizer from './pages/Optimizer'
+import StrikeLab from './pages/StrikeLab'
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
                     <Route path="/transactions" element={<Transactions />} />
                     <Route path="/allocation" element={<StockAllocation />} />
                     <Route path="/optimizer" element={<Optimizer />} />
+                    <Route path="/analyze" element={<StrikeLab />} />
                   </Routes>
                 </main>
               </ProtectedRoute>

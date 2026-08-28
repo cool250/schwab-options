@@ -28,6 +28,7 @@ export default function Navbar() {
         <NavLink to="/transactions" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Transactions</NavLink>
         <NavLink to="/allocation"   className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Monthly Gains</NavLink>
         <NavLink to="/optimizer"    className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Optimizer</NavLink>
+        <NavLink to="/analyze"    className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Analyze</NavLink>
         <a href="#" onClick={(e) => { e.preventDefault(); logout(); close() }} className="navbar-logout navbar-logout--mobile">
           Sign out
         </a>

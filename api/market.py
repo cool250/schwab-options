@@ -46,6 +46,18 @@ def highest_return(
     }
 
 
+@router.get("/options/chain", summary="Normalized option chain for a DTE")
+def get_option_chain(
+    symbol: str,
+    dte: int = 7,
+    service: MarketService = Depends(get_service),
+):
+    chain = service.get_option_chain(symbol, dte)
+    if chain is None:
+        return {"message": "No option chain found"}
+    return chain
+
+
 @router.get("/options/expirations", summary="All expiration dates for a strike")
 def get_all_expiration_dates(
     symbol: str,

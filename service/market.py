@@ -127,6 +127,77 @@ class MarketService:
         annualized_return = simple_return * (365 / days) * 100
         return round(annualized_return, 2)
 
+    def get_option_chain(self, symbol: str, dte: int, strike_count: int = 20):
+        """
+        Fetch a normalized option chain (calls + puts merged by strike) for
+        the expiration closest to `dte` days out.
+
+        Parameters:
+            symbol (str): The ticker symbol for the underlying asset.
+            dte (int): Target days-to-expiration.
+            strike_count (int): Number of strikes above/below ATM to fetch.
+
+        Returns:
+            dict | None: Normalized chain, or None if unavailable.
+        """
+        today = datetime.now(pytz.timezone("US/Eastern")).date()
+        from_date = (today + timedelta(days=max(dte - 4, 0))).strftime('%Y-%m-%d')
+        to_date = (today + timedelta(days=dte + 4)).strftime('%Y-%m-%d')
+
+        try:
+            option_chain = self.client.get_chain(
+                symbol, from_date, to_date, strike_count=strike_count, contract_type="ALL"
+            )
+        except BrokerAuthError:
+            raise
+        except BrokerError as e:
+            logger.error("Failed to fetch option chain for %s: %s", symbol, e)
+            return None
+
+        return self._normalize_chain(option_chain, dte)
+
+    def _normalize_chain(self, option_chain, target_dte: int):
+        """Merge Schwab's call/put expiration maps into a single strike-indexed chain
+        for the expiration closest to `target_dte`."""
+
+        def pick_expiration(exp_date_map):
+            if not exp_date_map:
+                return None, {}
+            best_key = min(exp_date_map, key=lambda k: abs(int(k.split(':')[1]) - target_dte))
+            return best_key, exp_date_map[best_key]
+
+        def leg(options):
+            option = options[0] if options else None
+            if option is None:
+                return None
+            return {"symbol": option.symbol, "bid": option.bid, "ask": option.ask, "delta": option.delta}
+
+        call_key, call_strikes = pick_expiration(option_chain.callExpDateMap)
+        put_key, put_strikes = pick_expiration(option_chain.putExpDateMap)
+        key = call_key or put_key
+        if key is None:
+            return None
+        exp_date, actual_dte = key.split(':')
+
+        strikes = sorted(set(call_strikes) | set(put_strikes), key=float)
+        merged = [
+            {
+                "strikePrice": float(strike),
+                "call": leg(call_strikes.get(strike)),
+                "put": leg(put_strikes.get(strike)),
+            }
+            for strike in strikes
+        ]
+
+        return {
+            "symbol": option_chain.symbol,
+            "spot": option_chain.underlyingPrice,
+            "dte": int(actual_dte),
+            "expirationDate": exp_date,
+            "iv": (option_chain.volatility or 0) / 100,
+            "chain": merged,
+        }
+
     def get_ticker_price(self, symbol):
         """
         Get the current price for a given symbol.
