@@ -256,6 +256,13 @@ export default function StrikeLab() {
     ]);
   };
 
+  const addLegFromChain = (type, side, strike, premium) => {
+    setLegs((prev) => [
+      ...prev,
+      { id: `l${Date.now()}`, side, qty: 1, type, strike, premium: +premium.toFixed(2), dte },
+    ]);
+  };
+
   const submitSymbol = (e) => {
     e.preventDefault();
     const s = symbolInput.trim().toUpperCase();
@@ -414,7 +421,7 @@ export default function StrikeLab() {
           </ResponsiveContainer>
           <div className="sl-chart-caption">Payoff shown at expiration · {dte} days out</div>
         </div>
-      ) : (
+      ) : view === "table" ? (
         <PLTable
           legs={legs}
           spot={spot}
@@ -424,6 +431,13 @@ export default function StrikeLab() {
           iv={ivPct / 100}
           maxProfit={maxProfit}
           maxLoss={maxLoss}
+        />
+      ) : (
+        <OptionChainTable
+          chain={chain}
+          spot={spot}
+          loading={loadingChain}
+          onAddLeg={addLegFromChain}
         />
       )}
 
@@ -456,6 +470,7 @@ export default function StrikeLab() {
       {/* ---------------- View tabs ---------------- */}
       <div className="sl-tabs">
         {[
+          { id: "chain", label: "≡ Chain" },
           { id: "table", label: "▤ Table" },
           { id: "graph", label: "☁ Graph" },
         ].map((t) => (
@@ -655,6 +670,96 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
   );
 }
 
+/* ============================================================================
+   Option chain view — standard Calls | Strike | Puts table around ATM
+============================================================================ */
+const CHAIN_RADIUS = 8; // strikes shown on each side of ATM
+
+function OptionChainTable({ chain, spot, loading, onAddLeg }) {
+  const rows = chain?.chain;
+
+  if (!rows || rows.length === 0) {
+    return (
+      <div className="sl-table-wrap">
+        <div className="sl-chain-empty">
+          {loading ? "Loading option chain…" : "No option chain available for this symbol/expiration."}
+        </div>
+      </div>
+    );
+  }
+
+  const sorted = [...rows].sort((a, b) => a.strikePrice - b.strikePrice);
+  const atmIdx = sorted.reduce(
+    (best, row, i) =>
+      Math.abs(row.strikePrice - spot) < Math.abs(sorted[best].strikePrice - spot) ? i : best,
+    0
+  );
+  const start = Math.max(0, atmIdx - CHAIN_RADIUS);
+  const end = Math.min(sorted.length, atmIdx + CHAIN_RADIUS + 1);
+  const visible = sorted.slice(start, end);
+  const atmStrike = sorted[atmIdx].strikePrice;
+
+  return (
+    <div className="sl-table-wrap">
+      <div className="sl-chain">
+        <div className="sl-chain-row sl-chain-head">
+          <span className="sl-chain-side-label" style={{ gridColumn: "1 / 4" }}>CALLS</span>
+          <span style={{ gridColumn: "4 / 5" }} />
+          <span className="sl-chain-side-label" style={{ gridColumn: "5 / 8" }}>PUTS</span>
+        </div>
+        <div className="sl-chain-row sl-chain-subhead">
+          <span>Delta</span>
+          <span>Bid</span>
+          <span>Ask</span>
+          <span>Strike</span>
+          <span>Bid</span>
+          <span>Ask</span>
+          <span>Delta</span>
+        </div>
+        {visible.map((row) => {
+          const isAtm = row.strikePrice === atmStrike;
+          return (
+            <div key={row.strikePrice} className={`sl-chain-row ${isAtm ? "sl-chain-atm" : ""}`}>
+              <span className="sl-chain-delta">{row.call ? row.call.delta.toFixed(2) : "—"}</span>
+              <span
+                className={`sl-chain-bid ${row.call ? "" : "sl-chain-disabled"}`}
+                onClick={() => row.call && onAddLeg("CALL", "SELL", row.strikePrice, row.call.bid)}
+                title={row.call ? "Sell a call at bid" : undefined}
+              >
+                {row.call ? row.call.bid.toFixed(2) : "—"}
+              </span>
+              <span
+                className={`sl-chain-ask ${row.call ? "" : "sl-chain-disabled"}`}
+                onClick={() => row.call && onAddLeg("CALL", "BUY", row.strikePrice, row.call.ask)}
+                title={row.call ? "Buy a call at ask" : undefined}
+              >
+                {row.call ? row.call.ask.toFixed(2) : "—"}
+              </span>
+              <span className="sl-chain-strike">{row.strikePrice}</span>
+              <span
+                className={`sl-chain-bid ${row.put ? "" : "sl-chain-disabled"}`}
+                onClick={() => row.put && onAddLeg("PUT", "SELL", row.strikePrice, row.put.bid)}
+                title={row.put ? "Sell a put at bid" : undefined}
+              >
+                {row.put ? row.put.bid.toFixed(2) : "—"}
+              </span>
+              <span
+                className={`sl-chain-ask ${row.put ? "" : "sl-chain-disabled"}`}
+                onClick={() => row.put && onAddLeg("PUT", "BUY", row.strikePrice, row.put.ask)}
+                title={row.put ? "Buy a put at ask" : undefined}
+              >
+                {row.put ? row.put.ask.toFixed(2) : "—"}
+              </span>
+              <span className="sl-chain-delta">{row.put ? row.put.delta.toFixed(2) : "—"}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="sl-chart-caption">Click a bid to sell, an ask to buy · {visible.length} strikes around spot</div>
+    </div>
+  );
+}
+
 function SLTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null;
   const pl = payload[0].payload.pl;
@@ -764,6 +869,22 @@ const CSS = `
 .sl-ptable-val { font-weight: 600; }
 .sl-ptable-spotrow.sl-ptable-strike { outline: 1px solid var(--sl-amber); color: var(--sl-amber); }
 .sl-ptable-spotrow.sl-ptable-val { box-shadow: inset 0 0 0 1px rgba(240,168,104,0.5); }
+
+.sl-chain { display: flex; flex-direction: column; gap: 2px; min-width: 480px; }
+.sl-chain-row { display: grid; grid-template-columns: 60px 64px 64px 72px 64px 64px 60px; gap: 2px; align-items: center; }
+.sl-chain-row > span { font-family: var(--sl-mono); font-size: 11.5px; text-align: center; padding: 6px 4px; border-radius: 4px; }
+.sl-chain-head span { font-size: 10px; letter-spacing: 0.6px; color: var(--sl-muted); }
+.sl-chain-subhead span { color: var(--sl-muted); font-size: 10px; }
+.sl-chain-strike { font-weight: 700; background: var(--sl-panel-2); color: var(--sl-text); }
+.sl-chain-delta { color: var(--sl-muted); }
+.sl-chain-bid { cursor: pointer; color: var(--sl-down); }
+.sl-chain-bid:hover { background: rgba(255,93,93,0.15); }
+.sl-chain-ask { cursor: pointer; color: var(--sl-up); }
+.sl-chain-ask:hover { background: rgba(61,220,151,0.15); }
+.sl-chain-disabled { cursor: default; color: var(--sl-muted); opacity: 0.5; }
+.sl-chain-disabled:hover { background: none; }
+.sl-chain-atm .sl-chain-strike { outline: 1px solid var(--sl-amber); color: var(--sl-amber); }
+.sl-chain-empty { color: var(--sl-muted); font-size: 12.5px; padding: 20px 0; text-align: center; }
 
 .sl-tabs { display: flex; gap: 4px; margin-bottom: 20px; border: 1px solid var(--sl-border); border-radius: 10px; padding: 4px; overflow-x: auto; }
 .sl-tab { flex: 1 0 auto; background: none; border: none; color: var(--sl-muted); font-size: 12px; font-weight: 600; padding: 8px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; font-family: var(--sl-sans); }
