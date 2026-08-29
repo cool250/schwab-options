@@ -167,7 +167,7 @@ export default function StrikeLab() {
   const [ivPct, setIvPct] = useState(10.9);
   const [chain, setChain] = useState(null);
   const [loadingChain, setLoadingChain] = useState(false);
-  const [view, setView] = useState("graph"); // 'chain' | 'table' | 'graph'
+  const [view, setView] = useState("chain"); // 'chain' | 'table' | 'graph'
 
   const EXPIRATIONS = useMemo(() => buildExpirations(), []);
   const dte = EXPIRATIONS[expIndex].dte;
@@ -354,11 +354,6 @@ export default function StrikeLab() {
               onClick={() => setView(t.id)}
             >
               {t.label}
-            </button>
-          ))}
-          {["Profit / Loss %", "Contract Value", "% of Max Risk"].map((label) => (
-            <button key={label} className="btn btn-secondary" disabled title="Not built yet">
-              {label}
             </button>
           ))}
         </div>
@@ -664,7 +659,7 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
 /* ============================================================================
    Option chain view — standard Calls | Strike | Puts table around ATM
 ============================================================================ */
-const DEFAULT_CHAIN_RADIUS = 8; // strikes shown on each side of ATM
+const DEFAULT_CHAIN_RADIUS = 10; // strikes shown on each side of ATM
 
 function OptionChainTable({ chain, spot, loading, onAddLeg }) {
   const [radius, setRadius] = useState(DEFAULT_CHAIN_RADIUS);

@@ -145,8 +145,11 @@ class MarketService:
         to_date = (today + timedelta(days=dte + 4)).strftime('%Y-%m-%d')
 
         try:
+            # Schwab's strikeCount returns that many strikes total (split across
+            # both sides of ATM), not per side, so double the request to actually
+            # get `strike_count` strikes above and below.
             option_chain = self.client.get_chain(
-                symbol, from_date, to_date, strike_count=strike_count, contract_type="ALL"
+                symbol, from_date, to_date, strike_count=strike_count * 2, contract_type="ALL"
             )
         except BrokerAuthError:
             raise
@@ -189,12 +192,27 @@ class MarketService:
             for strike in strikes
         ]
 
+        def contract_iv(options):
+            option = options[0] if options else None
+            return option.volatility if option else None
+
+        # Schwab's chain-level `volatility` field is a dead placeholder (always ~29
+        # regardless of symbol); use the ATM contract's own IV instead, which is
+        # computed per-strike and actually varies by symbol.
+        atm_strike = min(strikes, key=lambda s: abs(float(s) - option_chain.underlyingPrice), default=None)
+        atm_ivs = []
+        if atm_strike is not None:
+            for iv in (contract_iv(call_strikes.get(atm_strike)), contract_iv(put_strikes.get(atm_strike))):
+                if iv:
+                    atm_ivs.append(iv)
+        atm_iv = sum(atm_ivs) / len(atm_ivs) if atm_ivs else 0
+
         return {
             "symbol": option_chain.symbol,
             "spot": option_chain.underlyingPrice,
             "dte": int(actual_dte),
             "expirationDate": exp_date,
-            "iv": (option_chain.volatility or 0) / 100,
+            "iv": atm_iv / 100,
             "chain": merged,
         }
 
