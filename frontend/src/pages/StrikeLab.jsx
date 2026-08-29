@@ -104,38 +104,44 @@ function maxLossProfit(legs, lo, hi) {
     if (pl > maxP) maxP = pl;
     if (pl < minP) minP = pl;
   }
-  // Naked short legs make loss unbounded toward zero (puts) — check the low edge explicitly.
-  const lowEdgePL = totalPL(legs, lo);
-  if (lowEdgePL < minP) minP = lowEdgePL;
+  // Net-short puts are worst when the stock goes to zero, which may fall outside [lo, hi].
+  const zeroPL = totalPL(legs, 0);
+  if (zeroPL < minP) minP = zeroPL;
+
+  // A net-short call position (not capped by a higher-strike long call) loses without
+  // bound as price rises — no finite sample range can capture that, so flag it directly.
+  const callSlope = legs.reduce(
+    (sum, leg) =>
+      leg.type === "CALL" ? sum + (leg.side === "BUY" ? 1 : -1) * leg.qty * MULTIPLIER : sum,
+    0
+  );
+  if (callSlope < 0) minP = -Infinity;
+
   return { maxProfit: maxP, maxLoss: minP };
 }
 
-/* ============================================================================
-   DEFAULT STRATEGY — Jade Lizard on SPY, matches the reference build exactly
-============================================================================ */
-
 const DEFAULT_SYMBOL = "SPY";
-const DEFAULT_SPOT = 766.01;
-const DEFAULT_LEGS = [
-  { id: "l1", side: "SELL", qty: 1, type: "PUT", strike: 764, premium: 9.2, dte: 13 },
-  { id: "l2", side: "SELL", qty: 1, type: "CALL", strike: 769, premium: 3.1, dte: 13 },
-  { id: "l3", side: "BUY", qty: 1, type: "CALL", strike: 775, premium: 4.815, dte: 13 },
-];
+const DEFAULT_SPOT = 0;
 
-const EXPIRATIONS = [
-  { label: "27", month: "Aug", dte: 4 },
-  { label: "28", month: "Aug", dte: 5 },
-  { label: "31", month: "Aug", dte: 8 },
-  { label: "1", month: "Sep", dte: 9 },
-  { label: "2", month: "Sep", dte: 10 },
-  { label: "4", month: "Sep", dte: 12 },
-  { label: "8", month: "Sep", dte: 13 },
-  { label: "9", month: "Sep", dte: 17 },
-  { label: "11", month: "Sep", dte: 19 },
-  { label: "18", month: "Sep", dte: 26 },
-  { label: "25", month: "Sep", dte: 33 },
-  { label: "30", month: "Sep", dte: 38 },
-];
+/** Next `count` weekly (Friday) expirations from today, with dte computed relative to now. */
+function buildExpirations(count = 12) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const next = new Date(today);
+  next.setDate(next.getDate() + ((5 - next.getDay() + 7) % 7));
+
+  const expirations = [];
+  for (let i = 0; i < count; i++) {
+    const dte = Math.round((next - today) / 86400000);
+    expirations.push({
+      label: String(next.getDate()),
+      month: next.toLocaleString("en-US", { month: "short" }),
+      dte,
+    });
+    next.setDate(next.getDate() + 7);
+  }
+  return expirations;
+}
 
 /* ============================================================================
    UI HELPERS
@@ -155,15 +161,15 @@ export default function StrikeLab() {
   const [symbol, setSymbol] = useState(DEFAULT_SYMBOL);
   const [symbolInput, setSymbolInput] = useState(DEFAULT_SYMBOL);
   const [spot, setSpot] = useState(DEFAULT_SPOT);
-  const [expIndex, setExpIndex] = useState(6); // "8 Sep" selected, matches reference
-  const [legs, setLegs] = useState(DEFAULT_LEGS);
+  const [expIndex, setExpIndex] = useState(0);
+  const [legs, setLegs] = useState([]);
   const [rangePct, setRangePct] = useState(3.6);
   const [ivPct, setIvPct] = useState(10.9);
   const [chain, setChain] = useState(null);
   const [loadingChain, setLoadingChain] = useState(false);
-  const [strategyName, setStrategyName] = useState("Jade Lizard");
   const [view, setView] = useState("graph"); // 'chain' | 'table' | 'graph'
 
+  const EXPIRATIONS = useMemo(() => buildExpirations(), []);
   const dte = EXPIRATIONS[expIndex].dte;
 
   const loadChain = useCallback(async () => {
@@ -267,29 +273,19 @@ export default function StrikeLab() {
 
       {/* ---------------- Symbol / strategy / expirations / ruler ---------------- */}
       <div className="card">
-        <div className="form-row form-row--2">
-          <div className="form-group form-group--sm">
-            <label>Symbol</label>
-            <form onSubmit={submitSymbol}>
-              <input
-                className="input"
-                value={symbolInput}
-                onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
-              />
-            </form>
-            <span className="price-badge ok">
-              Current price: ${spot.toFixed(2)}
-              {loadingChain ? " · syncing chain…" : ""}
-            </span>
-          </div>
-          <div className="form-group">
-            <label>Strategy Name</label>
+        <div className="form-group form-group--sm">
+          <label>Symbol</label>
+          <form onSubmit={submitSymbol}>
             <input
               className="input"
-              value={strategyName}
-              onChange={(e) => setStrategyName(e.target.value)}
+              value={symbolInput}
+              onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
             />
-          </div>
+          </form>
+          <span className="price-badge ok">
+            Current price: ${spot.toFixed(2)}
+            {loadingChain ? " · syncing chain…" : ""}
+          </span>
         </div>
 
         <span className="metric-label">Expiration · {dte}d</span>
@@ -320,7 +316,9 @@ export default function StrikeLab() {
           </div>
           <div className="metric">
             <span className="metric-label">Max Loss</span>
-            <span className="metric-value negative">{fmtMoney(Math.abs(maxLoss))}</span>
+            <span className="metric-value negative">
+              {maxLoss === -Infinity ? "Unlimited" : fmtMoney(Math.abs(maxLoss))}
+            </span>
           </div>
           <div className="metric">
             <span className="metric-label">Max Profit</span>
@@ -618,6 +616,12 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
     0
   );
 
+  // maxLoss can be -Infinity for a genuinely unbounded strategy — fall back to the
+  // grid's own worst theoretical value so the heatmap coloring stays meaningful.
+  const colorMaxLoss = Number.isFinite(maxLoss)
+    ? maxLoss
+    : grid.reduce((min, row) => Math.min(min, ...row.values), 0);
+
   return (
     <>
       <div className="table-scroll">
@@ -634,7 +638,7 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
                 ${row.price.toFixed(0)}
               </div>
               {row.values.map((v, ci) => {
-                const style = cellColor(v, maxProfit, maxLoss);
+                const style = cellColor(v, maxProfit, colorMaxLoss);
                 return (
                   <div
                     key={ci}

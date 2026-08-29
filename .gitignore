@@ -75,3 +75,5 @@ token.json
 test-data.json
 market-data.json
 portfolio.csv
+
+logs/
