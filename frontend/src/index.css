@@ -124,7 +124,7 @@ body {
 .navbar-logout--desktop { display: block; }
 
 /* ─── Page layout ────────────────────────────────────── */
-.main-content { max-width: 1120px; margin: 0 auto; padding: 36px 28px; }
+.main-content { max-width: 1440px; margin: 0 auto; padding: 36px 28px; }
 .page { display: flex; flex-direction: column; gap: 20px; }
 .page-title {
   font-size: 1.6rem;
@@ -540,10 +540,8 @@ body {
 .ruler-spot-label { font-size: 0.6rem; color: var(--primary); letter-spacing: 0.5px; font-weight: 700; display: block; }
 .ruler-spot-arrow { color: var(--primary); font-size: 12px; display: block; margin-top: -2px; }
 .ruler-tag { position: absolute; top: -44px; transform: translateX(-50%); font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: var(--radius-sm); white-space: nowrap; }
-.ruler-tag.tag-sell.tag-put  { background: var(--error-bg);   color: var(--error);   border: 1px solid var(--error-border); }
-.ruler-tag.tag-sell.tag-call { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
-.ruler-tag.tag-buy.tag-call  { background: var(--primary-light); color: var(--primary); border: 1px solid var(--primary-ring); }
-.ruler-tag.tag-buy.tag-put   { background: var(--primary-light); color: var(--primary); border: 1px solid var(--primary-ring); }
+.ruler-tag.tag-sell { background: var(--error-bg);   color: var(--error);   border: 1px solid var(--error-border); }
+.ruler-tag.tag-buy  { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
 
 .chart-caption { text-align: center; font-size: 0.8rem; color: var(--text-muted); padding: 8px 0 0; }
 .chart-tooltip { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; box-shadow: var(--shadow-sm); }

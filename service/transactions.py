@@ -6,7 +6,7 @@ with a focus on option transactions.
 """
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
 from broker import Client
@@ -33,6 +33,7 @@ class OptionTransaction(BaseModel):
     type: str
     description: Optional[str] = None
     total_amount: Optional[float] = 0.0
+    open_type: Optional[str] = None
 
 class TransactionService:
     """
@@ -58,6 +59,23 @@ class TransactionService:
         "E": "ES",
         "Q": "NQ",
     }
+
+    @staticmethod
+    def _format_option_symbol(underlying_symbol: str, expiration_date: str, option_type: str, strike_price: float) -> str:
+        """Build a standard OCC-style option symbol, e.g. 'SPY   260828P00758000'.
+
+        Schwab returns futures options as broker-specific symbols (e.g.
+        '/QN3N26_P28500:XCME') instead of OCC format, so this reconstructs the
+        familiar '<root><YYMMDD><C/P><strike*1000, 8 digits>' layout from the
+        parsed contract fields.
+        """
+        try:
+            yymmdd = datetime.strptime(expiration_date, "%Y-%m-%d").strftime("%y%m%d")
+        except (ValueError, TypeError):
+            return underlying_symbol
+        cp = "C" if option_type == "CALL" else "P"
+        strike_str = f"{round(strike_price * 1000):08d}"
+        return f"{underlying_symbol:<6}{yymmdd}{cp}{strike_str}"
 
     @classmethod
     def _normalize_futures_symbol(cls, symbol: str) -> str:
@@ -139,7 +157,7 @@ class TransactionService:
         filtered_transactions = [
             transaction for transaction in option_transactions
             if not (transaction["position_effect"] == "CLOSING" and 
-                   self._identify_trade_type(transaction) == "ASSIGNMENT" and
+                   self._identify_trade_type(transaction) == "ASSIGNED" and
                    realized_gains_only)
         ]
 
@@ -235,17 +253,17 @@ class TransactionService:
                         continue
                     
                     # Get additional option details
-                    symbol = getattr(item.instrument, "symbol", "")
+                    symbol = getattr(item.instrument, "symbol", "") or ""
                     price = float(getattr(item, "price", 0))
                     strike_price = getattr(item.instrument, "strikePrice")
                     amount = float(getattr(item, "amount", 0))
                     position_effect = getattr(item, "positionEffect", None)
-                    
+
                     # Safely handle date conversion
                     try:
                         expiration_date_obj = getattr(item.instrument, "expirationDate", None)
                         expiration_date = get_date_string(expiration_date_obj) if expiration_date_obj else ""
-                        
+
                         trade_date_str = ""
                         if trade_date:
                             trade_date_str = get_date_string(trade_date)
@@ -253,8 +271,24 @@ class TransactionService:
                         logger.error(f"Error processing dates: {e}")
                         expiration_date = ""
                         trade_date_str = ""
-                    
+
+                    # Futures options come back as broker-specific symbols (e.g.
+                    # '/QN3N26_P28500:XCME') instead of Schwab's usual OCC-style
+                    # equity option symbols — reformat to match. Schwab also
+                    # sometimes omits the symbol entirely (returns null) on
+                    # legitimate legs (seen on TRADE and RECEIVE_AND_DELIVER
+                    # records), so synthesize one from the parsed fields rather
+                    # than dropping the transaction.
+                    if (not symbol or symbol.startswith("/")) and expiration_date:
+                        symbol = self._format_option_symbol(
+                            underlying_symbol, expiration_date, option_type, strike_price
+                        )
+
                     # Create the option transaction record
+                    open_type = None
+                    if position_effect == "OPENING":
+                        open_type = "BTO" if amount > 0 else "STO"
+
                     parsed_transactions.append(OptionTransaction(
                         date=trade_date_str,
                         close_date=expiration_date,
@@ -270,7 +304,8 @@ class TransactionService:
                         description=description,
                         total_amount=price * -amount * self._get_multiplier(underlying_symbol),
                         open_price=price if position_effect == "OPENING" else 0.0,
-                        close_price=price if position_effect == "CLOSING" else 0.0
+                        close_price=price if position_effect == "CLOSING" else 0.0,
+                        open_type=open_type,
                     ).model_dump())
             except Exception as e:
                 logger.error(f"Error processing transaction: {e}")
@@ -341,11 +376,14 @@ class TransactionService:
                 
                 # Create a combined trade record
                 combined_total_amount = sum(t["total_amount"] for t in trade_group)
+                position_effect = trade_group[0]["position_effect"]
                 combined_trade = {
                     **trade_group[0],  # Use first trade as template
                     "amount": total_amount,
                     "price": weighted_price,
                     "total_amount": combined_total_amount,
+                    "open_price": weighted_price if position_effect == "OPENING" else trade_group[0]["open_price"],
+                    "close_price": weighted_price if position_effect == "CLOSING" else trade_group[0]["close_price"],
                 }
             else:
                 # Only one trade with these characteristics
@@ -407,7 +445,7 @@ class TransactionService:
                 # Calculate P/L (open price - close price)
                 price_difference = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0))
 
-                if trade_type == "ASSIGNMENT":
+                if trade_type == "ASSIGNED":
                     price_difference = 0  # Neutralize amount for assignments
                 
                 # Use the earliest of close date or expiration date
@@ -432,7 +470,8 @@ class TransactionService:
                     position_effect="MATCHED",
                     option_type=open_trade.get("option_type"),
                     type=trade_type,
-                    total_amount=price_difference * -amount * self._get_multiplier(open_trade.get("underlying_symbol", ""))
+                    total_amount=price_difference * -amount * self._get_multiplier(open_trade.get("underlying_symbol", "")),
+                    open_type=open_trade.get("open_type"),
                 ).model_dump())
 
             # Add any remaining unmatched trades to the unmatched list

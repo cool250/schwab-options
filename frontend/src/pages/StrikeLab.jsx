@@ -266,9 +266,6 @@ export default function StrikeLab() {
     <div className="page">
       <div className="page-header">
         <h2 className="page-title">StrikeLab</h2>
-        <span className="summary-line">
-          {legs.length} leg{legs.length !== 1 ? "s" : ""}
-        </span>
       </div>
 
       {/* ---------------- Symbol / strategy / expirations / ruler ---------------- */}
@@ -303,6 +300,9 @@ export default function StrikeLab() {
         </div>
 
         <StrikeRuler legs={legs} spot={spot} lo={lo} hi={hi} />
+        <span className="summary-line">
+          {legs.length} leg{legs.length !== 1 ? "s" : ""}
+        </span>
       </div>
 
       {/* ---------------- Metrics ---------------- */}
@@ -546,10 +546,13 @@ export default function StrikeLab() {
 ============================================================================ */
 function StrikeRuler({ legs, spot, lo, hi }) {
   const width = 100;
-  const pct = (price) => ((price - lo) / (hi - lo)) * width;
+  const strikes = legs.map((l) => l.strike);
+  const effLo = Math.min(lo, ...strikes);
+  const effHi = Math.max(hi, ...strikes);
+  const pct = (price) => ((price - effLo) / (effHi - effLo)) * width;
   const ticks = [];
-  const tickStep = (hi - lo) / 8;
-  for (let i = 0; i <= 8; i++) ticks.push(lo + i * tickStep);
+  const tickStep = (effHi - effLo) / 8;
+  for (let i = 0; i <= 8; i++) ticks.push(effLo + i * tickStep);
 
   return (
     <div className="strike-ruler">

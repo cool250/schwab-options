@@ -6,6 +6,8 @@ import DataTable from '../components/DataTable'
 const COLUMNS = [
   { key: 'symbol',          label: 'Symbol' },
   { key: 'close_date',    label: 'Closed Date' },
+  { key: 'expirationDate', label: 'Expiry Date' },
+  { key: 'open_type',     label: 'Opened As' },
   { key: 'amount',        label: 'Quantity',     align: 'right' },
   { key: 'close_price',   label: 'Closing Price',  align: 'right' },
   { key: 'open_price',     label: 'Opening Price',  align: 'right' },
