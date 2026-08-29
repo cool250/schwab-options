@@ -664,9 +664,10 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
 /* ============================================================================
    Option chain view — standard Calls | Strike | Puts table around ATM
 ============================================================================ */
-const CHAIN_RADIUS = 8; // strikes shown on each side of ATM
+const DEFAULT_CHAIN_RADIUS = 8; // strikes shown on each side of ATM
 
 function OptionChainTable({ chain, spot, loading, onAddLeg }) {
+  const [radius, setRadius] = useState(DEFAULT_CHAIN_RADIUS);
   const rows = chain?.chain;
 
   if (!rows || rows.length === 0) {
@@ -683,13 +684,25 @@ function OptionChainTable({ chain, spot, loading, onAddLeg }) {
       Math.abs(row.strikePrice - spot) < Math.abs(sorted[best].strikePrice - spot) ? i : best,
     0
   );
-  const start = Math.max(0, atmIdx - CHAIN_RADIUS);
-  const end = Math.min(sorted.length, atmIdx + CHAIN_RADIUS + 1);
+  const start = Math.max(0, atmIdx - radius);
+  const end = Math.min(sorted.length, atmIdx + radius + 1);
   const visible = sorted.slice(start, end);
   const atmStrike = sorted[atmIdx].strikePrice;
 
   return (
     <>
+      <div className="slider-row">
+        <span className="slider-label">Strikes each side</span>
+        <input
+          className="input"
+          type="number"
+          min="1"
+          max={Math.ceil(sorted.length / 2)}
+          value={radius}
+          onChange={(e) => setRadius(Math.max(1, +e.target.value || 1))}
+          style={{ maxWidth: 70 }}
+        />
+      </div>
       <div className="table-scroll">
         <div className="chain-table">
           <div className="chain-row chain-head">
@@ -746,7 +759,9 @@ function OptionChainTable({ chain, spot, loading, onAddLeg }) {
           })}
         </div>
       </div>
-      <p className="chart-caption">Click a bid to sell, an ask to buy · {visible.length} strikes around spot</p>
+      <p className="chart-caption">
+        Click a bid to sell, an ask to buy · {visible.length} of {sorted.length} strikes shown
+      </p>
     </>
   );
 }
