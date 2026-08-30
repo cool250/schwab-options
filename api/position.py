@@ -25,6 +25,23 @@ def get_stock_position(service: PositionService = Depends(get_service)):
     return service.get_stock_position()
 
 
+@router.get(
+    "/futures",
+    summary="Open futures positions, derived from transaction history (Schwab's positions API doesn't return futures)",
+)
+def get_futures_position(service: PositionService = Depends(get_service)):
+    return service.get_futures_position()
+
+
+@router.get(
+    "/futures/options",
+    summary="Open futures-option positions (puts and calls), derived from transaction history",
+)
+def get_futures_option_position(service: PositionService = Depends(get_service)):
+    puts, calls = service.get_futures_option_position()
+    return {"puts": puts, "calls": calls}
+
+
 @router.get("/options", summary="Open option positions (puts and calls)")
 def get_option_position(service: PositionService = Depends(get_service)):
     puts, calls = service.get_option_position()

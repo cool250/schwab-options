@@ -110,6 +110,41 @@ class TransactionService:
     def __init__(self):
         """Initialize the TransactionService with broker API clients."""
         self.client = Client()
+
+    def get_open_futures_options(self, lookback_days: int = 30) -> List[Dict]:
+        """Currently-open futures-option positions (options on /ES, /NQ, etc.),
+        reconstructed from transaction history — like outright futures, Schwab's
+        positions endpoint doesn't return these either.
+
+        Deliberately short-lookback (30 days by default, unlike the option
+        matcher's usual 30-day-back/5-day-forward padding used elsewhere): a
+        wider window risks surfacing a leg that was actually closed outside
+        it — or hit some matching edge case — as if it were still open, since
+        this only sees what's inside the fetch window.
+        """
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+
+        try:
+            transactions = self.client.fetch_transactions(start_date=start_date, end_date=end_date)
+        except BrokerAuthError:
+            raise
+        except BrokerError as e:
+            logger.error("Failed to fetch transactions: %s", e)
+            return []
+
+        if not transactions:
+            return []
+
+        parsed = self._populate_options("", "ALL", transactions)
+        matched = self._match_trades(parsed)
+
+        return [
+            trade for trade in matched
+            if trade["type"] not in ("EXPIRED", "CLOSED", "ASSIGNED")
+            and trade["underlying_symbol"] in self._CONTRACT_MULTIPLIER
+        ]
+
     def get_transaction_history(self, start_date: str, end_date: str) -> List[Any]:
         """
         Fetch the raw transaction history for the account.
@@ -407,7 +442,11 @@ class TransactionService:
                     "close_date": None,
                     "symbol": symbol,
                     "asset_type": lot["asset_type"],
-                    "quantity": abs(lot["qty"]),
+                    # Signed (positive = long, negative = short) — unlike a closed
+                    # trade's quantity, an open lot's direction isn't otherwise
+                    # recoverable from this row, and callers reconstructing a live
+                    # position (see PositionService.get_futures_position) need it.
+                    "quantity": lot["qty"],
                     "open_price": lot["price"],
                     "close_price": None,
                     "total_amount": lot["cost"],
