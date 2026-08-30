@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip as BarTooltip, Legend as BarLegend, ResponsiveContainer, LabelList,
 } from 'recharts'
-import { getMonthlyAllocations } from '../api/client'
+import { getAllocations, getEquityTransactions } from '../api/client'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
@@ -26,6 +26,37 @@ function monthRange(year, month) {
   return { start, end }
 }
 
+// Jan 1 through today (or Dec 31 for a past year).
+function ytdRange(year) {
+  const start = `${year}-01-01`
+  const end = year === currentYear() ? new Date().toISOString().split('T')[0] : `${year}-12-31`
+  return { start, end }
+}
+
+// Aggregate a list of transactions by symbol, summing total_amount per symbol.
+function aggregateBySymbol(data) {
+  const bySymbol = {}
+  for (const row of data) {
+    const sym = row.underlying_symbol ?? row.symbol ?? 'OTHER'
+    bySymbol[sym] = (bySymbol[sym] ?? 0) + (row.total_amount ?? 0)
+  }
+  const agg = Object.entries(bySymbol)
+    .filter(([, v]) => v !== 0)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+  const tot = agg.reduce((s, r) => s + r.value, 0)
+  // Gains and losses can't share one "% of total" — a losing symbol next to
+  // winners can make percentages exceed 100% or go negative. Instead express
+  // each symbol as a share of gross gains, so losers show as negative drag.
+  const grossGains = agg.reduce((s, r) => s + (r.value > 0 ? r.value : 0), 0)
+  const tableData = agg.map((r) => ({
+    symbol: r.name,
+    amount: r.value,
+    percent: grossGains !== 0 ? (r.value / grossGains) * 100 : 0,
+  }))
+  return { agg, tot, tableData }
+}
+
 // Resolve a date to its ISO week number plus that week's Mon–Sun date range
 function isoWeekRange(dateStr) {
   const d = new Date(dateStr)
@@ -43,6 +74,7 @@ function isoWeekRange(dateStr) {
 
 export default function StockAllocation() {
   const navigate = useNavigate()
+  const [period, setPeriod] = useState('month') // 'month' | 'ytd'
   const [year, setYear] = useState(currentYear)
   const [month, setMonth] = useState(currentMonth)
   const [realizedOnly, setRealizedOnly] = useState(true)
@@ -53,9 +85,16 @@ export default function StockAllocation() {
   const [weeklyData, setWeeklyData] = useState([])
   const [tableData, setTableData] = useState([])
   const [total, setTotal] = useState(0)
+  const [equitySymbolData, setEquitySymbolData] = useState([])
+  const [equityTableData, setEquityTableData] = useState([])
+  const [equityTotal, setEquityTotal] = useState(0)
   const [label, setLabel] = useState('')
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear() - i)
+
+  function currentRange() {
+    return period === 'ytd' ? ytdRange(year) : monthRange(year, month)
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -63,36 +102,32 @@ export default function StockAllocation() {
     setError(null)
     setSubmitted(false)
     try {
-      const data = await getMonthlyAllocations(year, month, realizedOnly)
+      const { start, end } = currentRange()
+      const [data, equityData] = await Promise.all([
+        getAllocations(start, end, realizedOnly),
+        getEquityTransactions('', start, end, 'ALL', realizedOnly),
+      ])
+      setLabel(period === 'ytd' ? `YTD ${year}` : `${monthName(month)} ${year}`)
+
+      if (equityData && equityData.length > 0) {
+        const { agg, tot, tableData: equityRows } = aggregateBySymbol(equityData)
+        setEquitySymbolData(agg)
+        setEquityTotal(tot)
+        setEquityTableData(equityRows)
+      } else {
+        setEquitySymbolData([]); setEquityTotal(0); setEquityTableData([])
+      }
+
       if (!data || data.length === 0) {
         setSymbolData([]); setWeeklyData([]); setTableData([]); setTotal(0)
         setSubmitted(true)
         return
       }
 
-      // Aggregate by underlying_symbol
-      const bySymbol = {}
-      for (const row of data) {
-        const sym = row.underlying_symbol ?? row.symbol ?? 'OTHER'
-        bySymbol[sym] = (bySymbol[sym] ?? 0) + (row.total_amount ?? 0)
-      }
-      const agg = Object.entries(bySymbol)
-        .filter(([, v]) => v !== 0)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-      const tot = agg.reduce((s, r) => s + r.value, 0)
-      // Gains and losses can't share one "% of total" — a losing symbol next to
-      // winners can make percentages exceed 100% or go negative. Instead express
-      // each symbol as a share of gross gains, so losers show as negative drag.
-      const grossGains = agg.reduce((s, r) => s + (r.value > 0 ? r.value : 0), 0)
+      const { agg, tot, tableData: optionRows } = aggregateBySymbol(data)
       setSymbolData(agg)
       setTotal(tot)
-      setTableData(agg.map((r) => ({
-        symbol: r.name,
-        amount: r.value,
-        percent: grossGains !== 0 ? (r.value / grossGains) * 100 : 0,
-      })))
-      setLabel(`${monthName(month)} ${year}`)
+      setTableData(optionRows)
 
       // Weekly grouped bar chart
       const weekMap = {} // { week: { sym: amount } }
@@ -118,6 +153,8 @@ export default function StockAllocation() {
       setWeeklyData({ rows: weekly, symbols: allSymbols, ranges: weekRanges })
       setSubmitted(true)
     } catch (err) {
+      setSymbolData([]); setWeeklyData([]); setTableData([]); setTotal(0)
+      setEquitySymbolData([]); setEquityTotal(0); setEquityTableData([])
       const msg = err?.message ?? ''
       if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
         setError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
@@ -129,13 +166,21 @@ export default function StockAllocation() {
     }
   }
 
-  const noData = submitted && symbolData.length === 0
+  const noData = submitted && symbolData.length === 0 && equitySymbolData.length === 0
 
   function handleBarClick(row) {
     const symbol = row?.name ?? row?.payload?.name
     if (!symbol) return
-    const { start, end } = monthRange(year, month)
+    const { start, end } = currentRange()
     const params = new URLSearchParams({ ticker: symbol, start, end, realized: String(realizedOnly) })
+    navigate(`/transactions?${params}`)
+  }
+
+  function handleEquityBarClick(row) {
+    const symbol = row?.name ?? row?.payload?.name
+    if (!symbol) return
+    const { start, end } = currentRange()
+    const params = new URLSearchParams({ tab: 'equity', ticker: symbol, start, end, realized: String(realizedOnly) })
     navigate(`/transactions?${params}`)
   }
 
@@ -190,10 +235,26 @@ export default function StockAllocation() {
 
   return (
     <div className="page">
-      <h2 className="page-title">Monthly Gains</h2>
+      <h2 className="page-title">Profit/Loss</h2>
 
       <div className="card">
         <form onSubmit={handleSubmit}>
+          <div className="button-row">
+            <button
+              type="button"
+              className={`btn ${period === 'month' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setPeriod('month')}
+            >
+              Month
+            </button>
+            <button
+              type="button"
+              className={`btn ${period === 'ytd' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setPeriod('ytd')}
+            >
+              YTD
+            </button>
+          </div>
           <div className="form-row form-row--2">
             <div className="form-group">
               <label>Year</label>
@@ -201,14 +262,16 @@ export default function StockAllocation() {
                 {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
-            <div className="form-group">
-              <label>Month</label>
-              <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="input">
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>{monthName(m)}</option>
-                ))}
-              </select>
-            </div>
+            {period === 'month' && (
+              <div className="form-group">
+                <label>Month</label>
+                <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="input">
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <option key={m} value={m}>{monthName(m)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <div className="form-actions">
             <label className="toggle-label">
@@ -234,30 +297,56 @@ export default function StockAllocation() {
         <div className="alert warning">No transaction data available for this month.</div>
       )}
 
-      {submitted && !loading && symbolData.length > 0 && (
+      {submitted && !loading && (symbolData.length > 0 || equitySymbolData.length > 0) && (
         <>
           <div className="charts-row">
             {/* Per-symbol bar chart — bars handle negative (losing) symbols correctly, unlike a pie */}
-            <div className="card chart-card">
-              <h3 className="section-title">
-                Stock Allocation — {label}
-                <span className="chart-total"> (${total.toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
-              </h3>
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={symbolData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
-                  <BarTooltip formatter={(v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
-                  <Bar dataKey="value" cursor="pointer" onClick={handleBarClick}>
-                    {symbolData.map((r, i) => (
-                      <Cell key={i} fill={r.value >= 0 ? 'var(--success)' : 'var(--error)'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <p className="chart-caption">Click a bar to view that symbol's transactions for {label}</p>
-            </div>
+            {symbolData.length > 0 && (
+              <div className="card chart-card">
+                <h3 className="section-title">
+                  Option Trade Profit — {label}
+                  <span className="chart-total"> (${total.toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
+                </h3>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={symbolData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
+                    <BarTooltip formatter={(v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                    <Bar dataKey="value" cursor="pointer" onClick={handleBarClick}>
+                      {symbolData.map((r, i) => (
+                        <Cell key={i} fill={r.value >= 0 ? 'var(--success)' : 'var(--error)'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="chart-caption">Click a bar to view that symbol's transactions for {label}</p>
+              </div>
+            )}
+
+            {/* Per-symbol bar chart for equities/futures — same shape as the option chart above */}
+            {equitySymbolData.length > 0 && (
+              <div className="card chart-card">
+                <h3 className="section-title">
+                  Equity/Future Profit — {label}
+                  <span className="chart-total"> (${equityTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
+                </h3>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={equitySymbolData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
+                    <BarTooltip formatter={(v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                    <Bar dataKey="value" cursor="pointer" onClick={handleEquityBarClick}>
+                      {equitySymbolData.map((r, i) => (
+                        <Cell key={i} fill={r.value >= 0 ? 'var(--success)' : 'var(--error)'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="chart-caption">Click a bar to view that symbol's transactions for {label}</p>
+              </div>
+            )}
 
             {/* Weekly bar chart */}
             {weeklyData.rows?.length > 0 && (
@@ -296,19 +385,36 @@ export default function StockAllocation() {
             )}
           </div>
 
-          {/* Summary table */}
-          <div className="card">
-            <h3 className="section-title">Summary</h3>
-            <DataTable
-              data={tableData}
-              columns={[
-                { key: 'symbol', label: 'Symbol' },
-                { key: 'amount', label: 'Amount ($)' },
-                { key: 'percent', label: 'Percent (%)' },
-              ]}
-              defaultSortKey="amount"
-            />
-          </div>
+          {/* Summary tables */}
+          {tableData.length > 0 && (
+            <div className="card">
+              <h3 className="section-title">Option Trade Summary</h3>
+              <DataTable
+                data={tableData}
+                columns={[
+                  { key: 'symbol', label: 'Symbol' },
+                  { key: 'amount', label: 'Amount ($)' },
+                  { key: 'percent', label: 'Percent (%)' },
+                ]}
+                defaultSortKey="amount"
+              />
+            </div>
+          )}
+
+          {equityTableData.length > 0 && (
+            <div className="card">
+              <h3 className="section-title">Equity/Future Summary</h3>
+              <DataTable
+                data={equityTableData}
+                columns={[
+                  { key: 'symbol', label: 'Symbol' },
+                  { key: 'amount', label: 'Amount ($)' },
+                  { key: 'percent', label: 'Percent (%)' },
+                ]}
+                defaultSortKey="amount"
+              />
+            </div>
+          )}
         </>
       )}
     </div>

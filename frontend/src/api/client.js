@@ -61,10 +61,7 @@ export function getEquityTransactions(stockTicker, startDate, endDate, assetType
   return request(`/transactions/equity?${p}`)
 }
 
-export function getMonthlyAllocations(year, month, realizedGainsOnly) {
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`
-  const lastDay = new Date(year, month, 0).getDate()
-  const endDate = `${year}-${String(month).padStart(2, '0')}-${lastDay}`
+export function getAllocations(startDate, endDate, realizedGainsOnly) {
   const p = new URLSearchParams({
     stock_ticker: '',
     start_date: startDate,

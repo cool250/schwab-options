@@ -111,7 +111,7 @@ cd frontend && npm run dev
 - URL: `http://localhost:3000`
 - **Positions** page: account balances, stocks, puts, and calls with one-click refresh.
 - **Transactions** page: filter and browse option transactions with realized P&L.
-- **Monthly Gains** page: allocation breakdown by symbol with pie and bar charts.
+- **Profit/Loss** page: allocation breakdown by symbol with pie and bar charts.
 - **Analyze** page (StrikeLab): options chain browser and payoff builder.
 
 ---

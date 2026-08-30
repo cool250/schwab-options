@@ -40,14 +40,15 @@ function todayStr() {
 
 export default function Transactions() {
   const [searchParams] = useSearchParams()
-  const [tab, setTab] = useState('options') // 'options' | 'equity'
+  const initialTab = searchParams.get('tab') === 'equity' ? 'equity' : 'options'
+  const [tab, setTab] = useState(initialTab) // 'options' | 'equity'
 
   // ---- Option transactions ----
-  const [ticker, setTicker] = useState(searchParams.get('ticker')?.toUpperCase() ?? '')
+  const [ticker, setTicker] = useState(initialTab === 'options' ? (searchParams.get('ticker')?.toUpperCase() ?? '') : '')
   const [contractType, setContractType] = useState('ALL')
-  const [realizedOnly, setRealizedOnly] = useState(searchParams.get('realized') !== 'false')
-  const [startDate, setStartDate] = useState(searchParams.get('start') ?? firstOfMonth)
-  const [endDate, setEndDate] = useState(searchParams.get('end') ?? todayStr)
+  const [realizedOnly, setRealizedOnly] = useState(initialTab === 'options' ? searchParams.get('realized') !== 'false' : true)
+  const [startDate, setStartDate] = useState(() => (initialTab === 'options' ? (searchParams.get('start') ?? firstOfMonth()) : firstOfMonth()))
+  const [endDate, setEndDate] = useState(() => (initialTab === 'options' ? (searchParams.get('end') ?? todayStr()) : todayStr()))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [transactions, setTransactions] = useState(null)
@@ -76,10 +77,10 @@ export default function Transactions() {
     runSearch(ticker, startDate, endDate, contractType, realizedOnly)
   }
 
-  // Arriving from a chart click (e.g. Monthly Gains) pre-fills the filters via
+  // Arriving from a chart click (e.g. Profit/Loss) pre-fills the filters via
   // the URL — run the search immediately instead of waiting for another click.
   useEffect(() => {
-    if (searchParams.get('ticker') || searchParams.get('start')) {
+    if (initialTab === 'options' && (searchParams.get('ticker') || searchParams.get('start'))) {
       runSearch(ticker, startDate, endDate, contractType, realizedOnly)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,22 +89,21 @@ export default function Transactions() {
   const totalAmount = transactions?.reduce((s, t) => s + (t.total_amount ?? 0), 0) ?? 0
 
   // ---- Equity / futures transactions ----
-  const [equityTicker, setEquityTicker] = useState('')
+  const [equityTicker, setEquityTicker] = useState(initialTab === 'equity' ? (searchParams.get('ticker')?.toUpperCase() ?? '') : '')
   const [assetType, setAssetType] = useState('ALL')
-  const [equityRealizedOnly, setEquityRealizedOnly] = useState(true)
-  const [equityStartDate, setEquityStartDate] = useState(firstOfMonth)
-  const [equityEndDate, setEquityEndDate] = useState(todayStr)
+  const [equityRealizedOnly, setEquityRealizedOnly] = useState(initialTab === 'equity' ? searchParams.get('realized') !== 'false' : true)
+  const [equityStartDate, setEquityStartDate] = useState(() => (initialTab === 'equity' ? (searchParams.get('start') ?? firstOfMonth()) : firstOfMonth()))
+  const [equityEndDate, setEquityEndDate] = useState(() => (initialTab === 'equity' ? (searchParams.get('end') ?? todayStr()) : todayStr()))
   const [equityLoading, setEquityLoading] = useState(false)
   const [equityError, setEquityError] = useState(null)
   const [equityTransactions, setEquityTransactions] = useState(null)
 
-  async function handleEquitySearch(e) {
-    e.preventDefault()
+  async function runEquitySearch(tickerVal, startVal, endVal, assetTypeVal, realizedVal) {
     setEquityLoading(true)
     setEquityError(null)
     setEquityTransactions(null)
     try {
-      const data = await getEquityTransactions(equityTicker.trim().toUpperCase(), equityStartDate, equityEndDate, assetType, equityRealizedOnly)
+      const data = await getEquityTransactions(tickerVal.trim().toUpperCase(), startVal, endVal, assetTypeVal, realizedVal)
       setEquityTransactions(data)
     } catch (err) {
       const msg = err?.message ?? ''
@@ -116,6 +116,19 @@ export default function Transactions() {
       setEquityLoading(false)
     }
   }
+
+  function handleEquitySearch(e) {
+    e.preventDefault()
+    runEquitySearch(equityTicker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
+  }
+
+  // Mirrors the options-tab bootstrap above, for links that arrive with ?tab=equity.
+  useEffect(() => {
+    if (initialTab === 'equity' && (searchParams.get('ticker') || searchParams.get('start'))) {
+      runEquitySearch(equityTicker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const equityTotalAmount = equityTransactions?.reduce((s, t) => s + (t.total_amount ?? 0), 0) ?? 0
 
