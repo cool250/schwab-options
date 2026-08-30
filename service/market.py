@@ -4,6 +4,7 @@ import logging
 
 from broker import Client
 from broker.exceptions import BrokerAuthError, BrokerError
+from service.option_chain_providers import get_option_chain_provider
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 class MarketService:
     def __init__(self):
         self.client = Client()
+        self.option_chain_provider = get_option_chain_provider()
 
     def highest_return(self, symbol: str, strike: float, from_date: str, to_date: str, contract_type="PUT"):
         """
@@ -132,38 +134,19 @@ class MarketService:
         List every expiration date actually listed for `symbol` within the next
         `days_ahead` days — weekly, monthly, and daily where the underlying
         offers them — rather than guessing at weekly Fridays client-side.
+        Backed by whichever broker BROKER_PROVIDER selects (see
+        service/option_chain_providers.py).
 
         Returns:
             list[dict]: [{"date": "YYYY-MM-DD", "dte": int}, ...] sorted by dte.
         """
-        today = datetime.now(pytz.timezone("US/Eastern")).date()
-        from_date = today.strftime('%Y-%m-%d')
-        to_date = (today + timedelta(days=days_ahead)).strftime('%Y-%m-%d')
-
-        try:
-            # strike_count=1 keeps this lightweight — we only need the
-            # expiration-date keys, not the actual option contracts.
-            option_chain = self.client.get_chain(
-                symbol, from_date, to_date, strike_count=1, contract_type="ALL"
-            )
-        except BrokerAuthError:
-            raise
-        except BrokerError as e:
-            logger.error("Failed to fetch expirations for %s: %s", symbol, e)
-            return []
-
-        keys = set(option_chain.callExpDateMap or {}) | set(option_chain.putExpDateMap or {})
-        expirations = []
-        for key in keys:
-            date_str, dte_str = key.split(':')
-            expirations.append({"date": date_str, "dte": int(dte_str)})
-        expirations.sort(key=lambda e: e["dte"])
-        return expirations
+        return self.option_chain_provider.get_expirations(symbol, days_ahead)
 
     def get_option_chain(self, symbol: str, dte: int, strike_count: int = 20):
         """
         Fetch a normalized option chain (calls + puts merged by strike) for
-        the expiration closest to `dte` days out.
+        the expiration closest to `dte` days out. Backed by whichever broker
+        BROKER_PROVIDER selects (see service/option_chain_providers.py).
 
         Parameters:
             symbol (str): The ticker symbol for the underlying asset.
@@ -173,81 +156,7 @@ class MarketService:
         Returns:
             dict | None: Normalized chain, or None if unavailable.
         """
-        today = datetime.now(pytz.timezone("US/Eastern")).date()
-        from_date = (today + timedelta(days=max(dte - 4, 0))).strftime('%Y-%m-%d')
-        to_date = (today + timedelta(days=dte + 4)).strftime('%Y-%m-%d')
-
-        try:
-            # Schwab's strikeCount returns that many strikes total (split across
-            # both sides of ATM), not per side, so double the request to actually
-            # get `strike_count` strikes above and below.
-            option_chain = self.client.get_chain(
-                symbol, from_date, to_date, strike_count=strike_count * 2, contract_type="ALL"
-            )
-        except BrokerAuthError:
-            raise
-        except BrokerError as e:
-            logger.error("Failed to fetch option chain for %s: %s", symbol, e)
-            return None
-
-        return self._normalize_chain(option_chain, dte)
-
-    def _normalize_chain(self, option_chain, target_dte: int):
-        """Merge Schwab's call/put expiration maps into a single strike-indexed chain
-        for the expiration closest to `target_dte`."""
-
-        def pick_expiration(exp_date_map):
-            if not exp_date_map:
-                return None, {}
-            best_key = min(exp_date_map, key=lambda k: abs(int(k.split(':')[1]) - target_dte))
-            return best_key, exp_date_map[best_key]
-
-        def leg(options):
-            option = options[0] if options else None
-            if option is None:
-                return None
-            return {"symbol": option.symbol, "bid": option.bid, "ask": option.ask, "delta": option.delta}
-
-        call_key, call_strikes = pick_expiration(option_chain.callExpDateMap)
-        put_key, put_strikes = pick_expiration(option_chain.putExpDateMap)
-        key = call_key or put_key
-        if key is None:
-            return None
-        exp_date, actual_dte = key.split(':')
-
-        strikes = sorted(set(call_strikes) | set(put_strikes), key=float)
-        merged = [
-            {
-                "strikePrice": float(strike),
-                "call": leg(call_strikes.get(strike)),
-                "put": leg(put_strikes.get(strike)),
-            }
-            for strike in strikes
-        ]
-
-        def contract_iv(options):
-            option = options[0] if options else None
-            return option.volatility if option else None
-
-        # Schwab's chain-level `volatility` field is a dead placeholder (always ~29
-        # regardless of symbol); use the ATM contract's own IV instead, which is
-        # computed per-strike and actually varies by symbol.
-        atm_strike = min(strikes, key=lambda s: abs(float(s) - option_chain.underlyingPrice), default=None)
-        atm_ivs = []
-        if atm_strike is not None:
-            for iv in (contract_iv(call_strikes.get(atm_strike)), contract_iv(put_strikes.get(atm_strike))):
-                if iv:
-                    atm_ivs.append(iv)
-        atm_iv = sum(atm_ivs) / len(atm_ivs) if atm_ivs else 0
-
-        return {
-            "symbol": option_chain.symbol,
-            "spot": option_chain.underlyingPrice,
-            "dte": int(actual_dte),
-            "expirationDate": exp_date,
-            "iv": atm_iv / 100,
-            "chain": merged,
-        }
+        return self.option_chain_provider.get_option_chain(symbol, dte, strike_count)
 
     def get_ticker_price(self, symbol):
         """

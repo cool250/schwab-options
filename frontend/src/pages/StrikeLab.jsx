@@ -191,7 +191,9 @@ export default function StrikeLab() {
       if (result && result.chain) {
         setChain(result);
         setSpot(result.spot);
-        setIvPct(result.iv * 100);
+        // Some brokers (e.g. Tastytrade) don't expose chain-level IV — keep
+        // whatever IV is already set rather than zeroing it out.
+        if (result.iv != null) setIvPct(result.iv * 100);
       } else {
         setChain(null);
       }
@@ -781,37 +783,37 @@ function OptionChainTable({ chain, spot, loading, onAddLeg, onRemoveLeg, legs })
                     </span>
                   )}
                 </span>
-                <span className="chain-delta">{row.call ? row.call.delta.toFixed(2) : "—"}</span>
+                <span className="chain-delta">{row.call?.delta != null ? row.call.delta.toFixed(2) : "—"}</span>
                 <span
-                  className={`chain-bid ${row.call ? "" : "chain-disabled"}`}
-                  onClick={() => row.call && onAddLeg("CALL", "SELL", row.strikePrice, row.call.bid)}
-                  title={row.call ? "Sell a call at bid" : undefined}
+                  className={`chain-bid ${row.call?.bid != null ? "" : "chain-disabled"}`}
+                  onClick={() => row.call?.bid != null && onAddLeg("CALL", "SELL", row.strikePrice, row.call.bid)}
+                  title={row.call?.bid != null ? "Sell a call at bid" : undefined}
                 >
-                  {row.call ? row.call.bid.toFixed(2) : "—"}
+                  {row.call?.bid != null ? row.call.bid.toFixed(2) : "—"}
                 </span>
                 <span
-                  className={`chain-ask ${row.call ? "" : "chain-disabled"}`}
-                  onClick={() => row.call && onAddLeg("CALL", "BUY", row.strikePrice, row.call.ask)}
-                  title={row.call ? "Buy a call at ask" : undefined}
+                  className={`chain-ask ${row.call?.ask != null ? "" : "chain-disabled"}`}
+                  onClick={() => row.call?.ask != null && onAddLeg("CALL", "BUY", row.strikePrice, row.call.ask)}
+                  title={row.call?.ask != null ? "Buy a call at ask" : undefined}
                 >
-                  {row.call ? row.call.ask.toFixed(2) : "—"}
+                  {row.call?.ask != null ? row.call.ask.toFixed(2) : "—"}
                 </span>
                 <span className="chain-strike">{row.strikePrice}</span>
                 <span
-                  className={`chain-bid ${row.put ? "" : "chain-disabled"}`}
-                  onClick={() => row.put && onAddLeg("PUT", "SELL", row.strikePrice, row.put.bid)}
-                  title={row.put ? "Sell a put at bid" : undefined}
+                  className={`chain-bid ${row.put?.bid != null ? "" : "chain-disabled"}`}
+                  onClick={() => row.put?.bid != null && onAddLeg("PUT", "SELL", row.strikePrice, row.put.bid)}
+                  title={row.put?.bid != null ? "Sell a put at bid" : undefined}
                 >
-                  {row.put ? row.put.bid.toFixed(2) : "—"}
+                  {row.put?.bid != null ? row.put.bid.toFixed(2) : "—"}
                 </span>
                 <span
-                  className={`chain-ask ${row.put ? "" : "chain-disabled"}`}
-                  onClick={() => row.put && onAddLeg("PUT", "BUY", row.strikePrice, row.put.ask)}
-                  title={row.put ? "Buy a put at ask" : undefined}
+                  className={`chain-ask ${row.put?.ask != null ? "" : "chain-disabled"}`}
+                  onClick={() => row.put?.ask != null && onAddLeg("PUT", "BUY", row.strikePrice, row.put.ask)}
+                  title={row.put?.ask != null ? "Buy a put at ask" : undefined}
                 >
-                  {row.put ? row.put.ask.toFixed(2) : "—"}
+                  {row.put?.ask != null ? row.put.ask.toFixed(2) : "—"}
                 </span>
-                <span className="chain-delta">{row.put ? row.put.delta.toFixed(2) : "—"}</span>
+                <span className="chain-delta">{row.put?.delta != null ? row.put.delta.toFixed(2) : "—"}</span>
                 <span className="chain-leg-col">
                   {putLeg && (
                     <span className={`chain-leg-badge ${putLeg.side === "SELL" ? "tag-sell" : "tag-buy"}`}>
