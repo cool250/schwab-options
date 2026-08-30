@@ -161,7 +161,7 @@ class PositionService:
         short lookback as get_futures_position(), since Schwab's positions
         endpoint doesn't return these either.
 
-        Also attaches a live current_price via Tastytrade's DXLink feed:
+        Also attaches a live current_price (bid) via Tastytrade's DXLink feed:
         Schwab's own quote endpoint flatly rejects futures-option symbols
         (confirmed empirically — 'invalidSymbols'), so there's no Schwab-only
         way to price these.
@@ -211,12 +211,12 @@ class PositionService:
 
     @staticmethod
     def _get_futures_option_quotes(legs: list) -> dict:
-        """Fetch live mid-prices (bid/ask average) for a set of derived
-        futures-option legs via Tastytrade's DXLink feed, grouped by
-        (root symbol, expiration) so each expiration's chain is only fetched
-        once regardless of how many strikes/types are open on it.
+        """Fetch live bid prices for a set of derived futures-option legs via
+        Tastytrade's DXLink feed, grouped by (root symbol, expiration) so each
+        expiration's chain is only fetched once regardless of how many
+        strikes/types are open on it.
 
-        Returns {(ticker, expiration_date, strike_price, option_type): mid_price}.
+        Returns {(ticker, expiration_date, strike_price, option_type): bid_price}.
         Any leg whose chain fetch fails, or whose contract/quote can't be
         found, is simply omitted — this is a display nicety, not something
         that should ever block showing the position itself.
@@ -279,8 +279,8 @@ class PositionService:
         result = {}
         for streamer_symbol, quote_key in quote_key_by_streamer_symbol.items():
             quote = quotes.get(streamer_symbol)
-            if quote and quote.get("bid") is not None and quote.get("ask") is not None:
-                result[quote_key] = (quote["bid"] + quote["ask"]) / 2
+            if quote and quote.get("bid") is not None:
+                result[quote_key] = quote["bid"]
         return result
 
     def get_option_position(self):
