@@ -3,11 +3,9 @@ import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Navbar from './components/Navbar'
 import Login from './pages/Login'
-import MarketData from './pages/MarketData'
 import Positions from './pages/Positions'
 import Transactions from './pages/Transactions'
 import StockAllocation from './pages/StockAllocation'
-import Optimizer from './pages/Optimizer'
 import StrikeLab from './pages/StrikeLab'
 
 export default function App() {
@@ -24,11 +22,9 @@ export default function App() {
                 <main className="main-content">
                   <Routes>
                     <Route path="/" element={<Navigate to="/positions" replace={true} />} />
-                    <Route path="/market" element={<MarketData />} />
                     <Route path="/positions" element={<Positions />} />
                     <Route path="/transactions" element={<Transactions />} />
                     <Route path="/allocation" element={<StockAllocation />} />
-                    <Route path="/optimizer" element={<Optimizer />} />
                     <Route path="/analyze" element={<StrikeLab />} />
                   </Routes>
                 </main>

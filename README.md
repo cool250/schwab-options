@@ -7,9 +7,8 @@ Options Wheel is a Python-based trading application that interacts with the Schw
 ## Features
 
 - Fetch account positions, balances, and option/stock holdings.
-- Analyze options chains — best annualized return, all expiration dates, price history.
+- Analyze options chains and expirations, backed by Schwab or Tastytrade.
 - Track and match open/close option transactions with realized P&L.
-- AI agent for natural-language queries over account data.
 - FastAPI REST layer with auto-generated OpenAPI docs.
 - React + Vite frontend dashboard.
 
@@ -23,15 +22,12 @@ Options Wheel is a Python-based trading application that interacts with the Schw
 │   ├── app.py            # Main FastAPI app (mounts all routers)
 │   ├── market.py         # /market routes
 │   ├── position.py       # /positions routes
-│   ├── transactions.py   # /transactions routes
-│   └── agent.py          # /agent routes
-├── broker/               # Schwab API client and auth
-├── data/                 # Pydantic data models
+│   └── transactions.py   # /transactions routes
+├── broker/               # Broker SDKs (broker/schwab, broker/tastytrade)
 ├── service/              # Business logic (MarketService, PositionService, etc.)
-├── tools/                # Agent tools
 ├── frontend/             # React + Vite frontend
 │   └── src/
-│       ├── pages/        # MarketData, Positions
+│       ├── pages/        # Positions, Transactions, StrikeLab, ...
 │       ├── components/   # Navbar, Spinner
 │       └── api/          # Fetch wrappers for FastAPI endpoints
 └── main.py               # Token refresh utility
@@ -92,10 +88,8 @@ uv run uvicorn api.app:app --reload
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/market/price/{symbol}` | Current ticker price |
-| GET | `/api/market/history/{symbol}` | Price history |
-| GET | `/api/market/options/best` | Best annualized return for a strike |
-| GET | `/api/market/options/expirations` | All expiration dates for a strike |
+| GET | `/api/market/options/chain` | Normalized option chain for a DTE |
+| GET | `/api/market/options/expiration-list` | All available expiration dates for a symbol |
 | GET | `/api/positions/` | All positions, balances, and stocks |
 | GET | `/api/positions/balances` | Account balances |
 | GET | `/api/positions/stocks` | Stock / ETF holdings |
@@ -103,7 +97,6 @@ uv run uvicorn api.app:app --reload
 | GET | `/api/positions/exposure` | Total dollar exposure by ticker |
 | GET | `/api/transactions/` | Raw transaction history |
 | GET | `/api/transactions/options` | Matched open/close option transactions |
-| POST | `/api/agent/query` | Natural-language AI agent query |
 
 ---
 
@@ -116,10 +109,10 @@ cd frontend && npm run dev
 ```
 
 - URL: `http://localhost:3000`
-- **Market Data** page: options chain analyzer with live price fetch, expiration tables, and max-return display.
 - **Positions** page: account balances, stocks, puts, and calls with one-click refresh.
 - **Transactions** page: filter and browse option transactions with realized P&L.
 - **Monthly Gains** page: allocation breakdown by symbol with pie and bar charts.
+- **Analyze** page (StrikeLab): options chain browser and payoff builder.
 
 ---
 
@@ -147,11 +140,9 @@ heroku buildpacks:add --index 2 heroku/python
 
 | Variable | Required | Description |
 |---|---|---|
-| `APP_KEY` | Yes | Schwab API app key |
-| `APP_SECRET` | Yes | Schwab API app secret |
-| `APP_CALLBACK_URL` | Yes | OAuth redirect URI registered in Schwab developer portal |
-| `OPENAI_API_KEY` | Yes | OpenAI API key for the AI agent |
-| `SERPAPI_API_KEY` | Yes | SerpAPI key for web search in the AI agent |
+| `SCHWAB_APP_KEY` | Yes | Schwab API app key |
+| `SCHWAB_APP_SECRET` | Yes | Schwab API app secret |
+| `SCHWAB_APP_CALLBACK_URL` | Yes | OAuth redirect URI registered in Schwab developer portal |
 | `SECRET_KEY` | Yes | Secret key for signing JWT session tokens |
 | `ADMIN_USERNAME` | Yes | Login username for the dashboard |
 | `ADMIN_PASSWORD` | Yes | Login password for the dashboard |
@@ -160,11 +151,9 @@ heroku buildpacks:add --index 2 heroku/python
 | `REDIS_URL` | If `USE_DB=true` | Redis connection URL (set automatically by the Heroku Redis addon) |
 
 ```bash
-heroku config:set APP_KEY=...
-heroku config:set APP_SECRET=...
-heroku config:set APP_CALLBACK_URL=https://your-app.herokuapp.com/callback
-heroku config:set OPENAI_API_KEY=...
-heroku config:set SERPAPI_API_KEY=...
+heroku config:set SCHWAB_APP_KEY=...
+heroku config:set SCHWAB_APP_SECRET=...
+heroku config:set SCHWAB_APP_CALLBACK_URL=https://your-app.herokuapp.com/callback
 heroku config:set SECRET_KEY=...
 heroku config:set ADMIN_USERNAME=...
 heroku config:set ADMIN_PASSWORD=...

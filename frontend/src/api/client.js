@@ -25,16 +25,6 @@ async function request(path) {
   return res.json()
 }
 
-export function getTickerPrice(symbol) {
-  const p = new URLSearchParams({ symbol })
-  return request(`/market/price?${p}`)
-}
-
-export function getMaxReturn(symbol, strike, fromDate, toDate, contractType) {
-  const p = new URLSearchParams({ symbol, strike, from_date: fromDate, to_date: toDate, contract_type: contractType })
-  return request(`/market/options/best?${p}`)
-}
-
 export function getOptionChain(symbol, dte) {
   const p = new URLSearchParams({ symbol, dte })
   return request(`/market/options/chain?${p}`)
@@ -43,11 +33,6 @@ export function getOptionChain(symbol, dte) {
 export function getExpirationList(symbol, daysAhead = 60) {
   const p = new URLSearchParams({ symbol, days_ahead: daysAhead })
   return request(`/market/options/expiration-list?${p}`)
-}
-
-export function getAllExpirations(symbol, strike, fromDate, toDate, contractType) {
-  const p = new URLSearchParams({ symbol, strike, from_date: fromDate, to_date: toDate, contract_type: contractType })
-  return request(`/market/options/expirations?${p}`)
 }
 
 export function getPositions() {
@@ -74,12 +59,6 @@ export function getEquityTransactions(stockTicker, startDate, endDate, assetType
     realized_gains_only: realizedGainsOnly,
   })
   return request(`/transactions/equity?${p}`)
-}
-
-export function getOptimizerRecs({ extraSymbols = '', maxDte = 7 } = {}) {
-  const p = new URLSearchParams({ max_dte: maxDte })
-  if (extraSymbols) p.set('extra_symbols', extraSymbols)
-  return request(`/optimizer/?${p}`)
 }
 
 export function getMonthlyAllocations(year, month, realizedGainsOnly) {

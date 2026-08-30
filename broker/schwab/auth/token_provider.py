@@ -55,12 +55,12 @@ _SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
 
 def get_app_credentials() -> tuple[str, str, str]:
     """Return (app_key, app_secret, app_callback_url) from environment variables."""
-    app_key = os.getenv("APP_KEY")
-    app_secret = os.getenv("APP_SECRET")
-    app_callback_url = os.getenv("APP_CALLBACK_URL")
+    app_key = os.getenv("SCHWAB_APP_KEY")
+    app_secret = os.getenv("SCHWAB_APP_SECRET")
+    app_callback_url = os.getenv("SCHWAB_APP_CALLBACK_URL")
 
     if not app_key or not app_secret or not app_callback_url:
-        missing = [n for n, v in [("APP_KEY", app_key), ("APP_SECRET", app_secret), ("APP_CALLBACK_URL", app_callback_url)] if not v]
+        missing = [n for n, v in [("SCHWAB_APP_KEY", app_key), ("SCHWAB_APP_SECRET", app_secret), ("SCHWAB_APP_CALLBACK_URL", app_callback_url)] if not v]
         logger.error("Missing environment variables: %s", missing)
         raise ValueError(f"Environment variables missing: {missing}")
 

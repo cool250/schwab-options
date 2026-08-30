@@ -40,7 +40,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from broker.schwab.exceptions import BrokerAuthError
 from api.auth import router as auth_router, require_auth
 from api.market import router as market_router
-from api.optimizer import router as optimizer_router
 from api.position import router as position_router
 from api.transactions import router as transactions_router
 
@@ -71,7 +70,6 @@ async def broker_auth_error_handler(request: Request, exc: BrokerAuthError):
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(market_router, prefix="/api/market", tags=["Market"], dependencies=[Depends(require_auth)])
-app.include_router(optimizer_router, prefix="/api/optimizer", tags=["Optimizer"], dependencies=[Depends(require_auth)])
 app.include_router(position_router, prefix="/api/positions", tags=["Positions"], dependencies=[Depends(require_auth)])
 app.include_router(transactions_router, prefix="/api/transactions", tags=["Transactions"], dependencies=[Depends(require_auth)])
 

@@ -23,11 +23,9 @@ export default function Navbar() {
       </button>
 
       <div className={`navbar-links${open ? ' open' : ''}`}>
-        <NavLink to="/market"       className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Market Data</NavLink>
         <NavLink to="/positions"    className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Positions</NavLink>
         <NavLink to="/transactions" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Transactions</NavLink>
         <NavLink to="/allocation"   className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Monthly Gains</NavLink>
-        <NavLink to="/optimizer"    className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Optimizer</NavLink>
         <NavLink to="/analyze"    className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Analyze</NavLink>
         <a href="#" onClick={(e) => { e.preventDefault(); logout(); close() }} className="navbar-logout navbar-logout--mobile">
           Sign out
