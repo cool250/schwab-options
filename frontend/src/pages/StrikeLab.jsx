@@ -158,26 +158,55 @@ const formatExpLabel = (dateStr) =>
    MAIN PAGE
 ============================================================================ */
 
+// Survives unmounting/remounting this page (e.g. navigating to Positions and
+// back) within the same browser session — only a full page reload, typing a
+// new symbol, or a fresh "Analyze Selected" from Positions replaces it.
+const strikeLabCache = {
+  symbol: null,
+  symbolInput: null,
+  spot: null,
+  expIndex: null,
+  legs: null,
+  rangePct: null,
+  ivPct: null,
+  chain: null,
+  view: null,
+  expirations: null,
+};
+
 export default function StrikeLab() {
   const location = useLocation();
   // Positions selected on the Positions page arrive once, via router state, as
   // { analyzePositions: [{ symbol, strike, optionType, quantity, premium, dte }, ...], view }.
   // Snapshotted at mount only — added as legs below, then cleared so a later
-  // re-render (or manual edit) doesn't re-add them.
+  // re-render (or manual edit) doesn't re-add them. Arriving this way counts
+  // as a deliberate new search, so it wins over whatever's cached below.
   const pendingPositions = useRef(location.state?.analyzePositions ?? []);
+  const isNewAnalyzeRequest = pendingPositions.current.length > 0;
 
-  const [symbol, setSymbol] = useState(pendingPositions.current[0]?.symbol || DEFAULT_SYMBOL);
-  const [symbolInput, setSymbolInput] = useState(pendingPositions.current[0]?.symbol || DEFAULT_SYMBOL);
-  const [spot, setSpot] = useState(DEFAULT_SPOT);
-  const [expIndex, setExpIndex] = useState(0);
-  const [legs, setLegs] = useState([]);
-  const [rangePct, setRangePct] = useState(3.6);
-  const [ivPct, setIvPct] = useState(10.9);
-  const [chain, setChain] = useState(null);
+  const [symbol, setSymbol] = useState(pendingPositions.current[0]?.symbol || strikeLabCache.symbol || DEFAULT_SYMBOL);
+  const [symbolInput, setSymbolInput] = useState(pendingPositions.current[0]?.symbol || strikeLabCache.symbolInput || DEFAULT_SYMBOL);
+  const [spot, setSpot] = useState(strikeLabCache.spot ?? DEFAULT_SPOT);
+  const [expIndex, setExpIndex] = useState(strikeLabCache.expIndex ?? 0);
+  const [legs, setLegs] = useState(isNewAnalyzeRequest ? [] : strikeLabCache.legs ?? []);
+  const [rangePct, setRangePct] = useState(strikeLabCache.rangePct ?? 3.6);
+  const [ivPct, setIvPct] = useState(strikeLabCache.ivPct ?? 10.9);
+  const [chain, setChain] = useState(strikeLabCache.chain ?? null);
   const [loadingChain, setLoadingChain] = useState(false);
-  const [view, setView] = useState(location.state?.view || "chain"); // 'chain' | 'table' | 'graph'
+  const [view, setView] = useState(location.state?.view || strikeLabCache.view || "chain"); // 'chain' | 'table' | 'graph'
 
-  const [expirations, setExpirations] = useState([]); // [{date, dte}] — real listed expirations, incl. daily where offered
+  // Skip the initial network fetch when we're restoring the same symbol's
+  // already-cached expirations/chain rather than starting a genuinely new
+  // search — otherwise every remount would silently refetch and briefly
+  // flash a reload over data that hasn't actually changed.
+  const skipInitialExpirationsFetch = useRef(
+    !isNewAnalyzeRequest && strikeLabCache.symbol === symbol && (strikeLabCache.expirations?.length ?? 0) > 0
+  );
+  const skipInitialChainFetch = useRef(
+    !isNewAnalyzeRequest && strikeLabCache.symbol === symbol && strikeLabCache.chain != null
+  );
+
+  const [expirations, setExpirations] = useState(strikeLabCache.expirations ?? []); // [{date, dte}] — real listed expirations, incl. daily where offered
   const dte = expirations[expIndex]?.dte;
   // The pill above only controls which chain you're browsing to add new legs —
   // an already-built position keeps the expiration it was actually added at,
@@ -186,17 +215,18 @@ export default function StrikeLab() {
   // latest one reflects what you're currently building toward.
   const positionDte = legs.length > 0 ? legs[legs.length - 1].dte : dte;
 
-  // Add any positions selected on the Positions page as legs, once, on mount.
-  // Each keeps its own dte (independent of the expiration pill above, same as
-  // any manually-added leg) rather than snapping to a listed expiration —
-  // note this means legs from different underlyings can end up mixed
-  // together, even though the payoff math below only prices one spot.
+  // Add any positions selected on the Positions page as legs, once, on mount —
+  // replacing whatever legs were cached from an earlier, unrelated visit,
+  // since arriving this way is itself the new search. Each keeps its own dte
+  // (independent of the expiration pill above, same as any manually-added
+  // leg) rather than snapping to a listed expiration — note this means legs
+  // from different underlyings can end up mixed together, even though the
+  // payoff math below only prices one spot.
   useEffect(() => {
     const positions = pendingPositions.current;
     if (positions.length === 0) return;
-    setLegs((prev) => [
-      ...prev,
-      ...positions.map((p, i) => ({
+    setLegs(
+      positions.map((p, i) => ({
         id: `l${Date.now()}-${i}`,
         side: p.quantity < 0 ? "SELL" : "BUY",
         qty: Math.abs(p.quantity) || 1,
@@ -205,13 +235,17 @@ export default function StrikeLab() {
         premium: p.premium,
         dte: p.dte,
         multiplier: getMultiplier(p.symbol),
-      })),
-    ]);
+      }))
+    );
     pendingPositions.current = [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    if (skipInitialExpirationsFetch.current) {
+      skipInitialExpirationsFetch.current = false;
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -250,9 +284,28 @@ export default function StrikeLab() {
   }, [symbol, dte]);
 
   useEffect(() => {
+    if (skipInitialChainFetch.current) {
+      skipInitialChainFetch.current = false;
+      return;
+    }
     if (dte != null) loadChain();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, dte]);
+
+  // Keep the cache in sync with every field it tracks, so a later
+  // unmount/remount of this page picks up right where things were left.
+  useEffect(() => {
+    strikeLabCache.symbol = symbol;
+    strikeLabCache.symbolInput = symbolInput;
+    strikeLabCache.spot = spot;
+    strikeLabCache.expIndex = expIndex;
+    strikeLabCache.legs = legs;
+    strikeLabCache.rangePct = rangePct;
+    strikeLabCache.ivPct = ivPct;
+    strikeLabCache.chain = chain;
+    strikeLabCache.view = view;
+    strikeLabCache.expirations = expirations;
+  }, [symbol, symbolInput, spot, expIndex, legs, rangePct, ivPct, chain, view, expirations]);
 
   const lo = spot * (1 - rangePct / 100);
   const hi = spot * (1 + rangePct / 100);
