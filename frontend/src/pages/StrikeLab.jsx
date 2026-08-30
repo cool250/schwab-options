@@ -277,7 +277,10 @@ export default function StrikeLab() {
   const submitSymbol = (e) => {
     e.preventDefault();
     const s = symbolInput.trim().toUpperCase();
-    if (s) setSymbol(s);
+    if (s && s !== symbol) {
+      setSymbol(s);
+      setLegs([]); // strikes belong to the old ticker's chain — don't carry them over
+    }
   };
 
   return (
