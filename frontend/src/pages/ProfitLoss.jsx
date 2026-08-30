@@ -12,6 +12,40 @@ const COLORS = [
   '#0891b2', '#db2777', '#65a30d', '#ea580c', '#0284c7',
 ]
 
+const SUMMARY_COLUMNS = [
+  { key: 'symbol', label: 'Symbol' },
+  { key: 'amount', label: 'Amount ($)' },
+  { key: 'percent', label: 'Percent (%)' },
+]
+
+// Shared by the option and equity/future per-symbol charts — identical shape,
+// just different data/total/click destination.
+function SymbolProfitChart({ title, label, data, total, onBarClick }) {
+  if (data.length === 0) return null
+  return (
+    <div className="card chart-card">
+      <h3 className="section-title">
+        {title} — {label}
+        <span className="chart-total"> (${total.toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
+      </h3>
+      <ResponsiveContainer width="100%" height={320}>
+        <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+          <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+          <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
+          <BarTooltip formatter={(v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+          <Bar dataKey="value" cursor="pointer" onClick={onBarClick}>
+            {data.map((r, i) => (
+              <Cell key={i} fill={r.value >= 0 ? 'var(--success)' : 'var(--error)'} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="chart-caption">Click a bar to view that symbol's transactions for {label}</p>
+    </div>
+  )
+}
+
 function monthName(m) {
   return new Date(2000, m - 1, 1).toLocaleString('en-US', { month: 'long' })
 }
@@ -168,19 +202,12 @@ export default function ProfitLoss() {
 
   const noData = submitted && symbolData.length === 0 && equitySymbolData.length === 0
 
-  function handleBarClick(row) {
+  function handleBarClick(row, tab) {
     const symbol = row?.name ?? row?.payload?.name
     if (!symbol) return
     const { start, end } = currentRange()
     const params = new URLSearchParams({ ticker: symbol, start, end, realized: String(realizedOnly) })
-    navigate(`/transactions?${params}`)
-  }
-
-  function handleEquityBarClick(row) {
-    const symbol = row?.name ?? row?.payload?.name
-    if (!symbol) return
-    const { start, end } = currentRange()
-    const params = new URLSearchParams({ tab: 'equity', ticker: symbol, start, end, realized: String(realizedOnly) })
+    if (tab) params.set('tab', tab)
     navigate(`/transactions?${params}`)
   }
 
@@ -301,53 +328,20 @@ export default function ProfitLoss() {
       {submitted && !loading && (symbolData.length > 0 || equitySymbolData.length > 0) && (
         <>
           <div className="charts-row">
-            {/* Per-symbol bar chart — bars handle negative (losing) symbols correctly, unlike a pie */}
-            {symbolData.length > 0 && (
-              <div className="card chart-card">
-                <h3 className="section-title">
-                  Option Trade Profit — {label}
-                  <span className="chart-total"> (${total.toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
-                </h3>
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={symbolData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                    <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
-                    <BarTooltip formatter={(v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
-                    <Bar dataKey="value" cursor="pointer" onClick={handleBarClick}>
-                      {symbolData.map((r, i) => (
-                        <Cell key={i} fill={r.value >= 0 ? 'var(--success)' : 'var(--error)'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                <p className="chart-caption">Click a bar to view that symbol's transactions for {label}</p>
-              </div>
-            )}
-
-            {/* Per-symbol bar chart for equities/futures — same shape as the option chart above */}
-            {equitySymbolData.length > 0 && (
-              <div className="card chart-card">
-                <h3 className="section-title">
-                  Equity/Future Profit — {label}
-                  <span className="chart-total"> (${equityTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
-                </h3>
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={equitySymbolData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                    <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
-                    <BarTooltip formatter={(v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
-                    <Bar dataKey="value" cursor="pointer" onClick={handleEquityBarClick}>
-                      {equitySymbolData.map((r, i) => (
-                        <Cell key={i} fill={r.value >= 0 ? 'var(--success)' : 'var(--error)'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                <p className="chart-caption">Click a bar to view that symbol's transactions for {label}</p>
-              </div>
-            )}
+            <SymbolProfitChart
+              title="Option Trade Profit"
+              label={label}
+              data={symbolData}
+              total={total}
+              onBarClick={(row) => handleBarClick(row)}
+            />
+            <SymbolProfitChart
+              title="Equity/Future Profit"
+              label={label}
+              data={equitySymbolData}
+              total={equityTotal}
+              onBarClick={(row) => handleBarClick(row, 'equity')}
+            />
 
             {/* Weekly bar chart — spans the full row width, below the per-symbol charts */}
             {weeklyData.rows?.length > 0 && (
@@ -390,30 +384,14 @@ export default function ProfitLoss() {
           {tableData.length > 0 && (
             <div className="card">
               <h3 className="section-title">Option Trade Summary</h3>
-              <DataTable
-                data={tableData}
-                columns={[
-                  { key: 'symbol', label: 'Symbol' },
-                  { key: 'amount', label: 'Amount ($)' },
-                  { key: 'percent', label: 'Percent (%)' },
-                ]}
-                defaultSortKey="amount"
-              />
+              <DataTable data={tableData} columns={SUMMARY_COLUMNS} defaultSortKey="amount" />
             </div>
           )}
 
           {equityTableData.length > 0 && (
             <div className="card">
               <h3 className="section-title">Equity/Future Summary</h3>
-              <DataTable
-                data={equityTableData}
-                columns={[
-                  { key: 'symbol', label: 'Symbol' },
-                  { key: 'amount', label: 'Amount ($)' },
-                  { key: 'percent', label: 'Percent (%)' },
-                ]}
-                defaultSortKey="amount"
-              />
+              <DataTable data={equityTableData} columns={SUMMARY_COLUMNS} defaultSortKey="amount" />
             </div>
           )}
         </>

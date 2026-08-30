@@ -124,7 +124,7 @@ function maxLossProfit(legs, lo, hi) {
   // bound as price rises — no finite sample range can capture that, so flag it directly.
   const callSlope = legs.reduce(
     (sum, leg) =>
-      leg.type === "CALL" ? sum + (leg.side === "BUY" ? 1 : -1) * leg.qty * MULTIPLIER : sum,
+      leg.type === "CALL" ? sum + (leg.side === "BUY" ? 1 : -1) * leg.qty * (leg.multiplier ?? MULTIPLIER) : sum,
     0
   );
   if (callSlope < 0) minP = -Infinity;
