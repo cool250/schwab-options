@@ -418,13 +418,13 @@ export default function StrikeLab() {
           </div>
           <div className="metric">
             <span className="metric-label">Breakeven</span>
-            <span className="metric-value highlight" style={{ fontSize: "1rem" }}>
+            <span className="metric-value highlight">
               {breakevens.length
                 ? breakevens.map((b) => `$${b.toFixed(2)}`).join(" / ")
                 : "None in range"}
             </span>
             {breakevens.length > 0 && (
-              <span className="text-muted" style={{ fontSize: "0.78rem" }}>
+              <span className="text-muted">
                 {(((breakevens[0] - spot) / spot) * 100).toFixed(1)}% from spot
               </span>
             )}
