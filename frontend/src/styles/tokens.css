@@ -20,6 +20,7 @@
 
   /* Dark UI (table/chain headers, card-header banner) */
   --header-bg: #0f172a;
+  --header-font-size: 0.93rem; /* shared by DataTable's <th> and StrikeLab's chain-table header spans */
 
   /* Semantic */
   --success:       #059669;

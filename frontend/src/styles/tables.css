@@ -12,7 +12,7 @@
 .data-table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 0.855rem; }
 .data-table th {
   padding: 12px 14px;
-  font-size: 0.93rem; /* 0.775rem + 20% */
+  font-size: var(--header-font-size);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
