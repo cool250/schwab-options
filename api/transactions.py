@@ -29,3 +29,17 @@ def get_option_transactions(
     return service.get_option_transactions(
         stock_ticker, start_date, end_date, contract_type, realized_gains_only
     )
+
+
+@router.get("/equity", summary="FIFO-matched buy/sell round-trips for equities and outright futures")
+def get_equity_transactions(
+    stock_ticker: str = "",
+    start_date: str = "",
+    end_date: str = "",
+    asset_type: str = "ALL",
+    realized_gains_only: bool = False,
+    service: TransactionService = Depends(get_service),
+):
+    return service.get_equity_transactions(
+        stock_ticker, start_date, end_date, asset_type, realized_gains_only
+    )

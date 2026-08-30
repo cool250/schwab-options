@@ -81,15 +81,31 @@ class TransactionService:
     def _normalize_futures_symbol(cls, symbol: str) -> str:
         """Return the CME root symbol for a Schwab futures contract symbol.
 
-        Handles formats like '.QN4M26:XCME', '.E3DM26_P7050:XCME' → 'NQ', 'ES'.
-        Non-futures symbols (no leading '.') are returned unchanged.
+        Handles two distinct notations that need different parsing:
+        - A futures option's underlying, prefixed with '.' and starting with a
+          single-letter product code that doesn't spell the root itself
+          ('.QN4M26:XCME' → 'NQ', '.E3DM26_P7050:XCME' → 'ES') — looked up via
+          _FUTURES_PREFIX_MAP.
+        - An outright futures contract's own symbol, prefixed with '/', where
+          the root IS spelled out in full before the 1-letter month code +
+          2-digit year ('/ESU26:XCME' → 'ES', '/NQU26:XCME' → 'NQ') — taking
+          just the first letter here would wrongly reduce 'NQU26' to 'N'.
+
+        Non-futures symbols (no leading '.' or '/') are returned unchanged.
         """
-        if not symbol.startswith("."):
+        if not symbol:
             return symbol
 
-        base = symbol.split(":")[0].lstrip(".")
-        first_letter = base[0] if base else ""
-        return cls._FUTURES_PREFIX_MAP.get(first_letter, symbol)
+        if symbol.startswith("/"):
+            base = symbol.split(":")[0][1:]
+            return base[:-3] if len(base) > 3 else base
+
+        if symbol.startswith("."):
+            base = symbol.split(":")[0][1:]
+            first_letter = base[0] if base else ""
+            return cls._FUTURES_PREFIX_MAP.get(first_letter, symbol)
+
+        return symbol
 
     def __init__(self):
         """Initialize the TransactionService with broker API clients."""
@@ -179,28 +195,258 @@ class TransactionService:
                     result_transactions.append(transaction)
 
         return result_transactions
-        
-    def _expand_date_range(self, start_date: str, end_date: str, 
-                           lookback_days: int = 60, 
-                           lookforward_days: int = 10) -> Dict[str, str]:
+
+    def get_equity_transactions(self, stock_ticker: str, start_date: str, end_date: str,
+                                 asset_type: str = "ALL", realized_gains_only: bool = False) -> List[Dict]:
+        """
+        Fetch FIFO-matched buy/sell round-trips for equities and outright futures
+        contracts (i.e. the underlying instrument itself, not options on it).
+
+        Unlike options, there's no strike/expiration to key a contract on, so
+        opens and closes are matched by symbol alone, oldest-open-first — the
+        standard FIFO cost-basis convention.
+
+        Args:
+            stock_ticker (str): Ticker/futures root to filter by (e.g. "AAPL", "ES"). Blank = all.
+            start_date (str): Start date in YYYY-MM-DD format
+            end_date (str): End date in YYYY-MM-DD format
+            asset_type (str, optional): "EQUITY", "FUTURE", or "ALL". Defaults to "ALL"
+            realized_gains_only (bool, optional): If True, only return closed round-trips.
+
+        Returns:
+            list: [{"date" (opened), "close_date", "symbol", "asset_type", "quantity",
+                     "open_price", "close_price", "total_amount", "status"}, ...]
+        """
+        # Positions can sit open far longer than a weekly option, so look back
+        # further than the options matcher does for the opening lot.
+        expanded = self._expand_date_range(start_date, end_date, lookback_days=180, lookforward_days=5)
+
+        try:
+            transactions = self.client.fetch_transactions(
+                start_date=expanded["start_date"], end_date=expanded["end_date"]
+            )
+        except BrokerAuthError:
+            raise
+        except BrokerError as e:
+            logger.error("Failed to fetch transactions: %s", e)
+            return []
+
+        if not transactions:
+            return []
+
+        raw_trades = self._populate_equity_futures(stock_ticker, asset_type, transactions)
+        combined = self._combine_equity_lots(raw_trades)
+        matched = self._match_equity_open_close(combined)
+
+        results = []
+        for trade in matched:
+            if realized_gains_only and not trade["closed"]:
+                continue
+            close_date_str = trade.get("close_date") or ""
+            if close_date_str:
+                close_date = get_date_object(close_date_str)
+                if not (get_date_object(start_date) <= close_date <= get_date_object(end_date)):
+                    continue
+            elif realized_gains_only:
+                continue
+            results.append(trade)
+
+        results.sort(key=lambda r: r.get("close_date") or r["date"])
+        return results
+
+    def _populate_equity_futures(self, stock_ticker: str, asset_type: str, transactions: List[Any]) -> List[Dict]:
+        stock_ticker = stock_ticker.upper()
+        results = []
+        for transaction in transactions:
+            try:
+                transfer_items = getattr(transaction, "transferItems", []) or []
+                trade_date = getattr(transaction, "tradeDate", None)
+                trade_date_str = get_date_string(trade_date) if trade_date else ""
+
+                for item in transfer_items:
+                    instrument = getattr(item, "instrument", None)
+                    if instrument is None:
+                        continue
+
+                    asset = getattr(instrument, "assetType", None)
+                    if asset not in ("EQUITY", "FUTURE"):
+                        continue
+                    if asset_type != "ALL" and asset != asset_type:
+                        continue
+
+                    symbol = getattr(instrument, "symbol", "") or ""
+                    if stock_ticker and stock_ticker != self._normalize_futures_symbol(symbol):
+                        continue
+
+                    amount = float(getattr(item, "amount", 0) or 0)
+                    if amount == 0:
+                        continue
+
+                    results.append({
+                        "date": trade_date_str,
+                        "symbol": symbol,
+                        "asset_type": asset,
+                        "amount": amount,
+                        "price": float(getattr(item, "price", 0) or 0),
+                        # Schwab's own `cost` already nets in the contract multiplier
+                        # (e.g. $50/point for ES) and is credit-positive / debit-negative.
+                        "cost": float(getattr(item, "cost", 0) or 0),
+                    })
+            except Exception as e:
+                logger.error(f"Error processing equity/future transaction: {e}")
+                continue
+
+        return results
+
+    def _combine_equity_lots(self, trades: List[Dict]) -> List[Dict]:
+        """Collapse same-day, same-symbol, same-direction fills into one lot.
+
+        Grouped by the sign of `amount` rather than Schwab's own `positionEffect`
+        — for futures delivered by an option assignment, Schwab tags every such
+        fill "OPENING" even when it actually flattens an existing position
+        (a same-day buy and sell can both say OPENING), so that field can't be
+        trusted to tell same-day fills of opposite direction apart.
+        """
+        grouped = defaultdict(list)
+        for trade in trades:
+            key = (trade["date"], trade["symbol"], trade["amount"] > 0)
+            grouped[key].append(trade)
+
+        combined = []
+        for _, group in grouped.items():
+            if len(group) == 1:
+                combined.append(group[0])
+                continue
+            total_amount = sum(t["amount"] for t in group)
+            total_abs = sum(abs(t["amount"]) for t in group)
+            weighted_price = sum(t["price"] * abs(t["amount"]) for t in group) / total_abs if total_abs else 0
+            combined.append({
+                **group[0],
+                "amount": total_amount,
+                "price": weighted_price,
+                "cost": sum(t["cost"] for t in group),
+            })
+        return combined
+
+    def _match_equity_open_close(self, trades: List[Dict]) -> List[Dict]:
+        """
+        FIFO-match opens and closes per symbol using a running position built
+        purely from the chronological sign of each fill's `amount` — NOT from
+        Schwab's own `positionEffect` tag, which is unreliable for futures
+        delivered by an option assignment (every such fill says "OPENING", even
+        the ones that flatten an existing position).
+
+        A fill that opposes the oldest still-open lot's direction closes it
+        (in full or in part, oldest lot first); a fill matching the existing
+        direction — or arriving with no open lot to oppose — becomes a new open
+        lot itself. A fill can do both: partially close the queue, then open a
+        new lot in the opposite direction for whatever quantity flips through.
+
+        Realized P&L for a matched (or partially matched) quantity is the sum
+        of the proportional share of each side's already-multiplier-correct
+        `cost` — this sidesteps ever needing to know the actual per-contract
+        multiplier here, since Schwab already baked it into `cost` on each fill.
+        """
+        by_symbol = defaultdict(list)
+        for trade in trades:
+            by_symbol[trade["symbol"]].append(trade)
+
+        matched = []
+        unmatched = []
+
+        for symbol, group in by_symbol.items():
+            fills = sorted(group, key=lambda t: t["date"])
+            queue = []  # FIFO of still-open lots: {date, qty (signed), cost, price, asset_type}
+
+            for fill in fills:
+                qty = fill["amount"]
+                cost = fill["cost"]
+                price = fill["price"]
+                date = fill["date"]
+                asset_type = fill["asset_type"]
+
+                while abs(qty) > 1e-9 and queue and (queue[0]["qty"] > 0) != (qty > 0):
+                    lot = queue[0]
+                    matched_qty = min(abs(lot["qty"]), abs(qty))
+                    lot_frac = matched_qty / abs(lot["qty"])
+                    fill_frac = matched_qty / abs(qty)
+
+                    matched.append({
+                        "date": lot["date"],
+                        "close_date": date,
+                        "symbol": symbol,
+                        "asset_type": asset_type,
+                        "quantity": matched_qty,
+                        "open_price": lot["price"],
+                        "close_price": price,
+                        "total_amount": lot["cost"] * lot_frac + cost * fill_frac,
+                        "status": "CLOSED",
+                        "closed": True,
+                    })
+
+                    lot_sign = 1 if lot["qty"] > 0 else -1
+                    lot["qty"] = lot_sign * (abs(lot["qty"]) - matched_qty)
+                    lot["cost"] *= (1 - lot_frac)
+                    if abs(lot["qty"]) < 1e-9:
+                        queue.pop(0)
+
+                    fill_sign = 1 if qty > 0 else -1
+                    qty = fill_sign * (abs(qty) - matched_qty)
+                    cost *= (1 - fill_frac)
+
+                if abs(qty) > 1e-9:
+                    queue.append({"date": date, "qty": qty, "cost": cost, "price": price, "asset_type": asset_type})
+
+            for lot in queue:
+                unmatched.append({
+                    "date": lot["date"],
+                    "close_date": None,
+                    "symbol": symbol,
+                    "asset_type": lot["asset_type"],
+                    "quantity": abs(lot["qty"]),
+                    "open_price": lot["price"],
+                    "close_price": None,
+                    "total_amount": lot["cost"],
+                    "status": "OPEN",
+                    "closed": False,
+                })
+
+        return matched + unmatched
+
+    def _expand_date_range(self, start_date: str, end_date: str,
+                           lookback_days: int = 60,
+                           lookforward_days: int = 10,
+                           max_span_days: int = 364) -> Dict[str, str]:
         """
         Expand a date range by a specified number of days in both directions.
-        
+
+        Schwab's transaction API rejects any request spanning more than a year,
+        so the requested padding is shrunk (lookback first, since finding the
+        opening trade matters more than a few extra days of lookforward) to keep
+        the expanded span within `max_span_days` when the caller's own range is
+        already large.
+
         Args:
             start_date (str): Original start date in YYYY-MM-DD format
             end_date (str): Original end date in YYYY-MM-DD format
             lookback_days (int): Number of days to look back
             lookforward_days (int): Number of days to look forward
-            
+            max_span_days (int): Hard cap on the total expanded span
+
         Returns:
             dict: Expanded date range with keys 'start_date' and 'end_date'
         """
         start_date_obj = get_date_object(start_date)
         end_date_obj = get_date_object(end_date)
-        
+
+        user_span_days = (end_date_obj - start_date_obj).days
+        available_padding = max(max_span_days - user_span_days, 0)
+        lookforward_days = min(lookforward_days, available_padding)
+        lookback_days = min(lookback_days, max(available_padding - lookforward_days, 0))
+
         expanded_start_date = (start_date_obj - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
         expanded_end_date = (end_date_obj + timedelta(days=lookforward_days)).strftime('%Y-%m-%d')
-        
+
         return {
             "start_date": expanded_start_date,
             "end_date": expanded_end_date

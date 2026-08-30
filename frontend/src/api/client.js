@@ -65,6 +65,17 @@ export function getOptionTransactions(stockTicker, startDate, endDate, contractT
   return request(`/transactions/options?${p}`)
 }
 
+export function getEquityTransactions(stockTicker, startDate, endDate, assetType, realizedGainsOnly) {
+  const p = new URLSearchParams({
+    stock_ticker: stockTicker,
+    start_date: startDate,
+    end_date: endDate,
+    asset_type: assetType,
+    realized_gains_only: realizedGainsOnly,
+  })
+  return request(`/transactions/equity?${p}`)
+}
+
 export function getOptimizerRecs({ extraSymbols = '', maxDte = 7 } = {}) {
   const p = new URLSearchParams({ max_dte: maxDte })
   if (extraSymbols) p.set('extra_symbols', extraSymbols)

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { getOptionTransactions } from '../api/client'
+import { getOptionTransactions, getEquityTransactions } from '../api/client'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
-const COLUMNS = [
+const OPTION_COLUMNS = [
   { key: 'symbol',          label: 'Symbol' },
   { key: 'close_date',    label: 'Closed Date' },
   { key: 'expirationDate', label: 'Expiry Date' },
@@ -15,6 +15,18 @@ const COLUMNS = [
   { key: 'total_amount',     label: 'Total',  align: 'right' },
   { key: 'option_type',     label: 'Option Type' },
   { key: 'type',     label: 'Status' },
+]
+
+const EQUITY_COLUMNS = [
+  { key: 'symbol',       label: 'Symbol' },
+  { key: 'date',         label: 'Opened' },
+  { key: 'close_date',   label: 'Closed' },
+  { key: 'asset_type',   label: 'Asset Type' },
+  { key: 'quantity',     label: 'Quantity',    align: 'right' },
+  { key: 'open_price',   label: 'Open Price',  align: 'right' },
+  { key: 'close_price',  label: 'Close Price', align: 'right' },
+  { key: 'total_amount', label: 'Total',       align: 'right' },
+  { key: 'status',       label: 'Status' },
 ]
 
 function firstOfMonth() {
@@ -28,6 +40,9 @@ function todayStr() {
 
 export default function Transactions() {
   const [searchParams] = useSearchParams()
+  const [tab, setTab] = useState('options') // 'options' | 'equity'
+
+  // ---- Option transactions ----
   const [ticker, setTicker] = useState(searchParams.get('ticker')?.toUpperCase() ?? '')
   const [contractType, setContractType] = useState('ALL')
   const [realizedOnly, setRealizedOnly] = useState(searchParams.get('realized') !== 'false')
@@ -72,75 +87,199 @@ export default function Transactions() {
 
   const totalAmount = transactions?.reduce((s, t) => s + (t.total_amount ?? 0), 0) ?? 0
 
+  // ---- Equity / futures transactions ----
+  const [equityTicker, setEquityTicker] = useState('')
+  const [assetType, setAssetType] = useState('ALL')
+  const [equityRealizedOnly, setEquityRealizedOnly] = useState(true)
+  const [equityStartDate, setEquityStartDate] = useState(firstOfMonth)
+  const [equityEndDate, setEquityEndDate] = useState(todayStr)
+  const [equityLoading, setEquityLoading] = useState(false)
+  const [equityError, setEquityError] = useState(null)
+  const [equityTransactions, setEquityTransactions] = useState(null)
+
+  async function handleEquitySearch(e) {
+    e.preventDefault()
+    setEquityLoading(true)
+    setEquityError(null)
+    setEquityTransactions(null)
+    try {
+      const data = await getEquityTransactions(equityTicker.trim().toUpperCase(), equityStartDate, equityEndDate, assetType, equityRealizedOnly)
+      setEquityTransactions(data)
+    } catch (err) {
+      const msg = err?.message ?? ''
+      if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
+        setEquityError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
+      } else {
+        setEquityError('Failed to fetch transactions. Make sure the API server is running.')
+      }
+    } finally {
+      setEquityLoading(false)
+    }
+  }
+
+  const equityTotalAmount = equityTransactions?.reduce((s, t) => s + (t.total_amount ?? 0), 0) ?? 0
+
   return (
     <div className="page">
-      <h2 className="page-title">Option Transactions</h2>
+      <h2 className="page-title">Transactions</h2>
 
-      <div className="card">
-        <form onSubmit={handleSearch}>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Ticker Symbol</label>
-              <input
-                type="text"
-                value={ticker}
-                onChange={(e) => setTicker(e.target.value.toUpperCase())}
-                placeholder="e.g. AAPL (blank = all)"
-                className="input"
-              />
-            </div>
-            <div className="form-group">
-              <label>Option Type</label>
-              <select value={contractType} onChange={(e) => setContractType(e.target.value)} className="input">
-                <option value="ALL">ALL</option>
-                <option value="PUT">PUT</option>
-                <option value="CALL">CALL</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label>From Date</label>
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input" />
-            </div>
-            <div className="form-group">
-              <label>To Date</label>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="input" />
-            </div>
-          </div>
-
-          <div className="form-actions">
-            <label className="toggle-label">
-              <input
-                type="checkbox"
-                checked={realizedOnly}
-                onChange={(e) => setRealizedOnly(e.target.checked)}
-                className="toggle-checkbox"
-              />
-              <span>Realized Gains Only</span>
-            </label>
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              Search Transactions
-            </button>
-          </div>
-        </form>
+      <div className="button-row">
+        <button
+          type="button"
+          className={`btn ${tab === 'options' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setTab('options')}
+        >
+          Options
+        </button>
+        <button
+          type="button"
+          className={`btn ${tab === 'equity' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setTab('equity')}
+        >
+          Equity &amp; Futures
+        </button>
       </div>
 
-      {error && <div className="alert error">{error}</div>}
-      {loading && <Spinner />}
-
-      {transactions && !loading && (
+      {tab === 'options' ? (
         <>
-          {transactions.length === 0 ? (
-            <div className="alert warning">No transactions found for the given criteria.</div>
-          ) : (
-            <div className="card">
-              <div className="section-header">
-                <h3 className="section-title">Transactions</h3>
-                <span className="summary-line">
-                  {transactions.length} records &nbsp;|&nbsp; Total: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </span>
+          <div className="card">
+            <form onSubmit={handleSearch}>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Ticker Symbol</label>
+                  <input
+                    type="text"
+                    value={ticker}
+                    onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                    placeholder="e.g. AAPL (blank = all)"
+                    className="input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Option Type</label>
+                  <select value={contractType} onChange={(e) => setContractType(e.target.value)} className="input">
+                    <option value="ALL">ALL</option>
+                    <option value="PUT">PUT</option>
+                    <option value="CALL">CALL</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>From Date</label>
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input" />
+                </div>
+                <div className="form-group">
+                  <label>To Date</label>
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="input" />
+                </div>
               </div>
-              <DataTable data={transactions} columns={COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" />
-            </div>
+
+              <div className="form-actions">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={realizedOnly}
+                    onChange={(e) => setRealizedOnly(e.target.checked)}
+                    className="toggle-checkbox"
+                  />
+                  <span>Realized Gains Only</span>
+                </label>
+                <button type="submit" className="btn btn-primary" disabled={loading}>
+                  Search Transactions
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {error && <div className="alert error">{error}</div>}
+          {loading && <Spinner />}
+
+          {transactions && !loading && (
+            <>
+              {transactions.length === 0 ? (
+                <div className="alert warning">No transactions found for the given criteria.</div>
+              ) : (
+                <div className="card">
+                  <div className="section-header">
+                    <h3 className="section-title">Transactions</h3>
+                    <span className="summary-line">
+                      {transactions.length} records &nbsp;|&nbsp; Total: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <DataTable data={transactions} columns={OPTION_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" />
+                </div>
+              )}
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="card">
+            <form onSubmit={handleEquitySearch}>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Ticker / Futures Root</label>
+                  <input
+                    type="text"
+                    value={equityTicker}
+                    onChange={(e) => setEquityTicker(e.target.value.toUpperCase())}
+                    placeholder="e.g. AAPL, ES (blank = all)"
+                    className="input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Asset Type</label>
+                  <select value={assetType} onChange={(e) => setAssetType(e.target.value)} className="input">
+                    <option value="ALL">ALL</option>
+                    <option value="EQUITY">EQUITY</option>
+                    <option value="FUTURE">FUTURE</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>From Date</label>
+                  <input type="date" value={equityStartDate} onChange={(e) => setEquityStartDate(e.target.value)} className="input" />
+                </div>
+                <div className="form-group">
+                  <label>To Date</label>
+                  <input type="date" value={equityEndDate} onChange={(e) => setEquityEndDate(e.target.value)} className="input" />
+                </div>
+              </div>
+
+              <div className="form-actions">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={equityRealizedOnly}
+                    onChange={(e) => setEquityRealizedOnly(e.target.checked)}
+                    className="toggle-checkbox"
+                  />
+                  <span>Realized Gains Only</span>
+                </label>
+                <button type="submit" className="btn btn-primary" disabled={equityLoading}>
+                  Search Transactions
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {equityError && <div className="alert error">{equityError}</div>}
+          {equityLoading && <Spinner />}
+
+          {equityTransactions && !equityLoading && (
+            <>
+              {equityTransactions.length === 0 ? (
+                <div className="alert warning">No transactions found for the given criteria.</div>
+              ) : (
+                <div className="card">
+                  <div className="section-header">
+                    <h3 className="section-title">Transactions</h3>
+                    <span className="summary-line">
+                      {equityTransactions.length} records &nbsp;|&nbsp; Total: ${equityTotalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <DataTable data={equityTransactions} columns={EQUITY_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" />
+                </div>
+              )}
+            </>
           )}
         </>
       )}
