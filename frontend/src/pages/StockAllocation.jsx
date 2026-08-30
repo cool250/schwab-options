@@ -1,7 +1,7 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
-  PieChart, Pie, Cell, Tooltip as PieTooltip, Legend,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as BarTooltip, Legend as BarLegend, ResponsiveContainer,
+  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip as BarTooltip, Legend as BarLegend, ResponsiveContainer, LabelList,
 } from 'recharts'
 import { getMonthlyAllocations } from '../api/client'
 import Spinner from '../components/Spinner'
@@ -19,24 +19,37 @@ function monthName(m) {
 function currentYear() { return new Date().getFullYear() }
 function currentMonth() { return new Date().getMonth() + 1 }
 
-// Group rows by ISO week number
-function isoWeek(dateStr) {
+function monthRange(year, month) {
+  const start = `${year}-${String(month).padStart(2, '0')}-01`
+  const lastDay = new Date(year, month, 0).getDate()
+  const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+  return { start, end }
+}
+
+// Resolve a date to its ISO week number plus that week's Mon–Sun date range
+function isoWeekRange(dateStr) {
   const d = new Date(dateStr)
   const jan4 = new Date(d.getFullYear(), 0, 4)
   const startOfWeek1 = new Date(jan4)
   startOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7))
-  const diff = d - startOfWeek1
-  return Math.floor(diff / (7 * 24 * 3600 * 1000)) + 1
+  const week = Math.floor((d - startOfWeek1) / (7 * 24 * 3600 * 1000)) + 1
+  const start = new Date(startOfWeek1)
+  start.setDate(start.getDate() + (week - 1) * 7)
+  const end = new Date(start)
+  end.setDate(end.getDate() + 6)
+  const fmt = (dt) => dt.toISOString().split('T')[0]
+  return { week, start: fmt(start), end: fmt(end) }
 }
 
 export default function StockAllocation() {
+  const navigate = useNavigate()
   const [year, setYear] = useState(currentYear)
   const [month, setMonth] = useState(currentMonth)
   const [realizedOnly, setRealizedOnly] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [submitted, setSubmitted] = useState(false)
-  const [pieData, setPieData] = useState([])
+  const [symbolData, setSymbolData] = useState([])
   const [weeklyData, setWeeklyData] = useState([])
   const [tableData, setTableData] = useState([])
   const [total, setTotal] = useState(0)
@@ -52,7 +65,7 @@ export default function StockAllocation() {
     try {
       const data = await getMonthlyAllocations(year, month, realizedOnly)
       if (!data || data.length === 0) {
-        setPieData([]); setWeeklyData([]); setTableData([]); setTotal(0)
+        setSymbolData([]); setWeeklyData([]); setTableData([]); setTotal(0)
         setSubmitted(true)
         return
       }
@@ -66,26 +79,43 @@ export default function StockAllocation() {
       const agg = Object.entries(bySymbol)
         .filter(([, v]) => v !== 0)
         .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
       const tot = agg.reduce((s, r) => s + r.value, 0)
-      setPieData(agg)
+      // Gains and losses can't share one "% of total" — a losing symbol next to
+      // winners can make percentages exceed 100% or go negative. Instead express
+      // each symbol as a share of gross gains, so losers show as negative drag.
+      const grossGains = agg.reduce((s, r) => s + (r.value > 0 ? r.value : 0), 0)
+      setSymbolData(agg)
       setTotal(tot)
-      setTableData(agg.map((r) => ({ symbol: r.name, amount: r.value, percent: (r.value / tot) * 100 })))
+      setTableData(agg.map((r) => ({
+        symbol: r.name,
+        amount: r.value,
+        percent: grossGains !== 0 ? (r.value / grossGains) * 100 : 0,
+      })))
       setLabel(`${monthName(month)} ${year}`)
 
       // Weekly grouped bar chart
       const weekMap = {} // { week: { sym: amount } }
+      const weekRanges = {} // { week: { start, end } }
       for (const row of data) {
-        if (!row.date) continue
-        const week = `W${isoWeek(row.date)}`
+        if (!row.close_date) continue
+        const { week: weekNum, start: weekStart, end: weekEnd } = isoWeekRange(row.close_date)
+        const week = `W${weekNum}`
+        weekRanges[week] = { start: weekStart, end: weekEnd }
         const sym = row.underlying_symbol ?? row.symbol ?? 'OTHER'
         if (!weekMap[week]) weekMap[week] = {}
         weekMap[week][sym] = (weekMap[week][sym] ?? 0) + (row.total_amount ?? 0)
       }
       const allSymbols = [...new Set(data.map((r) => r.underlying_symbol ?? r.symbol ?? 'OTHER'))]
       const weekly = Object.entries(weekMap)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([week, syms]) => ({ week, ...syms }))
-      setWeeklyData({ rows: weekly, symbols: allSymbols })
+        .sort(([a], [b]) => Number(a.slice(1)) - Number(b.slice(1)))
+        .map(([week, syms]) => {
+          const total = Object.values(syms).reduce((s, v) => s + v, 0)
+          // "zero" is a zero-height bar stacked on top of the real ones, purely so
+          // its LabelList renders the week's total right at the top of the stack.
+          return { week, ...syms, total, zero: 0 }
+        })
+      setWeeklyData({ rows: weekly, symbols: allSymbols, ranges: weekRanges })
       setSubmitted(true)
     } catch (err) {
       const msg = err?.message ?? ''
@@ -99,7 +129,64 @@ export default function StockAllocation() {
     }
   }
 
-  const noData = submitted && pieData.length === 0
+  const noData = submitted && symbolData.length === 0
+
+  function handleBarClick(row) {
+    const symbol = row?.name ?? row?.payload?.name
+    if (!symbol) return
+    const { start, end } = monthRange(year, month)
+    const params = new URLSearchParams({ ticker: symbol, start, end, realized: String(realizedOnly) })
+    navigate(`/transactions?${params}`)
+  }
+
+  function handleWeekBarClick(symbol, data) {
+    const week = data?.week ?? data?.payload?.week
+    const range = week && weeklyData.ranges?.[week]
+    if (!range) return
+    const params = new URLSearchParams({ ticker: symbol, start: range.start, end: range.end, realized: String(realizedOnly) })
+    navigate(`/transactions?${params}`)
+  }
+
+  // Clicking the week label itself (rather than one symbol's bar) shows every
+  // symbol's transactions for that week.
+  function handleWeekLabelClick(week) {
+    const range = weeklyData.ranges?.[week]
+    if (!range) return
+    const params = new URLSearchParams({ start: range.start, end: range.end, realized: String(realizedOnly) })
+    navigate(`/transactions?${params}`)
+  }
+
+  function WeekAxisTick({ x, y, payload }) {
+    return (
+      <text
+        x={x}
+        y={y + 12}
+        textAnchor="middle"
+        fontSize={12}
+        fill="var(--primary)"
+        cursor="pointer"
+        onClick={() => handleWeekLabelClick(payload.value)}
+      >
+        {payload.value}
+      </text>
+    )
+  }
+
+  // Default Tooltip would also list the invisible "zero" anchor bar — filter it out.
+  function WeeklyTooltip({ active, payload, label }) {
+    if (!active || !payload?.length) return null
+    const visible = payload.filter((p) => p.dataKey !== 'zero')
+    return (
+      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', boxShadow: 'var(--shadow-sm)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
+        {visible.map((p) => (
+          <div key={p.dataKey} style={{ color: p.color, fontSize: '0.85rem' }}>
+            {p.name}: ${Number(p.value).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="page">
@@ -147,36 +234,29 @@ export default function StockAllocation() {
         <div className="alert warning">No transaction data available for this month.</div>
       )}
 
-      {submitted && !loading && pieData.length > 0 && (
+      {submitted && !loading && symbolData.length > 0 && (
         <>
           <div className="charts-row">
-            {/* Pie chart */}
+            {/* Per-symbol bar chart — bars handle negative (losing) symbols correctly, unlike a pie */}
             <div className="card chart-card">
               <h3 className="section-title">
                 Stock Allocation — {label}
                 <span className="chart-total"> (${total.toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
               </h3>
               <ResponsiveContainer width="100%" height={320}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={110}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
-                    labelLine={false}
-                  >
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                <BarChart data={symbolData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                  <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
+                  <BarTooltip formatter={(v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                  <Bar dataKey="value" cursor="pointer" onClick={handleBarClick}>
+                    {symbolData.map((r, i) => (
+                      <Cell key={i} fill={r.value >= 0 ? 'var(--success)' : 'var(--error)'} />
                     ))}
-                  </Pie>
-                  <PieTooltip formatter={(v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
-                  <Legend />
-                </PieChart>
+                  </Bar>
+                </BarChart>
               </ResponsiveContainer>
+              <p className="chart-caption">Click a bar to view that symbol's transactions for {label}</p>
             </div>
 
             {/* Weekly bar chart */}
@@ -184,17 +264,34 @@ export default function StockAllocation() {
               <div className="card chart-card">
                 <h3 className="section-title">Weekly Allocation — {label}</h3>
                 <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={weeklyData.rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <BarChart data={weeklyData.rows} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="week" tick={{ fontSize: 12 }} />
+                    <XAxis dataKey="week" tick={<WeekAxisTick />} />
                     <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
-                    <BarTooltip formatter={(v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                    <BarTooltip content={<WeeklyTooltip />} />
                     <BarLegend />
                     {weeklyData.symbols.map((sym, i) => (
-                      <Bar key={sym} dataKey={sym} fill={COLORS[i % COLORS.length]} />
+                      <Bar
+                        key={sym}
+                        dataKey={sym}
+                        stackId="week"
+                        fill={COLORS[i % COLORS.length]}
+                        cursor="pointer"
+                        onClick={(data) => handleWeekBarClick(sym, data)}
+                      />
                     ))}
+                    {/* Zero-height bar stacked on top, just to anchor a label showing the week's total */}
+                    <Bar dataKey="zero" stackId="week" fill="transparent" legendType="none" isAnimationActive={false}>
+                      <LabelList
+                        dataKey="total"
+                        position="top"
+                        formatter={(v) => `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+                        style={{ fontSize: 12, fontWeight: 600, fill: 'var(--text)' }}
+                      />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                <p className="chart-caption">Click a bar for that symbol's transactions that week, or the week label for all transactions that week</p>
               </div>
             )}
           </div>

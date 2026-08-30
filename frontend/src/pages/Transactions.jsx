@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { getOptionTransactions } from '../api/client'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
@@ -26,22 +27,22 @@ function todayStr() {
 }
 
 export default function Transactions() {
-  const [ticker, setTicker] = useState('')
+  const [searchParams] = useSearchParams()
+  const [ticker, setTicker] = useState(searchParams.get('ticker')?.toUpperCase() ?? '')
   const [contractType, setContractType] = useState('ALL')
-  const [realizedOnly, setRealizedOnly] = useState(true)
-  const [startDate, setStartDate] = useState(firstOfMonth)
-  const [endDate, setEndDate] = useState(todayStr)
+  const [realizedOnly, setRealizedOnly] = useState(searchParams.get('realized') !== 'false')
+  const [startDate, setStartDate] = useState(searchParams.get('start') ?? firstOfMonth)
+  const [endDate, setEndDate] = useState(searchParams.get('end') ?? todayStr)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [transactions, setTransactions] = useState(null)
 
-  async function handleSearch(e) {
-    e.preventDefault()
+  async function runSearch(tickerVal, startVal, endVal, contractTypeVal, realizedVal) {
     setLoading(true)
     setError(null)
     setTransactions(null)
     try {
-      const data = await getOptionTransactions(ticker.trim().toUpperCase(), startDate, endDate, contractType, realizedOnly)
+      const data = await getOptionTransactions(tickerVal.trim().toUpperCase(), startVal, endVal, contractTypeVal, realizedVal)
       setTransactions(data)
     } catch (err) {
       const msg = err?.message ?? ''
@@ -54,6 +55,20 @@ export default function Transactions() {
       setLoading(false)
     }
   }
+
+  function handleSearch(e) {
+    e.preventDefault()
+    runSearch(ticker, startDate, endDate, contractType, realizedOnly)
+  }
+
+  // Arriving from a chart click (e.g. Monthly Gains) pre-fills the filters via
+  // the URL — run the search immediately instead of waiting for another click.
+  useEffect(() => {
+    if (searchParams.get('ticker') || searchParams.get('start')) {
+      runSearch(ticker, startDate, endDate, contractType, realizedOnly)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const totalAmount = transactions?.reduce((s, t) => s + (t.total_amount ?? 0), 0) ?? 0
 
