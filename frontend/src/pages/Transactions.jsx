@@ -130,7 +130,32 @@ export default function Transactions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const equityTotalAmount = equityTransactions?.reduce((s, t) => s + (t.total_amount ?? 0), 0) ?? 0
+  // This account never opens an outright equity/futures short — a negative
+  // signed quantity on an otherwise-"OPEN" row means the matcher found a
+  // closing trade but never saw its opening fill (outside the lookback
+  // window), not that a new short was opened. The date/price we do have
+  // belong to that closing trade, not an opening leg, so show them as
+  // Closed/Close Price instead of Opened/Open Price — the true open leg is
+  // simply unknown, not present.
+  //
+  // Either way — an unmatched open (no close yet) or an unmatched close (no
+  // open on record) — there's no way to compute a real gain/loss without
+  // both legs, so Total shows 0 until a full round-trip is on record.
+  const equityRows = (equityTransactions ?? []).map((t) => {
+    if (t.quantity < 0) {
+      return {
+        ...t,
+        close_date: t.date,
+        close_price: t.open_price,
+        date: null,
+        open_price: null,
+        status: 'CLOSED',
+        total_amount: 0,
+      }
+    }
+    return t.close_price == null ? { ...t, total_amount: 0 } : t
+  })
+  const equityTotalAmount = equityRows.reduce((s, t) => s + (t.total_amount ?? 0), 0)
 
   return (
     <div className="page">
@@ -279,17 +304,17 @@ export default function Transactions() {
 
           {equityTransactions && !equityLoading && (
             <>
-              {equityTransactions.length === 0 ? (
+              {equityRows.length === 0 ? (
                 <div className="alert warning">No transactions found for the given criteria.</div>
               ) : (
                 <div className="card">
                   <div className="section-header">
                     <h3 className="section-title">Transactions</h3>
                     <span className="summary-line">
-                      {equityTransactions.length} records &nbsp;|&nbsp; Total: ${equityTotalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      {equityRows.length} records &nbsp;|&nbsp; Total: ${equityTotalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
-                  <DataTable data={equityTransactions} columns={EQUITY_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" />
+                  <DataTable data={equityRows} columns={EQUITY_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" />
                 </div>
               )}
             </>

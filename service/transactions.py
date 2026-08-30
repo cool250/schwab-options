@@ -277,7 +277,14 @@ class TransactionService:
         for trade in matched:
             if realized_gains_only and not trade["closed"]:
                 continue
-            close_date_str = trade.get("close_date") or ""
+            # A negative-quantity unmatched leg is a closing trade whose opening
+            # fill fell outside the lookback window above (see
+            # _match_equity_open_close) — it has no close_date of its own, but
+            # its own date IS the actual close date, so fall back to that for
+            # range filtering too. Otherwise a stale close from well before the
+            # search window (e.g. last year) leaks through unfiltered, since
+            # close_date_str would otherwise be empty and skip this check.
+            close_date_str = trade.get("close_date") or (trade["date"] if trade.get("quantity", 0) < 0 else "")
             if close_date_str:
                 close_date = get_date_object(close_date_str)
                 if not (get_date_object(start_date) <= close_date <= get_date_object(end_date)):
@@ -484,8 +491,12 @@ class TransactionService:
 
         user_span_days = (end_date_obj - start_date_obj).days
         available_padding = max(max_span_days - user_span_days, 0)
-        lookforward_days = min(lookforward_days, available_padding)
-        lookback_days = min(lookback_days, max(available_padding - lookforward_days, 0))
+        # Lookback claims the padding first (per the docstring above) — it was
+        # backwards here: lookforward was consuming the budget first, leaving
+        # lookback with the scraps whenever the caller's own span already ate
+        # most of max_span_days.
+        lookback_days = min(lookback_days, available_padding)
+        lookforward_days = min(lookforward_days, max(available_padding - lookback_days, 0))
 
         expanded_start_date = (start_date_obj - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
         expanded_end_date = (end_date_obj + timedelta(days=lookforward_days)).strftime('%Y-%m-%d')
