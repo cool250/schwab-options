@@ -47,6 +47,10 @@ export function getFuturesOptionPosition() {
   return request('/positions/futures/options')
 }
 
+export function getFuturesOptionQuotes() {
+  return request('/positions/futures/options/quotes')
+}
+
 export function getOptionTransactions(stockTicker, startDate, endDate, contractType, realizedGainsOnly) {
   const p = new URLSearchParams({
     stock_ticker: stockTicker,

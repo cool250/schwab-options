@@ -1,7 +1,25 @@
 import { useState, useEffect } from 'react'
-import { getPositions, getFuturesPosition, getFuturesOptionPosition } from '../api/client'
+import { useNavigate } from 'react-router-dom'
+import { getPositions, getFuturesPosition, getFuturesOptionPosition, getFuturesOptionQuotes } from '../api/client'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
+
+// Position fields come back pre-formatted for display (e.g. "$1,234.56", "-2") —
+// undo that so the value can be passed to StrikeLab as a real number.
+function toNumber(value) {
+  const n = Number(String(value ?? '').replace(/[$,]/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+
+// Survives unmounting/remounting this page (e.g. navigating to Analyze and
+// back) within the same browser session — only a full page reload clears it.
+// Positions don't change fast enough to justify refetching (and, for futures
+// options, re-paying the several-seconds DXLink quote lookup) on every visit.
+const positionsCache = {
+  data: null,
+  futuresData: null,
+  futuresQuotes: null,
+}
 
 const OPTION_COLUMNS = [
   { key: 'ticker',          label: 'Ticker' },
@@ -22,33 +40,50 @@ const FUTURES_COLUMNS = [
   { key: 'cost_basis',  label: 'Cost Basis', align: 'right' },
 ]
 
+// current_price isn't part of this — get_futures_option_position() doesn't
+// return it (see the futuresQuotes lazy-load below), so it's added as its
+// own render-based column instead of a plain key.
 const FUTURES_OPTION_COLUMNS = [
   { key: 'ticker',          label: 'Ticker' },
+  { key: 'symbol',          label: 'Symbol' },
   { key: 'strike_price',    label: 'Strike' },
   { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
   { key: 'quantity',        label: 'Quantity',    align: 'right' },
   { key: 'trade_price',     label: 'Trade Price', align: 'right' },
-  { key: 'current_price',   label: 'Current Price', align: 'right' },
-  { key: 'symbol',          label: 'Symbol' },
 ]
 
 export default function Positions() {
+  const navigate = useNavigate()
   const [tab, setTab] = useState('equity') // 'equity' | 'futures'
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState(positionsCache.data)
+  const [loading, setLoading] = useState(!positionsCache.data)
   const [error, setError] = useState(null)
 
   // Futures data is fetched lazily — the futures-option lookup goes through
   // Tastytrade's DXLink feed per open expiration (Schwab's quote endpoint
   // rejects futures-option symbols outright) and can take several seconds,
   // so it's only worth paying for once the user actually opens this tab.
-  const [futuresData, setFuturesData] = useState(null)
+  const [futuresData, setFuturesData] = useState(positionsCache.futuresData)
   const [futuresLoading, setFuturesLoading] = useState(false)
   const [futuresError, setFuturesError] = useState(null)
 
+  // current_price for futures options is fetched separately, after the
+  // position list itself, so the table renders with everything except price
+  // right away instead of blocking on the slow DXLink lookup. Keyed by symbol.
+  const [futuresQuotes, setFuturesQuotes] = useState(positionsCache.futuresQuotes ?? {})
+  const [futuresQuotesLoading, setFuturesQuotesLoading] = useState(false)
+
+  // Options picked (across either tab) to send to StrikeLab — keyed by the
+  // row's own symbol, since that's unique per contract.
+  const [selected, setSelected] = useState(new Map())
+
   useEffect(() => {
+    if (positionsCache.data) return
     getPositions()
-      .then(setData)
+      .then((d) => {
+        positionsCache.data = d
+        setData(d)
+      })
       .catch((err) => {
         const msg = err?.message ?? ''
         if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
@@ -66,7 +101,9 @@ export default function Positions() {
     setFuturesError(null)
     Promise.all([getFuturesPosition(), getFuturesOptionPosition()])
       .then(([futures, futuresOptions]) => {
-        setFuturesData({ futures, ...futuresOptions })
+        const combined = { futures, ...futuresOptions }
+        positionsCache.futuresData = combined
+        setFuturesData(combined)
       })
       .catch((err) => {
         const msg = err?.message ?? ''
@@ -79,6 +116,20 @@ export default function Positions() {
       .finally(() => setFuturesLoading(false))
   }, [tab, futuresData, futuresLoading])
 
+  useEffect(() => {
+    if (!futuresData || positionsCache.futuresQuotes) return
+    setFuturesQuotesLoading(true)
+    getFuturesOptionQuotes()
+      .then((quotes) => {
+        positionsCache.futuresQuotes = quotes
+        setFuturesQuotes(quotes)
+      })
+      // Prices are a nicety layered on top of the position list — a failure
+      // here shouldn't surface an error banner over an otherwise-fine table.
+      .catch(() => {})
+      .finally(() => setFuturesQuotesLoading(false))
+  }, [futuresData])
+
   const puts = data?.puts ?? []
   const calls = data?.calls ?? []
   const balances = data?.balances ?? null
@@ -90,6 +141,71 @@ export default function Positions() {
   const totalPutExposure = puts.reduce((sum, p) => sum + (p.exposure ?? 0), 0)
   const totalPutValue = puts.reduce((sum, p) => sum + (p.total_value ?? 0), 0)
   const totalCallValue = calls.reduce((sum, c) => sum + (c.total_value ?? 0), 0)
+
+  function toggleSelected(row, optionType, isFutures) {
+    setSelected((prev) => {
+      const next = new Map(prev)
+      if (next.has(row.symbol)) {
+        next.delete(row.symbol)
+      } else {
+        next.set(row.symbol, {
+          // Futures roots come back stripped of their leading "/" (e.g. "ES",
+          // not "/ES") — StrikeLab's chain lookup uses that prefix to route
+          // to a futures-option chain instead of an equity one, so it has to
+          // be put back here or the graph silently comes back empty.
+          symbol: isFutures ? `/${row.ticker}` : row.ticker,
+          strike: toNumber(row.strike_price),
+          optionType,
+          quantity: toNumber(row.quantity),
+          premium: toNumber(row.trade_price),
+          dte: row.days_to_expiry,
+        })
+      }
+      return next
+    })
+  }
+
+  // Adds a checkbox column bound to `selected`, keyed by the row's symbol.
+  function withSelectCheckbox(columns, optionType, isFutures = false) {
+    return [
+      {
+        key: 'select',
+        label: '',
+        render: (row) => (
+          <input
+            type="checkbox"
+            checked={selected.has(row.symbol)}
+            onChange={() => toggleSelected(row, optionType, isFutures)}
+          />
+        ),
+      },
+      ...columns,
+    ]
+  }
+
+  // current_price arrives separately (see futuresQuotes above) — this column
+  // looks it up by symbol at render time instead of reading it off the row.
+  function futuresCurrentPriceColumn() {
+    return {
+      key: 'current_price',
+      label: 'Current Price',
+      align: 'right',
+      render: (row) => {
+        const price = futuresQuotes[row.symbol]
+        if (price != null) return `$${price.toFixed(2)}`
+        return futuresQuotesLoading ? '…' : '—'
+      },
+    }
+  }
+
+  function handleAnalyzeSelected() {
+    navigate('/analyze', {
+      state: {
+        analyzePositions: Array.from(selected.values()),
+        view: 'graph',
+      },
+    })
+  }
 
   return (
     <div className="page">
@@ -111,6 +227,15 @@ export default function Positions() {
           onClick={() => setTab('futures')}
         >
           Futures
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={selected.size === 0}
+          onClick={handleAnalyzeSelected}
+          style={{ marginLeft: 'auto' }}
+        >
+          Analyze Selected {selected.size > 0 ? `(${selected.size})` : ''}
         </button>
       </div>
 
@@ -170,7 +295,7 @@ export default function Positions() {
                     Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Value: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
-                  <DataTable data={puts} columns={OPTION_COLUMNS} defaultSortKey="days_to_expiry" />
+                  <DataTable data={puts} columns={withSelectCheckbox(OPTION_COLUMNS, 'PUT')} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No PUT option positions found.</div>
@@ -184,7 +309,7 @@ export default function Positions() {
                     Total: {calls.length}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Value: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
-                  <DataTable data={calls} columns={OPTION_COLUMNS} defaultSortKey="days_to_expiry" />
+                  <DataTable data={calls} columns={withSelectCheckbox(OPTION_COLUMNS, 'CALL')} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No CALL option positions found.</div>
@@ -215,7 +340,11 @@ export default function Positions() {
               {futuresPuts.length > 0 ? (
                 <div className="card">
                   <h3 className="section-title">Futures Puts</h3>
-                  <DataTable data={futuresPuts} columns={FUTURES_OPTION_COLUMNS} defaultSortKey="days_to_expiry" />
+                  <DataTable
+                    data={futuresPuts}
+                    columns={withSelectCheckbox([...FUTURES_OPTION_COLUMNS, futuresCurrentPriceColumn()], 'PUT', true)}
+                    defaultSortKey="days_to_expiry"
+                  />
                 </div>
               ) : (
                 <div className="alert warning">No open futures PUT positions found.</div>
@@ -225,7 +354,11 @@ export default function Positions() {
               {futuresCalls.length > 0 ? (
                 <div className="card">
                   <h3 className="section-title">Futures Calls</h3>
-                  <DataTable data={futuresCalls} columns={FUTURES_OPTION_COLUMNS} defaultSortKey="days_to_expiry" />
+                  <DataTable
+                    data={futuresCalls}
+                    columns={withSelectCheckbox([...FUTURES_OPTION_COLUMNS, futuresCurrentPriceColumn()], 'CALL', true)}
+                    defaultSortKey="days_to_expiry"
+                  />
                 </div>
               ) : (
                 <div className="alert warning">No open futures CALL positions found.</div>

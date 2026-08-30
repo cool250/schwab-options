@@ -161,15 +161,17 @@ class PositionService:
         short lookback as get_futures_position(), since Schwab's positions
         endpoint doesn't return these either.
 
-        Also attaches a live current_price (bid) via Tastytrade's DXLink feed:
-        Schwab's own quote endpoint flatly rejects futures-option symbols
-        (confirmed empirically — 'invalidSymbols'), so there's no Schwab-only
-        way to price these.
+        Deliberately excludes current_price: pricing these requires Tastytrade's
+        DXLink feed (Schwab's own quote endpoint flatly rejects futures-option
+        symbols — confirmed empirically, 'invalidSymbols') and can add several
+        seconds per open expiration, so the frontend fetches that separately
+        via get_futures_option_quotes() once this — the fast part — has
+        already rendered.
 
         Returns:
             tuple: (puts, calls), each a list of
                 {"ticker", "symbol", "strike_price", "expiration_date",
-                 "days_to_expiry", "quantity", "trade_price", "current_price"}.
+                 "days_to_expiry", "quantity", "trade_price"}.
         """
         from service.transactions import TransactionService  # local: avoid import cost when unused
 
@@ -181,8 +183,6 @@ class PositionService:
             logger.error("Failed to derive futures option positions: %s", e)
             return [], []
 
-        quotes_by_leg = self._get_futures_option_quotes(legs)
-
         puts, calls = [], []
         for leg in legs:
             expiration_date = leg.get("expirationDate")
@@ -193,9 +193,6 @@ class PositionService:
                 except ValueError:
                     days_to_expiry = None
 
-            quote_key = (leg.get("underlying_symbol"), expiration_date, leg.get("strike_price"), leg.get("option_type"))
-            current_price = quotes_by_leg.get(quote_key)
-
             option_details = {
                 "ticker": leg.get("underlying_symbol"),
                 "symbol": leg.get("symbol"),
@@ -204,10 +201,27 @@ class PositionService:
                 "days_to_expiry": days_to_expiry,
                 "quantity": f"{leg.get('amount', 0):,.0f}",
                 "trade_price": f"${leg.get('open_price', leg.get('price', 0)):,.2f}",
-                "current_price": f"${current_price:,.2f}" if current_price is not None else None,
             }
             (puts if leg.get("option_type") == "PUT" else calls).append(option_details)
         return puts, calls
+
+    def get_futures_option_quotes(self, lookback_days: int = 30) -> dict:
+        """Live bid prices for currently-open futures-option positions, keyed
+        by the same `symbol` get_futures_option_position() returns each leg
+        under — split out from that method so the position table itself can
+        render immediately without waiting on Tastytrade's DXLink feed.
+        """
+        from service.transactions import TransactionService  # local: avoid import cost when unused
+
+        try:
+            legs = TransactionService().get_open_futures_options(lookback_days=lookback_days)
+        except BrokerAuthError:
+            raise
+        except BrokerError as e:
+            logger.error("Failed to derive futures option positions for quoting: %s", e)
+            return {}
+
+        return self._get_futures_option_quotes(legs)
 
     @staticmethod
     def _get_futures_option_quotes(legs: list) -> dict:
@@ -216,10 +230,9 @@ class PositionService:
         expiration's chain is only fetched once regardless of how many
         strikes/types are open on it.
 
-        Returns {(ticker, expiration_date, strike_price, option_type): bid_price}.
-        Any leg whose chain fetch fails, or whose contract/quote can't be
-        found, is simply omitted — this is a display nicety, not something
-        that should ever block showing the position itself.
+        Returns {symbol: bid_price}. Any leg whose chain fetch fails, or whose
+        contract/quote can't be found, is simply omitted — this is a display
+        nicety, not something that should ever block showing the position.
         """
         if not legs:
             return {}
@@ -239,7 +252,7 @@ class PositionService:
 
         option_type_code = {"PUT": "P", "CALL": "C"}
         matched_contracts = []
-        quote_key_by_streamer_symbol = {}
+        symbol_by_streamer_symbol = {}
 
         for (root, expiration_date), group_legs in by_group.items():
             if not root or not expiration_date:
@@ -265,7 +278,7 @@ class PositionService:
                 if not streamer_symbol:
                     continue
                 matched_contracts.append(contract)
-                quote_key_by_streamer_symbol[streamer_symbol] = (root, expiration_date, strike, leg.get("option_type"))
+                symbol_by_streamer_symbol[streamer_symbol] = leg.get("symbol")
 
         if not matched_contracts:
             return {}
@@ -277,10 +290,10 @@ class PositionService:
             return {}
 
         result = {}
-        for streamer_symbol, quote_key in quote_key_by_streamer_symbol.items():
+        for streamer_symbol, symbol in symbol_by_streamer_symbol.items():
             quote = quotes.get(streamer_symbol)
-            if quote and quote.get("bid") is not None:
-                result[quote_key] = quote["bid"]
+            if quote and quote.get("bid") is not None and symbol:
+                result[symbol] = quote["bid"]
         return result
 
     def get_option_position(self):

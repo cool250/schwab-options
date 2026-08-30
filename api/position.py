@@ -35,11 +35,19 @@ def get_futures_position(service: PositionService = Depends(get_service)):
 
 @router.get(
     "/futures/options",
-    summary="Open futures-option positions (puts and calls), derived from transaction history",
+    summary="Open futures-option positions (puts and calls), derived from transaction history — no current_price, see /futures/options/quotes",
 )
 def get_futures_option_position(service: PositionService = Depends(get_service)):
     puts, calls = service.get_futures_option_position()
     return {"puts": puts, "calls": calls}
+
+
+@router.get(
+    "/futures/options/quotes",
+    summary="Live current prices for open futures-option positions, keyed by symbol (slow — Tastytrade DXLink per expiration)",
+)
+def get_futures_option_quotes(service: PositionService = Depends(get_service)):
+    return service.get_futures_option_quotes()
 
 
 @router.get("/options", summary="Open option positions (puts and calls)")

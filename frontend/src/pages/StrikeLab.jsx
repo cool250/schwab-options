@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -23,13 +24,24 @@ function blackScholesApprox(spot, strike, dte, iv, isCall) {
    PAYOFF MATH
 ============================================================================ */
 
-const MULTIPLIER = 100;
+const MULTIPLIER = 100; // standard equity/index option contract multiplier
+
+// Futures options settle on the underlying future's own point value, not the
+// standard 100-share equity multiplier — e.g. an ES option is $50/point, NQ
+// is $20/point. Keyed by root symbol with the leading '/' stripped.
+const FUTURES_MULTIPLIER_BY_ROOT = { ES: 50, NQ: 20 };
+
+function getMultiplier(sym) {
+  if (!sym) return MULTIPLIER;
+  const root = sym.replace(/^\//, "").toUpperCase();
+  return FUTURES_MULTIPLIER_BY_ROOT[root] ?? MULTIPLIER;
+}
 
 function legPL(leg, price) {
   const intrinsic =
     leg.type === "CALL" ? Math.max(0, price - leg.strike) : Math.max(0, leg.strike - price);
   const perShare = leg.side === "BUY" ? intrinsic - leg.premium : leg.premium - intrinsic;
-  return perShare * leg.qty * MULTIPLIER;
+  return perShare * leg.qty * (leg.multiplier ?? MULTIPLIER);
 }
 
 function totalPL(legs, price) {
@@ -38,7 +50,7 @@ function totalPL(legs, price) {
 
 function netCredit(legs) {
   return legs.reduce(
-    (sum, leg) => sum + (leg.side === "SELL" ? 1 : -1) * leg.premium * leg.qty * MULTIPLIER,
+    (sum, leg) => sum + (leg.side === "SELL" ? 1 : -1) * leg.premium * leg.qty * (leg.multiplier ?? MULTIPLIER),
     0
   );
 }
@@ -68,7 +80,7 @@ function legTheoPL(leg, price, dte, iv) {
   if (dte <= 0) return legPL(leg, price);
   const value = blackScholesApprox(price, leg.strike, dte, iv, leg.type === "CALL");
   const perShare = leg.side === "BUY" ? value - leg.premium : leg.premium - value;
-  return perShare * leg.qty * MULTIPLIER;
+  return perShare * leg.qty * (leg.multiplier ?? MULTIPLIER);
 }
 
 function totalTheoPL(legs, price, dte, iv) {
@@ -147,8 +159,15 @@ const formatExpLabel = (dateStr) =>
 ============================================================================ */
 
 export default function StrikeLab() {
-  const [symbol, setSymbol] = useState(DEFAULT_SYMBOL);
-  const [symbolInput, setSymbolInput] = useState(DEFAULT_SYMBOL);
+  const location = useLocation();
+  // Positions selected on the Positions page arrive once, via router state, as
+  // { analyzePositions: [{ symbol, strike, optionType, quantity, premium, dte }, ...], view }.
+  // Snapshotted at mount only — added as legs below, then cleared so a later
+  // re-render (or manual edit) doesn't re-add them.
+  const pendingPositions = useRef(location.state?.analyzePositions ?? []);
+
+  const [symbol, setSymbol] = useState(pendingPositions.current[0]?.symbol || DEFAULT_SYMBOL);
+  const [symbolInput, setSymbolInput] = useState(pendingPositions.current[0]?.symbol || DEFAULT_SYMBOL);
   const [spot, setSpot] = useState(DEFAULT_SPOT);
   const [expIndex, setExpIndex] = useState(0);
   const [legs, setLegs] = useState([]);
@@ -156,7 +175,7 @@ export default function StrikeLab() {
   const [ivPct, setIvPct] = useState(10.9);
   const [chain, setChain] = useState(null);
   const [loadingChain, setLoadingChain] = useState(false);
-  const [view, setView] = useState("chain"); // 'chain' | 'table' | 'graph'
+  const [view, setView] = useState(location.state?.view || "chain"); // 'chain' | 'table' | 'graph'
 
   const [expirations, setExpirations] = useState([]); // [{date, dte}] — real listed expirations, incl. daily where offered
   const dte = expirations[expIndex]?.dte;
@@ -166,6 +185,31 @@ export default function StrikeLab() {
   // Use the most recently added leg: if legs span multiple expirations, the
   // latest one reflects what you're currently building toward.
   const positionDte = legs.length > 0 ? legs[legs.length - 1].dte : dte;
+
+  // Add any positions selected on the Positions page as legs, once, on mount.
+  // Each keeps its own dte (independent of the expiration pill above, same as
+  // any manually-added leg) rather than snapping to a listed expiration —
+  // note this means legs from different underlyings can end up mixed
+  // together, even though the payoff math below only prices one spot.
+  useEffect(() => {
+    const positions = pendingPositions.current;
+    if (positions.length === 0) return;
+    setLegs((prev) => [
+      ...prev,
+      ...positions.map((p, i) => ({
+        id: `l${Date.now()}-${i}`,
+        side: p.quantity < 0 ? "SELL" : "BUY",
+        qty: Math.abs(p.quantity) || 1,
+        type: p.optionType,
+        strike: p.strike,
+        premium: p.premium,
+        dte: p.dte,
+        multiplier: getMultiplier(p.symbol),
+      })),
+    ]);
+    pendingPositions.current = [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,6 +304,7 @@ export default function StrikeLab() {
         strike: nearestStrike,
         premium: 1.0,
         dte,
+        multiplier: getMultiplier(symbol),
       },
     ]);
   };
@@ -273,7 +318,10 @@ export default function StrikeLab() {
       if (prev.some((l) => l.strike === strike && l.type === type && l.side === side)) {
         return prev;
       }
-      return [...prev, { id: `l${Date.now()}`, side, qty: 1, type, strike, premium: +premium.toFixed(2), dte }];
+      return [
+        ...prev,
+        { id: `l${Date.now()}`, side, qty: 1, type, strike, premium: +premium.toFixed(2), dte, multiplier: getMultiplier(symbol) },
+      ];
     });
   };
 

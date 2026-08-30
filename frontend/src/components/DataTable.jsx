@@ -23,8 +23,10 @@ function getCellClass(key, val) {
  *
  * Props:
  *   data            — array of row objects (required)
- *   columns         — optional array of { key, label, width?, align? } for custom headers;
- *                     if omitted, columns are derived from Object.keys(data[0])
+ *   columns         — optional array of { key, label, width?, align?, render? } for custom
+ *                     headers; if omitted, columns are derived from Object.keys(data[0]).
+ *                     `render(row)` overrides the default value formatting for that column
+ *                     (e.g. a checkbox) and makes the column unsortable.
  *   defaultSortKey  — column key to sort by on first render
  *   maxHeight       — optional CSS max-height for the scroll container (e.g. "480px")
  */
@@ -61,17 +63,17 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
       <table className="data-table">
         <thead>
           <tr>
-            {columns.map(({ key, label, width, align }) => {
+            {columns.map(({ key, label, width, align, render }) => {
               const isNumeric = align === 'right' || typeof data[0]?.[key] === 'number'
               return (
                 <th
                   key={key}
-                  onClick={() => toggleSort(key)}
-                  className="th-sortable"
+                  onClick={render ? undefined : () => toggleSort(key)}
+                  className={render ? '' : 'th-sortable'}
                   style={{ width, textAlign: align ?? (isNumeric ? 'right' : 'left') }}
                 >
                   {label}
-                  {sortCol === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                  {!render && sortCol === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
                 </th>
               )
             })}
@@ -80,16 +82,16 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
         <tbody>
           {sorted.map((row, i) => (
             <tr key={i}>
-              {columns.map(({ key, align }) => {
+              {columns.map(({ key, align, render }) => {
                 const val = row[key]
                 const isNumeric = align === 'right' || typeof val === 'number'
                 return (
                   <td
                     key={key}
-                    className={getCellClass(key, val)}
+                    className={render ? '' : getCellClass(key, val)}
                     style={{ textAlign: align ?? (isNumeric ? 'right' : 'left') }}
                   >
-                    {fmt(val)}
+                    {render ? render(row) : fmt(val)}
                   </td>
                 )
               })}
