@@ -288,37 +288,41 @@ export default function StrikeLab() {
 
       {/* ---------------- Symbol / strategy / expirations / ruler ---------------- */}
       <div className="card">
-        <div className="form-group form-group--sm">
-          <label>Symbol</label>
-          <form onSubmit={submitSymbol}>
-            <input
-              className="input"
-              value={symbolInput}
-              onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
-            />
-          </form>
-          <span className="price-badge ok">
-            Current price: ${spot.toFixed(2)}
-            {loadingChain ? " · syncing chain…" : ""}
-          </span>
-        </div>
+        <div className="symbol-exp-row">
+          <div className="form-group form-group--sm">
+            <label>Symbol</label>
+            <form onSubmit={submitSymbol}>
+              <input
+                className="input"
+                value={symbolInput}
+                onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
+              />
+            </form>
+            <span className="price-badge ok">
+              Current price: ${spot.toFixed(2)}
+              {loadingChain ? " · syncing chain…" : ""}
+            </span>
+          </div>
 
-        <span className="metric-label">Expiration{dte != null ? ` · ${dte}d` : ""}</span>
-        <div className="exp-pills">
-          {expirations.length === 0 && <span className="text-muted">Loading expirations…</span>}
-          {expirations.map((e, i) => {
-            const { month, day } = expPillParts(e.date);
-            return (
-              <button
-                key={e.date}
-                className={`exp-pill ${i === expIndex ? "active" : ""}`}
-                onClick={() => setExpIndex(i)}
-              >
-                <span className="exp-pill-month">{month}</span>
-                <span className="exp-pill-day">{day}</span>
-              </button>
-            );
-          })}
+          <div className="exp-group">
+            <span className="metric-label">Expiration{dte != null ? ` · ${dte}d` : ""}</span>
+            <div className="exp-pills">
+              {expirations.length === 0 && <span className="text-muted">Loading expirations…</span>}
+              {expirations.map((e, i) => {
+                const { month, day } = expPillParts(e.date);
+                return (
+                  <button
+                    key={e.date}
+                    className={`exp-pill ${i === expIndex ? "active" : ""}`}
+                    onClick={() => setExpIndex(i)}
+                  >
+                    <span className="exp-pill-month">{month}</span>
+                    <span className="exp-pill-day">{day}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 

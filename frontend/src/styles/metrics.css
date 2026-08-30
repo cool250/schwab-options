@@ -1,0 +1,58 @@
+/* ─── Metrics ────────────────────────────────────────── */
+.metrics-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 24px 0 0;
+  border-right: 1px solid var(--border);
+  margin-right: 24px;
+}
+.metric:last-child { border-right: none; margin-right: 0; padding-right: 0; }
+.metric-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.metric-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.metric-value.highlight { color: var(--primary); }
+.metric-value.positive { color: var(--success); }
+.metric-value.negative { color: var(--error); }
+
+/* ─── Price badge ────────────────────────────────────── */
+.price-badge {
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin-top: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.price-badge.ok  { color: var(--success); }
+.price-badge.err { color: var(--error); }
+
+/* ─── Max-return result metrics ──────────────────────── */
+.result-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+/* ─── Responsive ─────────────────────────────────────── */
+@media (max-width: 768px) {
+  .metrics-row    { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .metric         { border-right: none; margin-right: 0; padding-right: 0; }
+  .result-metrics { grid-template-columns: 1fr; }
+}

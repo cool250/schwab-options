@@ -1,0 +1,121 @@
+/* ─── StrikeLab: symbol + expiration pills, same row ──── */
+.symbol-exp-row { display: flex; align-items: flex-start; gap: 28px; flex-wrap: wrap; }
+.exp-group { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin-left: auto; min-width: 220px; }
+
+/* ─── StrikeLab: expiration pills ─────────────────────── */
+.exp-pills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.exp-pill {
+  flex: 0 0 auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  color: var(--text-muted);
+  font-family: inherit;
+}
+.exp-pill:hover { border-color: var(--border-strong); }
+.exp-pill-month { font-size: 0.65rem; letter-spacing: 0.3px; }
+.exp-pill-day { font-size: 0.85rem; font-weight: 700; color: var(--text); }
+.exp-pill.active { background: var(--primary); border-color: var(--primary); }
+.exp-pill.active .exp-pill-day { color: var(--text-inverse); }
+.exp-pill.active .exp-pill-month { color: rgba(255,255,255,0.85); }
+
+/* ─── StrikeLab: strike ruler ──────────────────────────── */
+.strike-ruler { display: flex; flex-direction: column; gap: 2px; }
+.ruler-track { position: relative; height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; margin: 50px 8px 60px; }
+.ruler-line { position: absolute; inset: 0; border-radius: 3px; background: linear-gradient(90deg, var(--border), var(--border-strong)); }
+.ruler-tick { position: absolute; top: 12px; transform: translateX(-50%); font-size: 0.7rem; color: var(--text-faint); }
+.ruler-spot { position: absolute; top: -24px; transform: translateX(-50%); text-align: center; }
+.ruler-spot-label { font-size: 0.6rem; color: var(--primary); letter-spacing: 0.5px; font-weight: 700; display: block; }
+.ruler-spot-arrow { color: var(--primary); font-size: 12px; display: block; margin-top: -2px; }
+.ruler-tag { position: absolute; transform: translateX(-50%); font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: var(--radius-sm); white-space: nowrap; }
+/* BTO (bought) legs sit above the ruler line, STO (sold) legs sit below it */
+.ruler-tag.tag-above { top: -44px; }
+.ruler-tag.tag-below { top: 34px; }
+.ruler-tag.tag-sell { background: var(--error-bg);   color: var(--error);   border: 1px solid var(--error-border); }
+.ruler-tag.tag-buy  { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
+
+/* ─── StrikeLab: P&L heatmap (Table view) ─────────────── */
+.pl-heatmap { display: grid; gap: 2px; min-width: 560px; }
+.pl-cell { font-size: 0.78rem; text-align: center; padding: 8px 4px; border-radius: 4px; }
+.pl-corner { color: var(--text-faint); font-size: 0.7rem; }
+.pl-colhead { color: var(--text-muted); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.3px; }
+.pl-strike { color: var(--text); font-weight: 700; background: var(--bg); }
+.pl-value { font-weight: 600; }
+.pl-spotrow.pl-strike { outline: 2px solid var(--primary); color: var(--primary); }
+.pl-spotrow.pl-value { box-shadow: inset 0 0 0 1px rgba(37,99,235,0.4); }
+
+/* ─── StrikeLab: option chain ──────────────────────────── */
+.chain-table { display: flex; flex-direction: column; gap: 2px; min-width: 560px; }
+.chain-row { display: grid; grid-template-columns: 56px 1fr 1fr 1fr 100px 1fr 1fr 1fr 56px; gap: 2px; align-items: center; }
+.chain-row > span { font-size: 0.8rem; text-align: center; padding: 7px 4px; border-radius: 4px; }
+
+/* Alternating row stripe, matching .data-table. Applied to the row container
+   (not individual cells) so cells with their own background — .chain-strike,
+   .chain-bid:hover, .chain-ask:hover — simply paint over it undisturbed. */
+.chain-row:not(.chain-head):not(.chain-subhead):nth-child(even) { background: var(--bg); }
+/* Dark header, matching .data-table th */
+.chain-head, .chain-subhead { background: var(--header-bg); }
+.chain-head span { font-size: 0.775rem; font-weight: 700; letter-spacing: 0.6px; color: var(--text-inverse); text-transform: uppercase; }
+.chain-subhead span { color: var(--text-inverse); font-size: 0.775rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }
+.chain-strike { font-weight: 700; background: var(--primary-light); color: var(--text); }
+.chain-leg-col { display: flex; align-items: center; justify-content: center; }
+.chain-leg-badge { font-size: 0.62rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; line-height: 1.4; white-space: nowrap; }
+.chain-leg-badge.tag-sell { background: var(--error-bg); color: var(--error); }
+.chain-leg-badge.tag-buy { background: var(--success-bg); color: var(--success); }
+.chain-delta { color: var(--text-muted); }
+.chain-bid { cursor: pointer; color: var(--error); }
+.chain-bid:hover { background: var(--error-bg); }
+.chain-ask { cursor: pointer; color: var(--success); }
+.chain-ask:hover { background: var(--success-bg); }
+.chain-disabled { cursor: default; color: var(--text-faint); opacity: 0.6; }
+.chain-disabled:hover { background: none; }
+.chain-atm .chain-strike { outline: 2px solid var(--primary); color: var(--primary); }
+
+/* A row with a leg attached needs to read clearly at a glance, so it overrides
+   the zebra stripe (hence !important) with a stronger tint plus a full-row outline. */
+.chain-row-selected { background: var(--primary-light) !important; box-shadow: inset 0 0 0 1.5px var(--primary); cursor: pointer; }
+.chain-row-selected > span { font-weight: 600; }
+
+.chain-empty { color: var(--text-muted); font-size: 0.85rem; padding: 24px 0; text-align: center; }
+
+/* ─── StrikeLab: sliders above chain/table ─────────────── */
+.slider-row { display: flex; align-items: center; gap: 16px; }
+.slider-row + .slider-row { margin-top: 14px; }
+.chain-week-badge { font-size: 0.78rem; font-weight: 700; color: var(--primary); background: var(--primary-light); border: 1px solid var(--primary-ring); border-radius: var(--radius-sm); padding: 4px 10px; white-space: nowrap; }
+.slider-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; width: 160px; flex-shrink: 0; }
+.range-slider { flex: 1; accent-color: var(--primary); }
+
+/* ─── StrikeLab: Strikes (legs) editor ─────────────────── */
+.legs-table { display: flex; flex-direction: column; gap: 8px; }
+.leg-row { display: grid; grid-template-columns: 84px 64px 96px 1fr 1fr 32px; gap: 8px; align-items: center; }
+.leg-row-head span { font-size: 0.72rem; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; }
+.leg-cell {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: inherit;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  width: 100%;
+  box-sizing: border-box;
+}
+.leg-cell:hover { border-color: var(--border-strong); }
+.leg-cell:focus-visible { outline: none; border-color: var(--primary); }
+.leg-side-sell { color: var(--error); font-weight: 700; }
+.leg-side-buy { color: var(--success); font-weight: 700; }
+.leg-remove { background: none; border: none; color: var(--text-faint); font-size: 20px; cursor: pointer; line-height: 1; }
+.leg-remove:hover { color: var(--error); }
+.legs-empty { color: var(--text-muted); font-size: 0.85rem; padding: 16px 0; }
+
+/* ─── Responsive ─────────────────────────────────────── */
+@media (max-width: 640px) {
+  .leg-row { grid-template-columns: 62px 46px 68px 1fr 1fr 24px; }
+  .slider-label { width: 120px; }
+}

@@ -1,0 +1,15 @@
+/* ─── Charts (shared by StrikeLab and Monthly Gains) ─── */
+.charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.chart-card { gap: 14px; }
+.chart-total { color: var(--text-muted); font-size: 0.875rem; font-weight: 400; }
+.chart-caption { text-align: center; font-size: 0.8rem; color: var(--text-muted); padding: 8px 0 0; }
+.chart-tooltip { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; box-shadow: var(--shadow-sm); }
+.chart-tooltip-price { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 2px; }
+.chart-tooltip-pl { font-size: 0.9rem; font-weight: 700; }
+.chart-tooltip-pl.positive { color: var(--success); }
+.chart-tooltip-pl.negative { color: var(--error); }
+
+/* ─── Responsive ─────────────────────────────────────── */
+@media (max-width: 768px) {
+  .charts-row { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,58 @@
+/* ─── Page layout ────────────────────────────────────── */
+.main-content { max-width: 1440px; margin: 0 auto; padding: 36px 28px; }
+.page { display: flex; flex-direction: column; gap: 20px; }
+.page-title {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  background: linear-gradient(120deg, var(--primary) 0%, #7c3aed 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.page-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+
+/* ─── Card ───────────────────────────────────────────── */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── Card header (dark navy) ────────────────────────── */
+.card-header {
+  background: var(--header-bg);
+  color: var(--text-inverse);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 14px 20px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  margin: -24px -24px 8px -24px;
+}
+
+/* ─── Section titles ─────────────────────────────────── */
+.section-title { font-size: 0.95rem; font-weight: 700; color: var(--text); letter-spacing: -0.1px; }
+.summary-line  { font-size: 0.85rem; color: var(--text-muted); }
+.section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+}
+
+/* ─── Responsive ─────────────────────────────────────── */
+@media (max-width: 768px) {
+  .main-content   { padding: 20px 16px; }
+  .page           { gap: 14px; }
+  .card           { padding: 16px; }
+  .card-header    { margin: -16px -16px 8px -16px; }
+}
+@media (max-width: 480px) {
+  .main-content { padding: 12px; }
+}
