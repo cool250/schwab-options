@@ -9,7 +9,7 @@ import {
   ReferenceLine,
   Tooltip,
 } from "recharts";
-import { getOptionChain } from "../api/client";
+import { getOptionChain, getExpirationList } from "../api/client";
 
 function blackScholesApprox(spot, strike, dte, iv, isCall) {
   const t = Math.max(dte / 365, 1 / 365);
@@ -123,24 +123,10 @@ function maxLossProfit(legs, lo, hi) {
 const DEFAULT_SYMBOL = "SPY";
 const DEFAULT_SPOT = 0;
 
-/** Next `count` weekly (Friday) expirations from today, with dte computed relative to now. */
-function buildExpirations(count = 12) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const next = new Date(today);
-  next.setDate(next.getDate() + ((5 - next.getDay() + 7) % 7));
-
-  const expirations = [];
-  for (let i = 0; i < count; i++) {
-    const dte = Math.round((next - today) / 86400000);
-    expirations.push({
-      label: String(next.getDate()),
-      month: next.toLocaleString("en-US", { month: "short" }),
-      dte,
-    });
-    next.setDate(next.getDate() + 7);
-  }
-  return expirations;
+/** Splits a "YYYY-MM-DD" date into the { month, day } shown on an expiration pill. */
+function expPillParts(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  return { month: d.toLocaleDateString("en-US", { month: "short" }), day: String(d.getDate()) };
 }
 
 /* ============================================================================
@@ -152,6 +138,9 @@ const fmtMoney = (n) => {
   const s = abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${n < 0 ? "-" : ""}$${s}`;
 };
+
+const formatExpLabel = (dateStr) =>
+  new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 /* ============================================================================
    MAIN PAGE
@@ -169,8 +158,8 @@ export default function StrikeLab() {
   const [loadingChain, setLoadingChain] = useState(false);
   const [view, setView] = useState("chain"); // 'chain' | 'table' | 'graph'
 
-  const EXPIRATIONS = useMemo(() => buildExpirations(), []);
-  const dte = EXPIRATIONS[expIndex].dte;
+  const [expirations, setExpirations] = useState([]); // [{date, dte}] — real listed expirations, incl. daily where offered
+  const dte = expirations[expIndex]?.dte;
   // The pill above only controls which chain you're browsing to add new legs —
   // an already-built position keeps the expiration it was actually added at,
   // so time decay (Table/Graph) must track the legs' own dte, not the pill.
@@ -178,7 +167,24 @@ export default function StrikeLab() {
   // latest one reflects what you're currently building toward.
   const positionDte = legs.length > 0 ? legs[legs.length - 1].dte : dte;
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await getExpirationList(symbol);
+        if (!cancelled) setExpirations(result || []);
+      } catch (e) {
+        if (!cancelled) setExpirations([]);
+      }
+      if (!cancelled) setExpIndex(0);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+
   const loadChain = useCallback(async () => {
+    if (dte == null) return;
     setLoadingChain(true);
     try {
       const result = await getOptionChain(symbol, dte);
@@ -197,7 +203,7 @@ export default function StrikeLab() {
   }, [symbol, dte]);
 
   useEffect(() => {
-    loadChain();
+    if (dte != null) loadChain();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, dte]);
 
@@ -256,10 +262,16 @@ export default function StrikeLab() {
   };
 
   const addLegFromChain = (type, side, strike, premium) => {
-    setLegs((prev) => [
-      ...prev,
-      { id: `l${Date.now()}`, side, qty: 1, type, strike, premium: +premium.toFixed(2), dte },
-    ]);
+    setLegs((prev) => {
+      // Idempotent: a bid/ask click for a strike/side already in the position is a
+      // no-op rather than a duplicate leg — otherwise a double-click on an already
+      // selected cell would race with the row's double-click-to-remove handler
+      // (two "click" events fire before "dblclick" does).
+      if (prev.some((l) => l.strike === strike && l.type === type && l.side === side)) {
+        return prev;
+      }
+      return [...prev, { id: `l${Date.now()}`, side, qty: 1, type, strike, premium: +premium.toFixed(2), dte }];
+    });
   };
 
   const submitSymbol = (e) => {
@@ -291,18 +303,22 @@ export default function StrikeLab() {
           </span>
         </div>
 
-        <span className="metric-label">Expiration · {dte}d</span>
+        <span className="metric-label">Expiration{dte != null ? ` · ${dte}d` : ""}</span>
         <div className="exp-pills">
-          {EXPIRATIONS.map((e, i) => (
-            <button
-              key={i}
-              className={`exp-pill ${i === expIndex ? "active" : ""}`}
-              onClick={() => setExpIndex(i)}
-            >
-              <span className="exp-pill-month">{e.month}</span>
-              <span className="exp-pill-day">{e.label}</span>
-            </button>
-          ))}
+          {expirations.length === 0 && <span className="text-muted">Loading expirations…</span>}
+          {expirations.map((e, i) => {
+            const { month, day } = expPillParts(e.date);
+            return (
+              <button
+                key={e.date}
+                className={`exp-pill ${i === expIndex ? "active" : ""}`}
+                onClick={() => setExpIndex(i)}
+              >
+                <span className="exp-pill-month">{month}</span>
+                <span className="exp-pill-day">{day}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -430,7 +446,9 @@ export default function StrikeLab() {
           ))}
         </div>
 
-        {view === "graph" ? (
+        {positionDte == null ? (
+          <div className="chain-empty">Loading expirations…</div>
+        ) : view === "graph" ? (
           <>
             <ResponsiveContainer width="100%" height={340}>
               <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
@@ -507,6 +525,7 @@ export default function StrikeLab() {
             spot={spot}
             loading={loadingChain}
             onAddLeg={addLegFromChain}
+            onRemoveLeg={removeLeg}
             legs={legs}
           />
         )}
@@ -577,7 +596,7 @@ function StrikeRuler({ legs, spot, lo, hi }) {
         {legs.map((leg) => (
           <div
             key={leg.id}
-            className={`ruler-tag ${leg.side === "SELL" ? "tag-sell" : "tag-buy"} tag-${leg.type.toLowerCase()}`}
+            className={`ruler-tag ${leg.side === "SELL" ? "tag-sell tag-below" : "tag-buy tag-above"} tag-${leg.type.toLowerCase()}`}
             style={{ left: `${pct(leg.strike)}%` }}
           >
             {leg.strike}
@@ -670,7 +689,7 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
 ============================================================================ */
 const DEFAULT_CHAIN_RADIUS = 10; // strikes shown on each side of ATM
 
-function OptionChainTable({ chain, spot, loading, onAddLeg, legs }) {
+function OptionChainTable({ chain, spot, loading, onAddLeg, onRemoveLeg, legs }) {
   const [radius, setRadius] = useState(DEFAULT_CHAIN_RADIUS);
   const rows = chain?.chain;
 
@@ -696,7 +715,12 @@ function OptionChainTable({ chain, spot, loading, onAddLeg, legs }) {
   return (
     <>
       <div className="slider-row">
-        <span className="slider-label">Strikes each side</span>
+        {chain?.expirationDate && (
+          <span className="chain-week-badge">
+            {formatExpLabel(chain.expirationDate)} · {chain.dte}d
+          </span>
+        )}
+        <span className="slider-label" style={{ marginLeft: "auto" }}>Strikes each side</span>
         <input
           className="input"
           type="number"
@@ -732,10 +756,16 @@ function OptionChainTable({ chain, spot, loading, onAddLeg, legs }) {
             const callLeg = legs.find((l) => l.strike === row.strikePrice && l.type === "CALL");
             const putLeg = legs.find((l) => l.strike === row.strikePrice && l.type === "PUT");
             const isSelected = Boolean(callLeg || putLeg);
+            const deselect = () => {
+              if (callLeg) onRemoveLeg(callLeg.id);
+              if (putLeg) onRemoveLeg(putLeg.id);
+            };
             return (
               <div
                 key={row.strikePrice}
                 className={`chain-row ${isAtm ? "chain-atm" : ""} ${isSelected ? "chain-row-selected" : ""}`}
+                onDoubleClick={isSelected ? deselect : undefined}
+                title={isSelected ? "Double-click to remove this strike" : undefined}
               >
                 <span className="chain-leg-col">
                   {callLeg && (

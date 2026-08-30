@@ -40,6 +40,11 @@ export function getOptionChain(symbol, dte) {
   return request(`/market/options/chain?${p}`)
 }
 
+export function getExpirationList(symbol, daysAhead = 60) {
+  const p = new URLSearchParams({ symbol, days_ahead: daysAhead })
+  return request(`/market/options/expiration-list?${p}`)
+}
+
 export function getAllExpirations(symbol, strike, fromDate, toDate, contractType) {
   const p = new URLSearchParams({ symbol, strike, from_date: fromDate, to_date: toDate, contract_type: contractType })
   return request(`/market/options/expirations?${p}`)

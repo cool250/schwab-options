@@ -127,6 +127,39 @@ class MarketService:
         annualized_return = simple_return * (365 / days) * 100
         return round(annualized_return, 2)
 
+    def get_expirations(self, symbol: str, days_ahead: int = 60):
+        """
+        List every expiration date actually listed for `symbol` within the next
+        `days_ahead` days — weekly, monthly, and daily where the underlying
+        offers them — rather than guessing at weekly Fridays client-side.
+
+        Returns:
+            list[dict]: [{"date": "YYYY-MM-DD", "dte": int}, ...] sorted by dte.
+        """
+        today = datetime.now(pytz.timezone("US/Eastern")).date()
+        from_date = today.strftime('%Y-%m-%d')
+        to_date = (today + timedelta(days=days_ahead)).strftime('%Y-%m-%d')
+
+        try:
+            # strike_count=1 keeps this lightweight — we only need the
+            # expiration-date keys, not the actual option contracts.
+            option_chain = self.client.get_chain(
+                symbol, from_date, to_date, strike_count=1, contract_type="ALL"
+            )
+        except BrokerAuthError:
+            raise
+        except BrokerError as e:
+            logger.error("Failed to fetch expirations for %s: %s", symbol, e)
+            return []
+
+        keys = set(option_chain.callExpDateMap or {}) | set(option_chain.putExpDateMap or {})
+        expirations = []
+        for key in keys:
+            date_str, dte_str = key.split(':')
+            expirations.append({"date": date_str, "dte": int(dte_str)})
+        expirations.sort(key=lambda e: e["dte"])
+        return expirations
+
     def get_option_chain(self, symbol: str, dte: int, strike_count: int = 20):
         """
         Fetch a normalized option chain (calls + puts merged by strike) for
