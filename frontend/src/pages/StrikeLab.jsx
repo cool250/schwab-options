@@ -172,7 +172,8 @@ export default function StrikeLab() {
     (async () => {
       try {
         const result = await getExpirationList(symbol);
-        if (!cancelled) setExpirations(result || []);
+        // Sorted by dte ascending — cap to the next 10 so the pill row renders cleanly.
+        if (!cancelled) setExpirations((result || []).slice(0, 10));
       } catch (e) {
         if (!cancelled) setExpirations([]);
       }
