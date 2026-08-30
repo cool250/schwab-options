@@ -5,7 +5,7 @@ import Navbar from './components/Navbar'
 import Login from './pages/Login'
 import Positions from './pages/Positions'
 import Transactions from './pages/Transactions'
-import StockAllocation from './pages/StockAllocation'
+import ProfitLoss from './pages/ProfitLoss'
 import StrikeLab from './pages/StrikeLab'
 
 export default function App() {
@@ -24,7 +24,7 @@ export default function App() {
                     <Route path="/" element={<Navigate to="/positions" replace={true} />} />
                     <Route path="/positions" element={<Positions />} />
                     <Route path="/transactions" element={<Transactions />} />
-                    <Route path="/allocation" element={<StockAllocation />} />
+                    <Route path="/allocation" element={<ProfitLoss />} />
                     <Route path="/analyze" element={<StrikeLab />} />
                   </Routes>
                 </main>

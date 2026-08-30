@@ -72,7 +72,7 @@ function isoWeekRange(dateStr) {
   return { week, start: fmt(start), end: fmt(end) }
 }
 
-export default function StockAllocation() {
+export default function ProfitLoss() {
   const navigate = useNavigate()
   const [period, setPeriod] = useState('month') // 'month' | 'ytd'
   const [year, setYear] = useState(currentYear)
@@ -237,24 +237,25 @@ export default function StockAllocation() {
     <div className="page">
       <h2 className="page-title">Profit/Loss</h2>
 
+      <div className="button-row">
+        <button
+          type="button"
+          className={`btn ${period === 'month' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setPeriod('month')}
+        >
+          Month
+        </button>
+        <button
+          type="button"
+          className={`btn ${period === 'ytd' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setPeriod('ytd')}
+        >
+          YTD
+        </button>
+      </div>
+
       <div className="card">
         <form onSubmit={handleSubmit}>
-          <div className="button-row">
-            <button
-              type="button"
-              className={`btn ${period === 'month' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setPeriod('month')}
-            >
-              Month
-            </button>
-            <button
-              type="button"
-              className={`btn ${period === 'ytd' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setPeriod('ytd')}
-            >
-              YTD
-            </button>
-          </div>
           <div className="form-row form-row--2">
             <div className="form-group">
               <label>Year</label>
