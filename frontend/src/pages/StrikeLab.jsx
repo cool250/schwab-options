@@ -171,6 +171,12 @@ export default function StrikeLab() {
 
   const EXPIRATIONS = useMemo(() => buildExpirations(), []);
   const dte = EXPIRATIONS[expIndex].dte;
+  // The pill above only controls which chain you're browsing to add new legs —
+  // an already-built position keeps the expiration it was actually added at,
+  // so time decay (Table/Graph) must track the legs' own dte, not the pill.
+  // Use the most recently added leg: if legs span multiple expirations, the
+  // latest one reflects what you're currently building toward.
+  const positionDte = legs.length > 0 ? legs[legs.length - 1].dte : dte;
 
   const loadChain = useCallback(async () => {
     setLoadingChain(true);
@@ -298,11 +304,77 @@ export default function StrikeLab() {
             </button>
           ))}
         </div>
+      </div>
 
+      {/* ---------------- Legs editor ---------------- */}
+      <div className="card">
+        <div className="section-header" style={{ justifyContent: "space-between" }}>
+          <h3 className="section-title">Strikes</h3>
+          <button className="btn btn-secondary" onClick={addLeg}>
+            + Add Leg
+          </button>
+        </div>
         <StrikeRuler legs={legs} spot={spot} lo={lo} hi={hi} />
         <span className="summary-line">
           {legs.length} leg{legs.length !== 1 ? "s" : ""}
         </span>
+        <div className="legs-table">
+          <div className="leg-row leg-row-head">
+            <span>Side</span>
+            <span>Qty</span>
+            <span>Type</span>
+            <span>Strike</span>
+            <span>Premium</span>
+            <span></span>
+          </div>
+          {legs.map((leg) => (
+            <div className="leg-row" key={leg.id}>
+              <select
+                className={`leg-cell leg-side-${leg.side.toLowerCase()}`}
+                value={leg.side}
+                onChange={(e) => updateLeg(leg.id, { side: e.target.value })}
+              >
+                <option value="BUY">BUY</option>
+                <option value="SELL">SELL</option>
+              </select>
+              <input
+                className="leg-cell"
+                type="number"
+                min="1"
+                value={leg.qty}
+                onChange={(e) => updateLeg(leg.id, { qty: Math.max(1, +e.target.value) })}
+              />
+              <select
+                className="leg-cell"
+                value={leg.type}
+                onChange={(e) => updateLeg(leg.id, { type: e.target.value })}
+              >
+                <option value="CALL">CALL</option>
+                <option value="PUT">PUT</option>
+              </select>
+              <input
+                className="leg-cell"
+                type="number"
+                step="0.5"
+                value={leg.strike}
+                onChange={(e) => updateLeg(leg.id, { strike: +e.target.value })}
+              />
+              <input
+                className="leg-cell"
+                type="number"
+                step="0.01"
+                value={leg.premium}
+                onChange={(e) => updateLeg(leg.id, { premium: Math.max(0, +e.target.value) })}
+              />
+              <button className="leg-remove" onClick={() => removeLeg(leg.id)} title="Remove leg">
+                ×
+              </button>
+            </div>
+          ))}
+          {legs.length === 0 && (
+            <div className="legs-empty">No legs yet — add one to start building a payoff.</div>
+          )}
+        </div>
       </div>
 
       {/* ---------------- Metrics ---------------- */}
@@ -416,7 +488,7 @@ export default function StrikeLab() {
                 />
               </AreaChart>
             </ResponsiveContainer>
-            <p className="chart-caption">Payoff shown at expiration · {dte} days out</p>
+            <p className="chart-caption">Payoff shown at expiration · {positionDte} days out</p>
           </>
         ) : view === "table" ? (
           <PLTable
@@ -424,7 +496,7 @@ export default function StrikeLab() {
             spot={spot}
             lo={lo}
             hi={hi}
-            dte={dte}
+            dte={positionDte}
             iv={ivPct / 100}
             maxProfit={maxProfit}
             maxLoss={maxLoss}
@@ -435,6 +507,7 @@ export default function StrikeLab() {
             spot={spot}
             loading={loadingChain}
             onAddLeg={addLegFromChain}
+            legs={legs}
           />
         )}
       </div>
@@ -464,73 +537,6 @@ export default function StrikeLab() {
             onChange={(e) => setIvPct(+e.target.value)}
             className="range-slider"
           />
-        </div>
-      </div>
-
-      {/* ---------------- Legs editor ---------------- */}
-      <div className="card">
-        <div className="section-header" style={{ justifyContent: "space-between" }}>
-          <h3 className="section-title">Positions</h3>
-          <button className="btn btn-secondary" onClick={addLeg}>
-            + Add Leg
-          </button>
-        </div>
-        <div className="legs-table">
-          <div className="leg-row leg-row-head">
-            <span>Side</span>
-            <span>Qty</span>
-            <span>Type</span>
-            <span>Strike</span>
-            <span>Premium</span>
-            <span></span>
-          </div>
-          {legs.map((leg) => (
-            <div className="leg-row" key={leg.id}>
-              <select
-                className={`leg-cell leg-side-${leg.side.toLowerCase()}`}
-                value={leg.side}
-                onChange={(e) => updateLeg(leg.id, { side: e.target.value })}
-              >
-                <option value="BUY">BUY</option>
-                <option value="SELL">SELL</option>
-              </select>
-              <input
-                className="leg-cell"
-                type="number"
-                min="1"
-                value={leg.qty}
-                onChange={(e) => updateLeg(leg.id, { qty: Math.max(1, +e.target.value) })}
-              />
-              <select
-                className="leg-cell"
-                value={leg.type}
-                onChange={(e) => updateLeg(leg.id, { type: e.target.value })}
-              >
-                <option value="CALL">CALL</option>
-                <option value="PUT">PUT</option>
-              </select>
-              <input
-                className="leg-cell"
-                type="number"
-                step="0.5"
-                value={leg.strike}
-                onChange={(e) => updateLeg(leg.id, { strike: +e.target.value })}
-              />
-              <input
-                className="leg-cell"
-                type="number"
-                step="0.01"
-                value={leg.premium}
-                onChange={(e) => updateLeg(leg.id, { premium: Math.max(0, +e.target.value) })}
-              />
-              <button className="leg-remove" onClick={() => removeLeg(leg.id)} title="Remove leg">
-                ×
-              </button>
-            </div>
-          ))}
-          {legs.length === 0 && (
-            <div className="legs-empty">No legs yet — add one to start building a payoff.</div>
-          )}
         </div>
       </div>
 
@@ -664,7 +670,7 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
 ============================================================================ */
 const DEFAULT_CHAIN_RADIUS = 10; // strikes shown on each side of ATM
 
-function OptionChainTable({ chain, spot, loading, onAddLeg }) {
+function OptionChainTable({ chain, spot, loading, onAddLeg, legs }) {
   const [radius, setRadius] = useState(DEFAULT_CHAIN_RADIUS);
   const rows = chain?.chain;
 
@@ -704,11 +710,14 @@ function OptionChainTable({ chain, spot, loading, onAddLeg }) {
       <div className="table-scroll">
         <div className="chain-table">
           <div className="chain-row chain-head">
-            <span className="chain-side-label" style={{ gridColumn: "1 / 4" }}>CALLS</span>
-            <span style={{ gridColumn: "4 / 5" }} />
-            <span className="chain-side-label" style={{ gridColumn: "5 / 8" }}>PUTS</span>
+            <span style={{ gridColumn: "1 / 2" }} />
+            <span className="chain-side-label" style={{ gridColumn: "2 / 5" }}>CALLS</span>
+            <span style={{ gridColumn: "5 / 6" }} />
+            <span className="chain-side-label" style={{ gridColumn: "6 / 9" }}>PUTS</span>
+            <span style={{ gridColumn: "9 / 10" }} />
           </div>
           <div className="chain-row chain-subhead">
+            <span></span>
             <span>Delta</span>
             <span>Bid</span>
             <span>Ask</span>
@@ -716,11 +725,25 @@ function OptionChainTable({ chain, spot, loading, onAddLeg }) {
             <span>Bid</span>
             <span>Ask</span>
             <span>Delta</span>
+            <span></span>
           </div>
           {visible.map((row) => {
             const isAtm = row.strikePrice === atmStrike;
+            const callLeg = legs.find((l) => l.strike === row.strikePrice && l.type === "CALL");
+            const putLeg = legs.find((l) => l.strike === row.strikePrice && l.type === "PUT");
+            const isSelected = Boolean(callLeg || putLeg);
             return (
-              <div key={row.strikePrice} className={`chain-row ${isAtm ? "chain-atm" : ""}`}>
+              <div
+                key={row.strikePrice}
+                className={`chain-row ${isAtm ? "chain-atm" : ""} ${isSelected ? "chain-row-selected" : ""}`}
+              >
+                <span className="chain-leg-col">
+                  {callLeg && (
+                    <span className={`chain-leg-badge ${callLeg.side === "SELL" ? "tag-sell" : "tag-buy"}`}>
+                      {callLeg.side === "SELL" ? "STO" : "BTO"}
+                    </span>
+                  )}
+                </span>
                 <span className="chain-delta">{row.call ? row.call.delta.toFixed(2) : "—"}</span>
                 <span
                   className={`chain-bid ${row.call ? "" : "chain-disabled"}`}
@@ -752,6 +775,13 @@ function OptionChainTable({ chain, spot, loading, onAddLeg }) {
                   {row.put ? row.put.ask.toFixed(2) : "—"}
                 </span>
                 <span className="chain-delta">{row.put ? row.put.delta.toFixed(2) : "—"}</span>
+                <span className="chain-leg-col">
+                  {putLeg && (
+                    <span className={`chain-leg-badge ${putLeg.side === "SELL" ? "tag-sell" : "tag-buy"}`}>
+                      {putLeg.side === "SELL" ? "STO" : "BTO"}
+                    </span>
+                  )}
+                </span>
               </div>
             );
           })}

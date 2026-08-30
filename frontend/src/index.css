@@ -559,8 +559,8 @@ body {
 .pl-spotrow.pl-strike { outline: 2px solid var(--primary); color: var(--primary); }
 .pl-spotrow.pl-value { box-shadow: inset 0 0 0 1px rgba(37,99,235,0.4); }
 
-.chain-table { display: flex; flex-direction: column; gap: 2px; min-width: 480px; }
-.chain-row { display: grid; grid-template-columns: 1fr 1fr 1fr 100px 1fr 1fr 1fr; gap: 2px; align-items: center; }
+.chain-table { display: flex; flex-direction: column; gap: 2px; min-width: 560px; }
+.chain-row { display: grid; grid-template-columns: 56px 1fr 1fr 1fr 100px 1fr 1fr 1fr 56px; gap: 2px; align-items: center; }
 .chain-row > span { font-size: 0.8rem; text-align: center; padding: 7px 4px; border-radius: 4px; }
 
 /* Alternating row stripe, matching .data-table. Applied to the row container
@@ -570,6 +570,10 @@ body {
 .chain-head span { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.6px; color: var(--text-faint); text-transform: uppercase; }
 .chain-subhead span { color: var(--text-muted); font-size: 0.7rem; font-weight: 600; }
 .chain-strike { font-weight: 700; background: var(--primary-light); color: var(--text); }
+.chain-leg-col { display: flex; align-items: center; justify-content: center; }
+.chain-leg-badge { font-size: 0.62rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; line-height: 1.4; white-space: nowrap; }
+.chain-leg-badge.tag-sell { background: var(--error-bg); color: var(--error); }
+.chain-leg-badge.tag-buy { background: var(--success-bg); color: var(--success); }
 .chain-delta { color: var(--text-muted); }
 .chain-bid { cursor: pointer; color: var(--error); }
 .chain-bid:hover { background: var(--error-bg); }
@@ -578,6 +582,12 @@ body {
 .chain-disabled { cursor: default; color: var(--text-faint); opacity: 0.6; }
 .chain-disabled:hover { background: none; }
 .chain-atm .chain-strike { outline: 2px solid var(--primary); color: var(--primary); }
+
+/* A row with a leg attached needs to read clearly at a glance, so it overrides
+   the zebra stripe (hence !important) with a stronger tint plus a full-row outline. */
+.chain-row-selected { background: var(--primary-light) !important; box-shadow: inset 0 0 0 1.5px var(--primary); }
+.chain-row-selected > span { font-weight: 600; }
+
 .chain-empty { color: var(--text-muted); font-size: 0.85rem; padding: 24px 0; text-align: center; }
 
 .slider-row { display: flex; align-items: center; gap: 16px; }
