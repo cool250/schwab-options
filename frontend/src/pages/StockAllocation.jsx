@@ -348,9 +348,9 @@ export default function StockAllocation() {
               </div>
             )}
 
-            {/* Weekly bar chart */}
+            {/* Weekly bar chart — spans the full row width, below the per-symbol charts */}
             {weeklyData.rows?.length > 0 && (
-              <div className="card chart-card">
+              <div className="card chart-card chart-card--full">
                 <h3 className="section-title">Weekly Allocation — {label}</h3>
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={weeklyData.rows} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>

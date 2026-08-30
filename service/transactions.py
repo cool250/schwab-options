@@ -249,6 +249,10 @@ class TransactionService:
                     continue
             elif realized_gains_only:
                 continue
+            # FIFO matching above stays keyed on the exact contract symbol (each
+            # expiration is a distinct instrument); only the displayed symbol is
+            # rolled up to its root here, e.g. '/ESU26:XCME' -> 'ES'.
+            trade["symbol"] = self._normalize_futures_symbol(trade["symbol"])
             results.append(trade)
 
         results.sort(key=lambda r: r.get("close_date") or r["date"])

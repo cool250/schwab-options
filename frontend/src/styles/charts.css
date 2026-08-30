@@ -1,6 +1,7 @@
 /* ─── Charts (shared by StrikeLab and Monthly Gains) ─── */
 .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .chart-card { gap: 14px; }
+.chart-card--full { grid-column: 1 / -1; }
 .chart-total { color: var(--text-muted); font-size: 0.875rem; font-weight: 400; }
 .chart-caption { text-align: center; font-size: 0.8rem; color: var(--text-muted); padding: 8px 0 0; }
 .chart-tooltip { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; box-shadow: var(--shadow-sm); }
