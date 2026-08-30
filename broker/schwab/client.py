@@ -1,11 +1,11 @@
 import logging
 from typing import Optional
 
-from broker.clients import Accounts, MarketData
-from broker.auth import FileTokenProvider, RedisTokenProvider, create_token_provider
-from broker.data.account_data import SecuritiesAccount, Activity
-from broker.data.market_data import PriceHistoryResponse, StockQuotes
-from broker.data.option_data import OptionChainResponse
+from broker.schwab.clients import Accounts, MarketData
+from broker.schwab.auth import FileTokenProvider, RedisTokenProvider, create_token_provider
+from broker.schwab.data.account_data import SecuritiesAccount, Activity
+from broker.schwab.data.market_data import PriceHistoryResponse, StockQuotes
+from broker.schwab.data.option_data import OptionChainResponse
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ class Client:
     Unified Schwab API client — the main SDK entry point.
 
     All methods return validated Pydantic models and raise typed exceptions
-    on failure (see :mod:`broker.exceptions`).
+    on failure (see :mod:`broker.schwab.exceptions`).
 
     **File-backed** (explicit credentials)::
 
@@ -41,18 +41,18 @@ class Client:
 
     **Custom token provider**::
 
-        from broker.auth import TokenProvider
+        from broker.schwab.auth import TokenProvider
 
         client = Client(token_provider=VaultProvider())
 
     **Error handling**::
 
-        from broker.exceptions import BrokerAuthError, BrokerAPIError, BrokerValidationError
+        from broker.schwab.exceptions import BrokerAuthError, BrokerAPIError, BrokerValidationError
 
         try:
             quote = client.get_price("AAPL")
         except BrokerAuthError:
-            broker.auth.authenticate.get_access_token()
+            broker.schwab.auth.authenticate.get_access_token()
         except BrokerAPIError as e:
             print(f"HTTP {e.status_code}")
         except BrokerValidationError:

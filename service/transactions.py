@@ -9,8 +9,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
-from broker import Client
-from broker.exceptions import BrokerAuthError, BrokerError
+from broker.schwab import Client
+from broker.schwab.exceptions import BrokerAuthError, BrokerError
 from utils.utils import get_date_object, get_date_string
 from pydantic import BaseModel
 

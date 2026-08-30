@@ -5,9 +5,9 @@ from typing import Optional, Protocol
 
 import pytz
 
-from broker import Client
-from broker.exceptions import BrokerAuthError, BrokerError
-from tasty_clients import TastytradeAPIError, TastytradeClient
+from broker.schwab import Client
+from broker.schwab.exceptions import BrokerAuthError, BrokerError
+from broker.tastytrade import TastytradeAPIError, TastytradeClient
 
 logger = logging.getLogger(__name__)
 
@@ -180,9 +180,17 @@ class TastytradeOptionChainProvider:
             logger.error("Failed to fetch chain quotes for %s: %s", symbol, e)
             quotes = {}
 
-        return self._normalize_chain(contracts, quotes, spot)
+        try:
+            greeks = self.client.get_chain_greeks(contracts)
+        except TastytradeAPIError as e:
+            logger.error("Failed to fetch chain greeks for %s: %s", symbol, e)
+            greeks = {}
 
-    def _normalize_chain(self, contracts: list[dict], quotes: dict[str, dict], spot: float) -> Optional[dict]:
+        return self._normalize_chain(contracts, quotes, greeks, spot)
+
+    def _normalize_chain(
+        self, contracts: list[dict], quotes: dict[str, dict], greeks: dict[str, dict], spot: float
+    ) -> Optional[dict]:
         """Merge Tastytrade's flat contract list into the same strike-indexed
         shape SchwabOptionChainProvider produces."""
 
@@ -195,8 +203,7 @@ class TastytradeOptionChainProvider:
                 "symbol": sym,
                 "bid": quote.get("bid"),
                 "ask": quote.get("ask"),
-                # Not available from Tastytrade's REST chain metadata.
-                "delta": None,
+                "delta": greeks.get(sym, {}).get("delta"),
             }
 
         by_strike: dict[float, dict[str, dict]] = {}
@@ -222,13 +229,26 @@ class TastytradeOptionChainProvider:
             for strike, sides in sorted(by_strike.items())
         ]
 
+        def contract_iv(contract: Optional[dict]) -> Optional[float]:
+            if contract is None:
+                return None
+            return greeks.get(contract.get("streamer-symbol"), {}).get("iv")
+
+        atm_strike = min(by_strike, key=lambda s: abs(s - spot), default=None)
+        atm_ivs = []
+        if atm_strike is not None:
+            atm_sides = by_strike[atm_strike]
+            for iv in (contract_iv(atm_sides.get("call")), contract_iv(atm_sides.get("put"))):
+                if iv:
+                    atm_ivs.append(iv)
+        atm_iv = sum(atm_ivs) / len(atm_ivs) if atm_ivs else None
+
         return {
             "symbol": symbol_from_contracts(contracts),
             "spot": spot,
             "dte": int(actual_dte) if actual_dte is not None else None,
             "expirationDate": expiration_date,
-            # Not available from Tastytrade's REST chain metadata.
-            "iv": None,
+            "iv": atm_iv,
             "chain": merged,
         }
 

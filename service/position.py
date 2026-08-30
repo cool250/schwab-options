@@ -2,9 +2,9 @@ from datetime import date, datetime
 from typing import Optional
 import logging
 
-from broker import Client
-from broker.exceptions import BrokerAuthError, BrokerError
-from broker.data.account_data import SecuritiesAccount
+from broker.schwab import Client
+from broker.schwab.exceptions import BrokerAuthError, BrokerError
+from broker.schwab.data.account_data import SecuritiesAccount
 
 logger = logging.getLogger(__name__)
 

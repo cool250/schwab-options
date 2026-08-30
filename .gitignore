@@ -78,7 +78,3 @@ portfolio.csv
 
 logs/
 sample_tasty_client.py
-tasty_clients/__init__.py
-tasty_clients/dxlink_streamer.py
-tasty_clients/py.typed
-tasty_clients/tastytrade_client.py

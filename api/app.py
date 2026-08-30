@@ -37,7 +37,7 @@ from fastapi import FastAPI, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from broker.exceptions import BrokerAuthError
+from broker.schwab.exceptions import BrokerAuthError
 from api.auth import router as auth_router, require_auth
 from api.market import router as market_router
 from api.optimizer import router as optimizer_router

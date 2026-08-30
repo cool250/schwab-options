@@ -2,8 +2,8 @@ from datetime import datetime, timedelta
 import pytz
 import logging
 
-from broker import Client
-from broker.exceptions import BrokerAuthError, BrokerError
+from broker.schwab import Client
+from broker.schwab.exceptions import BrokerAuthError, BrokerError
 from service.option_chain_providers import get_option_chain_provider
 
 logger = logging.getLogger(__name__)

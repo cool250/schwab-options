@@ -4,8 +4,8 @@ import time
 import logging
 import requests
 
-from broker.exceptions import BrokerAuthError, BrokerAPIError
-from broker.auth import TokenProvider, create_token_provider
+from broker.schwab.exceptions import BrokerAuthError, BrokerAPIError
+from broker.schwab.auth import TokenProvider, create_token_provider
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,8 @@ class BaseClient:
     Handles Bearer-token auth, automatic token refresh on 401, and
     exponential-backoff retries.
 
-    Raises :class:`~broker.exceptions.BrokerAuthError` when authentication
-    cannot be recovered, and :class:`~broker.exceptions.BrokerAPIError` when
+    Raises :class:`~broker.schwab.exceptions.BrokerAuthError` when authentication
+    cannot be recovered, and :class:`~broker.schwab.exceptions.BrokerAPIError` when
     a non-200 response persists after all retries.
     """
 
@@ -137,7 +137,7 @@ class BaseClient:
             if attempt >= max_retries:
                 raise BrokerAuthError(
                     f"Authentication failed after {max_retries} attempts. "
-                    "Re-authenticate using broker.auth.authenticate.get_access_token()."
+                    "Re-authenticate using broker.schwab.auth.authenticate.get_access_token()."
                 )
             logger.warning(
                 "401 Unauthorized — refreshing token (attempt %d/%d)…", attempt, max_retries

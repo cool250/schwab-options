@@ -4,12 +4,12 @@ Typed exception hierarchy for the broker SDK.
 All broker exceptions inherit from :class:`BrokerError` so callers can
 catch the base class when they don't need to distinguish failure modes::
 
-    from broker.exceptions import BrokerError, BrokerAuthError, BrokerAPIError, BrokerValidationError
+    from broker.schwab.exceptions import BrokerError, BrokerAuthError, BrokerAPIError, BrokerValidationError
 
     try:
         quote = client.get_price("AAPL")
     except BrokerAuthError:
-        # Token expired and refresh failed — re-authenticate via broker.auth.authenticate
+        # Token expired and refresh failed — re-authenticate via broker.schwab.auth.authenticate
         ...
     except BrokerAPIError as e:
         print(e.status_code)   # HTTP status, if available
@@ -31,7 +31,7 @@ class BrokerAuthError(BrokerError):
     Raised when authentication fails or a token refresh cannot be completed.
 
     This typically means the refresh token has expired and the user must
-    re-authenticate via :func:`broker.auth.authenticate.get_access_token`.
+    re-authenticate via :func:`broker.schwab.auth.authenticate.get_access_token`.
     """
 
 

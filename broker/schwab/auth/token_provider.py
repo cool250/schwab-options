@@ -13,9 +13,9 @@ is set to a truthy value, and falls back to :class:`FileTokenProvider`
 otherwise.
 
 To use a custom storage backend, subclass :class:`TokenProvider` and pass
-an instance to :class:`broker.client.Client`::
+an instance to :class:`broker.schwab.client.Client`::
 
-    from broker.auth import TokenProvider
+    from broker.schwab.auth import TokenProvider
 
     class MyProvider(TokenProvider):
         def get_access_token(self) -> str:
