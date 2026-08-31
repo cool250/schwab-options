@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import {
   ResponsiveContainer,
@@ -10,7 +10,26 @@ import {
   ReferenceLine,
   Tooltip,
 } from "recharts";
-import { getOptionChain, getExpirationList } from "../api/client";
+import { getExpirationList } from "../api/client";
+
+/** Patches a live bid/ask tick into whichever leg (call or put, on whichever
+ *  strike row) carries that streamer-symbol, leaving everything else as-is. */
+function patchChainQuote(chain, msg) {
+  if (!chain) return chain;
+  let anyChanged = false;
+  const rows = chain.chain.map((row) => {
+    const callMatch = row.call && row.call.symbol === msg.symbol;
+    const putMatch = row.put && row.put.symbol === msg.symbol;
+    if (!callMatch && !putMatch) return row;
+    anyChanged = true;
+    return {
+      ...row,
+      call: callMatch ? { ...row.call, bid: msg.bid, ask: msg.ask } : row.call,
+      put: putMatch ? { ...row.put, bid: msg.bid, ask: msg.ask } : row.put,
+    };
+  });
+  return anyChanged ? { ...chain, chain: rows } : chain;
+}
 
 function blackScholesApprox(spot, strike, dte, iv, isCall) {
   const t = Math.max(dte / 365, 1 / 365);
@@ -196,14 +215,14 @@ export default function StrikeLab() {
   const [view, setView] = useState(location.state?.view || strikeLabCache.view || "chain"); // 'chain' | 'table' | 'graph'
 
   // Skip the initial network fetch when we're restoring the same symbol's
-  // already-cached expirations/chain rather than starting a genuinely new
-  // search — otherwise every remount would silently refetch and briefly
-  // flash a reload over data that hasn't actually changed.
+  // already-cached expirations rather than starting a genuinely new search —
+  // otherwise every remount would silently refetch and briefly flash a
+  // reload over data that hasn't actually changed. The chain itself doesn't
+  // need an equivalent guard: the WebSocket subscription below renders
+  // whatever's cached immediately and only replaces it once a fresh
+  // snapshot actually arrives, so reconnecting is never a visible reload.
   const skipInitialExpirationsFetch = useRef(
     !isNewAnalyzeRequest && strikeLabCache.symbol === symbol && (strikeLabCache.expirations?.length ?? 0) > 0
-  );
-  const skipInitialChainFetch = useRef(
-    !isNewAnalyzeRequest && strikeLabCache.symbol === symbol && strikeLabCache.chain != null
   );
 
   const [expirations, setExpirations] = useState(strikeLabCache.expirations ?? []); // [{date, dte}] — real listed expirations, incl. daily where offered
@@ -262,34 +281,66 @@ export default function StrikeLab() {
     };
   }, [symbol]);
 
-  const loadChain = useCallback(async () => {
-    if (dte == null) return;
-    setLoadingChain(true);
-    try {
-      const result = await getOptionChain(symbol, dte);
-      if (result && result.chain) {
-        setChain(result);
-        setSpot(result.spot);
-        // Some brokers (e.g. Tastytrade) don't expose chain-level IV — keep
-        // whatever IV is already set rather than zeroing it out.
-        if (result.iv != null) setIvPct(result.iv * 100);
-      } else {
-        setChain(null);
-      }
-    } catch (e) {
-      setChain(null);
-    } finally {
-      setLoadingChain(false);
-    }
-  }, [symbol, dte]);
-
+  // Live chain feed: opens one WebSocket per symbol/dte, gets a full snapshot
+  // back immediately (same shape the old one-shot REST call returned), then
+  // keeps receiving individual bid/ask ticks as the market moves — no more
+  // re-fetching the whole chain to see a fresher price. Reconnects with
+  // backoff if the connection drops (dev-server restarts, brief network
+  // blips, etc.); the effect's cleanup closes it on symbol/dte change or unmount.
   useEffect(() => {
-    if (skipInitialChainFetch.current) {
-      skipInitialChainFetch.current = false;
-      return;
+    if (dte == null) return;
+
+    let cancelled = false;
+    let socket = null;
+    let reconnectTimer = null;
+    let retryDelayMs = 1000;
+
+    function connect() {
+      const token = sessionStorage.getItem("auth_token");
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      socket = new WebSocket(
+        `${proto}://${window.location.host}/api/market/ws/chain?token=${encodeURIComponent(token ?? "")}`
+      );
+
+      socket.onopen = () => {
+        retryDelayMs = 1000;
+        socket.send(JSON.stringify({ action: "subscribe", symbol, dte, strike_count: 20 }));
+      };
+
+      socket.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "snapshot") {
+          setChain(msg.chain);
+          setSpot(msg.chain.spot);
+          // Some brokers (e.g. Tastytrade) don't expose chain-level IV — keep
+          // whatever IV is already set rather than zeroing it out.
+          if (msg.chain.iv != null) setIvPct(msg.chain.iv * 100);
+          setLoadingChain(false);
+        } else if (msg.type === "quote") {
+          setChain((prev) => patchChainQuote(prev, msg));
+        }
+        // "error" messages are logged server-side; the chain view falls back
+        // to whatever's already rendered (cached or a prior snapshot) rather
+        // than clearing to a blank state over one bad tick.
+      };
+
+      socket.onclose = () => {
+        if (cancelled) return;
+        reconnectTimer = setTimeout(connect, retryDelayMs);
+        retryDelayMs = Math.min(retryDelayMs * 2, 15000);
+      };
+
+      socket.onerror = () => socket.close();
     }
-    if (dte != null) loadChain();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    setLoadingChain(true);
+    connect();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(reconnectTimer);
+      socket?.close();
+    };
   }, [symbol, dte]);
 
   // Keep the cache in sync with every field it tracks, so a later

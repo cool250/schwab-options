@@ -52,6 +52,13 @@ def require_auth(credentials: HTTPAuthorizationCredentials = Depends(_bearer)):
         )
 
 
+def verify_token(token: str) -> bool:
+    """Public wrapper for WebSocket routes, which can't carry an Authorization
+    header the way HTTPBearer expects — they pass the token as a query param
+    and check it manually instead of via the require_auth dependency."""
+    return _verify_token(token)
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
