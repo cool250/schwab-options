@@ -103,7 +103,11 @@ class TransactionService:
         if symbol.startswith("."):
             base = symbol.split(":")[0][1:]
             first_letter = base[0] if base else ""
-            return cls._FUTURES_PREFIX_MAP.get(first_letter, symbol)
+            root = cls._FUTURES_PREFIX_MAP.get(first_letter)
+            if not root:
+                logger.warning("Could not resolve futures root for symbol %r", symbol)
+                return symbol
+            return root
 
         return symbol
 
@@ -122,7 +126,11 @@ class TransactionService:
         it — or hit some matching edge case — as if it were still open, since
         this only sees what's inside the fetch window.
         """
-        end_date = datetime.now().strftime("%Y-%m-%d")
+        # +1 day: convert_to_iso8601 renders end_date as 00:00:00 UTC of that
+        # calendar date, which is hours before US markets even open — without
+        # this, anything filled "today" (or late evening the day before, US
+        # time) falls outside the window until the date rolls over tomorrow.
+        end_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
         try:

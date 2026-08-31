@@ -120,7 +120,11 @@ class PositionService:
         """
         from service.transactions import TransactionService  # local: avoid import cost when unused
 
-        end_date = date.today().strftime("%Y-%m-%d")
+        # +1 day: convert_to_iso8601 renders end_date as 00:00:00 UTC of that
+        # calendar date, which is hours before US markets even open — without
+        # this, anything filled "today" (or late evening the day before, US
+        # time) falls outside the window until the date rolls over tomorrow.
+        end_date = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
         start_date = (date.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
         try:
