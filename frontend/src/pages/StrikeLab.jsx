@@ -11,6 +11,7 @@ import {
   Tooltip,
 } from "recharts";
 import { getExpirationList } from "../api/client";
+import { MULTIPLIER, getMultiplier } from "../utils/contractMultiplier";
 
 /** Patches a live bid/ask tick into whichever leg (call or put, on whichever
  *  strike row) carries that streamer-symbol, leaving everything else as-is. */
@@ -42,19 +43,6 @@ function blackScholesApprox(spot, strike, dte, iv, isCall) {
 /* ============================================================================
    PAYOFF MATH
 ============================================================================ */
-
-const MULTIPLIER = 100; // standard equity/index option contract multiplier
-
-// Futures options settle on the underlying future's own point value, not the
-// standard 100-share equity multiplier — e.g. an ES option is $50/point, NQ
-// is $20/point. Keyed by root symbol with the leading '/' stripped.
-const FUTURES_MULTIPLIER_BY_ROOT = { ES: 50, NQ: 20, RTY: 50 };
-
-function getMultiplier(sym) {
-  if (!sym) return MULTIPLIER;
-  const root = sym.replace(/^\//, "").toUpperCase();
-  return FUTURES_MULTIPLIER_BY_ROOT[root] ?? MULTIPLIER;
-}
 
 function legPL(leg, price) {
   const intrinsic =

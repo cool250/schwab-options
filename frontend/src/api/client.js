@@ -51,15 +51,26 @@ export function getFuturesOptionQuotes() {
   return request('/positions/futures/options/quotes')
 }
 
-export function getOptionTransactions(stockTicker, startDate, endDate, contractType, realizedGainsOnly) {
+export function getOptionTransactions(stockTicker, startDate, endDate, contractType, realizedGainsOnly, unrealizedOnly = false) {
   const p = new URLSearchParams({
     stock_ticker: stockTicker,
     start_date: startDate,
     end_date: endDate,
     contract_type: contractType,
     realized_gains_only: realizedGainsOnly,
+    unrealized_only: unrealizedOnly,
   })
   return request(`/transactions/options?${p}`)
+}
+
+export function getOptionQuotes(stockTicker, startDate, endDate, contractType) {
+  const p = new URLSearchParams({
+    stock_ticker: stockTicker,
+    start_date: startDate,
+    end_date: endDate,
+    contract_type: contractType,
+  })
+  return request(`/transactions/options/quotes?${p}`)
 }
 
 export function getEquityTransactions(stockTicker, startDate, endDate, assetType, realizedGainsOnly) {

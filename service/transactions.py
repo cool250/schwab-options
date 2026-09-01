@@ -172,18 +172,21 @@ class TransactionService:
             logger.error("Failed to fetch transaction history: %s", e)
             return []
     
-    def get_option_transactions(self, stock_ticker: str, start_date: str, end_date: str, 
-                             contract_type: str = "ALL", realized_gains_only: bool = True) -> List[Dict]:
+    def get_option_transactions(self, stock_ticker: str, start_date: str, end_date: str,
+                             contract_type: str = "ALL", realized_gains_only: bool = True,
+                             unrealized_only: bool = False) -> List[Dict]:
         """
         Fetch option transactions, match related trades, and calculate realized gains/losses.
-        
+
         Args:
             stock_ticker (str): The ticker symbol to filter by (e.g., "AAPL")
             start_date (str): Start date in YYYY-MM-DD format
             end_date (str): End date in YYYY-MM-DD format
             contract_type (str, optional): Filter by option type - "PUT", "CALL", or "ALL". Defaults to "ALL"
             realized_gains_only (bool, optional): If True, only return closed positions. Defaults to True
-            
+            unrealized_only (bool, optional): If True, only return still-open positions
+                (type == "TRADE") — takes precedence over realized_gains_only. Defaults to False
+
         Returns:
             list: Processed option transactions with calculated gains/losses
         """
@@ -226,10 +229,14 @@ class TransactionService:
         # Filter by date range and calculate totals
         result_transactions = []
         for transaction in matched_transactions:
+            if unrealized_only:
+                # Only still-open legs — closed/expired/assigned ones have nothing left to unrealize
+                if transaction["type"] != "TRADE":
+                    continue
             # Skip if we only want realized gains and anything is still open
-            if realized_gains_only and transaction["type"] not in ["EXPIRED", "CLOSED"]:
+            elif realized_gains_only and transaction["type"] not in ["EXPIRED", "CLOSED"]:
                 continue
-                
+
             # Only include transactions that closed within our original date range
             close_date_str = transaction.get("close_date", "")
             if close_date_str:
@@ -238,6 +245,118 @@ class TransactionService:
                     result_transactions.append(transaction)
 
         return result_transactions
+
+    @classmethod
+    def get_option_quotes(cls, legs: list) -> dict:
+        """Live current prices for a set of open (unrealized) option legs,
+        keyed by `symbol` — split out from get_option_transactions so the
+        transactions table itself can render immediately without waiting on
+        Tastytrade (both broker's quote endpoints are involved here: Schwab
+        flatly rejects futures-option symbols, so /ES and /NQ legs go through
+        Tastytrade's futures-option chain instead of the equity one).
+
+        Any leg whose chain fetch fails, or whose contract/quote can't be
+        found, is simply omitted — this is a display nicety, not something
+        that should ever block the table.
+        """
+        if not legs:
+            return {}
+
+        futures_legs = [leg for leg in legs if leg.get("underlying_symbol") in cls._CONTRACT_MULTIPLIER]
+        equity_legs = [leg for leg in legs if leg.get("underlying_symbol") not in cls._CONTRACT_MULTIPLIER]
+
+        result = {}
+        if futures_legs:
+            from service.position import PositionService  # local: avoid circular import
+            result.update(PositionService._get_futures_option_quotes(futures_legs))
+        if equity_legs:
+            result.update(cls._get_equity_option_quotes(equity_legs))
+        return result
+
+    @staticmethod
+    def _get_equity_option_quotes(legs: list) -> dict:
+        """Live bid prices for a set of open equity/index option legs via
+        Tastytrade's DXLink feed, keyed by `symbol`.
+
+        Grouped by underlying ticker so each ticker's chain is only fetched
+        once regardless of how many strikes/expirations are open on it —
+        unlike the futures-option chain endpoint, get_option_chain() isn't
+        pre-filtered by expiration, so expiration is part of the match key.
+
+        Returns {symbol: bid_price}. Any leg whose chain fetch fails, or
+        whose contract/quote can't be found, is simply omitted — this is a
+        display nicety, not something that should ever block the table.
+        """
+        if not legs:
+            return {}
+
+        from broker.tastytrade import TastytradeAPIError, TastytradeClient
+
+        try:
+            client = TastytradeClient.from_config()
+        except ValueError as e:
+            logger.error("Tastytrade credentials unavailable for option quotes: %s", e)
+            return {}
+
+        by_ticker: dict[str, list] = {}
+        for leg in legs:
+            by_ticker.setdefault(leg.get("underlying_symbol"), []).append(leg)
+
+        option_type_code = {"PUT": "P", "CALL": "C"}
+        matched_contracts = []
+        symbol_by_streamer_symbol = {}
+
+        for ticker, ticker_legs in by_ticker.items():
+            if not ticker:
+                continue
+            try:
+                contracts = client.get_option_chain(ticker)
+            except TastytradeAPIError as e:
+                logger.error("Failed to fetch option chain for %s: %s", ticker, e)
+                continue
+
+            by_strike_type_expiry = {}
+            for contract in contracts:
+                try:
+                    key = (
+                        float(contract["strike-price"]),
+                        contract["option-type"],
+                        contract.get("expiration-date"),
+                    )
+                    by_strike_type_expiry[key] = contract
+                except (KeyError, TypeError, ValueError):
+                    continue
+
+            for leg in ticker_legs:
+                strike = leg.get("strike_price")
+                code = option_type_code.get(leg.get("option_type"))
+                expiration = leg.get("expirationDate")
+                contract = (
+                    by_strike_type_expiry.get((strike, code, expiration))
+                    if strike is not None and code
+                    else None
+                )
+                streamer_symbol = contract.get("streamer-symbol") if contract else None
+                if not streamer_symbol:
+                    continue
+                matched_contracts.append(contract)
+                symbol_by_streamer_symbol[streamer_symbol] = leg.get("symbol")
+
+        if not matched_contracts:
+            return {}
+
+        try:
+            quotes = client.get_chain_quotes(matched_contracts)
+        except TastytradeAPIError as e:
+            logger.error("Failed to fetch option quotes: %s", e)
+            return {}
+
+        result = {}
+        for streamer_symbol, symbol in symbol_by_streamer_symbol.items():
+            quote = quotes.get(streamer_symbol)
+            if quote and quote.get("bid") is not None and symbol:
+                result[symbol] = quote["bid"]
+        return result
 
     def get_equity_transactions(self, stock_ticker: str, start_date: str, end_date: str,
                                  asset_type: str = "ALL", realized_gains_only: bool = False) -> List[Dict]:

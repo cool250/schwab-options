@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { getOptionTransactions, getEquityTransactions } from '../api/client'
+import { getOptionTransactions, getOptionQuotes, getEquityTransactions } from '../api/client'
+import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
 const OPTION_COLUMNS = [
   { key: 'symbol',          label: 'Symbol' },
-  { key: 'close_date',    label: 'Closed Date' },
-  { key: 'expirationDate', label: 'Expiry Date' },
+  { key: 'date',          label: 'Open' },
+  { key: 'close_date',    label: 'Close' },
+  { key: 'expirationDate', label: 'Expire' },
   { key: 'open_type',     label: 'Opened As' },
-  { key: 'amount',        label: 'Quantity',     align: 'right' },
-  { key: 'close_price',   label: 'Closing Price',  align: 'right' },
-  { key: 'open_price',     label: 'Opening Price',  align: 'right' },
+  { key: 'amount',        label: 'Qty',     align: 'right' },
+  { key: 'close_price',   label: 'Close Price',  align: 'right' },
+  { key: 'open_price',     label: 'Open Price',  align: 'right' },
   { key: 'total_amount',     label: 'Total',  align: 'right' },
   { key: 'option_type',     label: 'Option Type' },
   { key: 'type',     label: 'Status' },
@@ -47,19 +49,39 @@ export default function Transactions() {
   const [ticker, setTicker] = useState(initialTab === 'options' ? (searchParams.get('ticker')?.toUpperCase() ?? '') : '')
   const [contractType, setContractType] = useState('ALL')
   const [realizedOnly, setRealizedOnly] = useState(initialTab === 'options' ? searchParams.get('realized') !== 'false' : true)
+  const [unrealizedOnly, setUnrealizedOnly] = useState(initialTab === 'options' ? searchParams.get('unrealized') === 'true' : false)
   const [startDate, setStartDate] = useState(() => (initialTab === 'options' ? (searchParams.get('start') ?? firstOfMonth()) : firstOfMonth()))
   const [endDate, setEndDate] = useState(() => (initialTab === 'options' ? (searchParams.get('end') ?? todayStr()) : todayStr()))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [transactions, setTransactions] = useState(null)
+  const [optionQuotes, setOptionQuotes] = useState({})
+  const [optionQuotesLoading, setOptionQuotesLoading] = useState(false)
 
-  async function runSearch(tickerVal, startVal, endVal, contractTypeVal, realizedVal) {
+  async function runSearch(tickerVal, startVal, endVal, contractTypeVal, realizedVal, unrealizedVal) {
     setLoading(true)
     setError(null)
     setTransactions(null)
+    setOptionQuotes({})
     try {
-      const data = await getOptionTransactions(tickerVal.trim().toUpperCase(), startVal, endVal, contractTypeVal, realizedVal)
+      const tickerUpper = tickerVal.trim().toUpperCase()
+      const data = await getOptionTransactions(tickerUpper, startVal, endVal, contractTypeVal, realizedVal, unrealizedVal)
       setTransactions(data)
+
+      // Current price for still-open (unrealized) rows comes from Tastytrade
+      // (Schwab has no quote endpoint we can use here either) — fetched
+      // separately so the table itself renders immediately instead of
+      // blocking on it. Needed whenever open rows can appear in the result:
+      // either the unrealized-only view, or the unfiltered "show everything"
+      // view (realizedVal false, unrealizedVal false) which mixes open and
+      // closed rows together. Realized-only never has open rows, so skip it.
+      if (!realizedVal && data.length > 0) {
+        setOptionQuotesLoading(true)
+        getOptionQuotes(tickerUpper, startVal, endVal, contractTypeVal)
+          .then(setOptionQuotes)
+          .catch(() => {})
+          .finally(() => setOptionQuotesLoading(false))
+      }
     } catch (err) {
       const msg = err?.message ?? ''
       if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
@@ -74,19 +96,75 @@ export default function Transactions() {
 
   function handleSearch(e) {
     e.preventDefault()
-    runSearch(ticker, startDate, endDate, contractType, realizedOnly)
+    runSearch(ticker, startDate, endDate, contractType, realizedOnly, unrealizedOnly)
   }
 
   // Arriving from a chart click (e.g. Profit/Loss) pre-fills the filters via
   // the URL — run the search immediately instead of waiting for another click.
   useEffect(() => {
     if (initialTab === 'options' && (searchParams.get('ticker') || searchParams.get('start'))) {
-      runSearch(ticker, startDate, endDate, contractType, realizedOnly)
+      runSearch(ticker, startDate, endDate, contractType, realizedOnly, unrealizedOnly)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const totalAmount = transactions?.reduce((s, t) => s + (t.total_amount ?? 0), 0) ?? 0
+
+  // Unrealized gain isn't a field on the row — it depends on the live price
+  // fetched separately above — so it's added as a render-only column (like
+  // the futures tab's current_price) rather than merged into the row data.
+  function currentPriceColumn() {
+    return {
+      key: 'current_price',
+      label: 'Current Price',
+      align: 'right',
+      render: (row) => {
+        const price = optionQuotes[row.symbol]
+        if (price != null) return `$${price.toFixed(2)}`
+        return optionQuotesLoading ? '…' : '—'
+      },
+    }
+  }
+
+  function unrealizedGainColumn() {
+    return {
+      key: 'unrealized_gain',
+      label: 'Unrealized Gain',
+      align: 'right',
+      render: (row) => {
+        const price = optionQuotes[row.symbol]
+        if (price == null) return optionQuotesLoading ? '…' : '—'
+        const gain = row.amount * getMultiplier(row.underlying_symbol) * (price - row.open_price)
+        const cls = gain > 0 ? 'cell-positive' : gain < 0 ? 'cell-negative' : ''
+        return (
+          <span className={cls}>
+            ${gain.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+        )
+      },
+    }
+  }
+
+  // Live pricing/unrealized-gain columns are relevant whenever open rows can
+  // appear: the unrealized-only view (every row is open), or the unfiltered
+  // "show everything" view (open and closed rows mixed). Realized-only never
+  // has open rows. Close Price is only dropped in the pure-unrealized view —
+  // in the mixed view, closed rows still have a real close price to show.
+  const showLivePricing = !realizedOnly
+  const optionColumns = showLivePricing
+    ? [
+        ...(unrealizedOnly ? OPTION_COLUMNS.filter((c) => c.key !== 'close_price') : OPTION_COLUMNS),
+        currentPriceColumn(),
+        unrealizedGainColumn(),
+      ]
+    : OPTION_COLUMNS
+
+  const totalUnrealizedGain = showLivePricing
+    ? (transactions ?? []).reduce((s, t) => {
+        const price = optionQuotes[t.symbol]
+        return price == null ? s : s + t.amount * getMultiplier(t.underlying_symbol) * (price - t.open_price)
+      }, 0)
+    : null
 
   // ---- Equity / futures transactions ----
   const [equityTicker, setEquityTicker] = useState(initialTab === 'equity' ? (searchParams.get('ticker')?.toUpperCase() ?? '') : '')
@@ -216,10 +294,27 @@ export default function Transactions() {
                   <input
                     type="checkbox"
                     checked={realizedOnly}
-                    onChange={(e) => setRealizedOnly(e.target.checked)}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setRealizedOnly(checked)
+                      if (checked) setUnrealizedOnly(false)
+                    }}
                     className="toggle-checkbox"
                   />
                   <span>Realized Gains Only</span>
+                </label>
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={unrealizedOnly}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setUnrealizedOnly(checked)
+                      if (checked) setRealizedOnly(false)
+                    }}
+                    className="toggle-checkbox"
+                  />
+                  <span>Unrealized Gains Only</span>
                 </label>
                 <button type="submit" className="btn btn-primary" disabled={loading}>
                   Search Transactions
@@ -241,9 +336,14 @@ export default function Transactions() {
                     <h3 className="section-title">Transactions</h3>
                     <span className="summary-line">
                       {transactions.length} records &nbsp;|&nbsp; Total: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      {showLivePricing && (
+                        <>
+                          &nbsp;|&nbsp; Unrealized Gain: ${totalUnrealizedGain.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </>
+                      )}
                     </span>
                   </div>
-                  <DataTable data={transactions} columns={OPTION_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" />
+                  <DataTable data={transactions} columns={optionColumns} defaultSortKey="close_date" defaultSortDir="desc" />
                 </div>
               )}
             </>
