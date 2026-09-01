@@ -7,15 +7,15 @@ import DataTable from '../components/DataTable'
 
 const OPTION_COLUMNS = [
   { key: 'symbol',          label: 'Symbol' },
+  { key: 'option_type',     label: 'Option Type' },
   { key: 'date',          label: 'Open' },
   { key: 'close_date',    label: 'Close' },
   { key: 'expirationDate', label: 'Expire' },
   { key: 'open_type',     label: 'Opened As' },
   { key: 'amount',        label: 'Qty',     align: 'right' },
-  { key: 'close_price',   label: 'Close Price',  align: 'right' },
   { key: 'open_price',     label: 'Open Price',  align: 'right' },
+  { key: 'close_price',   label: 'Close Price',  align: 'right' },
   { key: 'total_amount',     label: 'Total',  align: 'right' },
-  { key: 'option_type',     label: 'Option Type' },
   { key: 'type',     label: 'Status' },
 ]
 
