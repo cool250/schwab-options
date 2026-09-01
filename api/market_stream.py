@@ -100,7 +100,8 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
             # Tastytrade's num_strikes keeps the N strikes closest to the
             # underlying total (not per side) — same doubling convention as
             # the REST snapshot path in TastytradeOptionChainProvider.
-            contracts = client.get_options_chain(
+            contracts = await asyncio.to_thread(
+                client.get_options_chain,
                 symbol,
                 dte=dte,
                 option_type="all",
@@ -117,15 +118,15 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
             return
 
         try:
-            quotes = await asyncio.to_thread(client.get_chain_quotes, contracts)
+            # One DXLink session for quotes+greeks together (see
+            # TastytradeClient.get_chain_snapshot) instead of two sequential
+            # ones — spot is already known, so this only subscribes the chain
+            # itself.
+            result = await asyncio.to_thread(client.get_chain_snapshot, symbol, contracts, known_spot=spot)
+            quotes, greeks = result["quotes"], result["greeks"]
         except TastytradeAPIError as e:
-            logger.error("Failed to fetch initial chain quotes for %s: %s", symbol, e)
-            quotes = {}
-        try:
-            greeks = await asyncio.to_thread(client.get_chain_greeks, contracts)
-        except TastytradeAPIError as e:
-            logger.error("Failed to fetch initial chain greeks for %s: %s", symbol, e)
-            greeks = {}
+            logger.error("Failed to fetch initial chain quotes/greeks for %s: %s", symbol, e)
+            quotes, greeks = {}, {}
 
         snapshot = provider._normalize_chain(contracts, quotes, greeks, spot)
         if snapshot is None:
@@ -141,7 +142,7 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
             return
 
         try:
-            quote_token = client.get_quote_token()
+            quote_token = await asyncio.to_thread(client.get_quote_token)
             streamer = DXLinkStreamer(quote_token)
             await streamer.__aenter__()
             await streamer.subscribe("Quote", list(valid_symbols))

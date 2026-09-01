@@ -200,6 +200,7 @@ export default function StrikeLab() {
   const [ivPct, setIvPct] = useState(strikeLabCache.ivPct ?? 10.9);
   const [chain, setChain] = useState(strikeLabCache.chain ?? null);
   const [loadingChain, setLoadingChain] = useState(false);
+  const [chainError, setChainError] = useState(null);
   const [view, setView] = useState(location.state?.view || strikeLabCache.view || "chain"); // 'chain' | 'table' | 'graph'
 
   // Skip the initial network fetch when we're restoring the same symbol's
@@ -258,9 +259,16 @@ export default function StrikeLab() {
       try {
         const result = await getExpirationList(symbol);
         // Sorted by dte ascending — cap to the next 10 so the pill row renders cleanly.
-        if (!cancelled) setExpirations((result || []).slice(0, 10));
+        if (!cancelled) {
+          setExpirations((result || []).slice(0, 10));
+          setChainError(null);
+        }
       } catch (e) {
-        if (!cancelled) setExpirations([]);
+        console.error("Failed to load expirations:", e);
+        if (!cancelled) {
+          setExpirations([]);
+          setChainError(e.message || "Failed to load expirations.");
+        }
       }
       if (!cancelled) setExpIndex(0);
     })();
@@ -304,16 +312,30 @@ export default function StrikeLab() {
           // whatever IV is already set rather than zeroing it out.
           if (msg.chain.iv != null) setIvPct(msg.chain.iv * 100);
           setLoadingChain(false);
+          setChainError(null);
         } else if (msg.type === "quote") {
           setChain((prev) => patchChainQuote(prev, msg));
+        } else if (msg.type === "error") {
+          // The chain view falls back to whatever's already rendered (cached
+          // or a prior snapshot) rather than clearing to a blank state, but
+          // still surfaces the failure instead of hanging silently.
+          console.error("Chain stream error:", msg.message || msg);
+          setLoadingChain(false);
+          setChainError(msg.message || "Failed to load chain data.");
         }
-        // "error" messages are logged server-side; the chain view falls back
-        // to whatever's already rendered (cached or a prior snapshot) rather
-        // than clearing to a blank state over one bad tick.
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (cancelled) return;
+        // 4401: token rejected/expired server-side (api/market_stream.py) —
+        // retrying with the same stale token would just loop forever, so
+        // send the user back through the same re-auth path the REST client
+        // uses on a 401 instead.
+        if (event.code === 4401) {
+          sessionStorage.removeItem("auth_token");
+          window.location.href = "/login";
+          return;
+        }
         reconnectTimer = setTimeout(connect, retryDelayMs);
         retryDelayMs = Math.min(retryDelayMs * 2, 15000);
       };
@@ -322,6 +344,7 @@ export default function StrikeLab() {
     }
 
     setLoadingChain(true);
+    setChainError(null);
     connect();
 
     return () => {
@@ -432,6 +455,8 @@ export default function StrikeLab() {
         <h2 className="page-title">StrikeLab</h2>
       </div>
 
+      {chainError && <div className="alert error">{chainError}</div>}
+
       {/* ---------------- Symbol / strategy / expirations / ruler ---------------- */}
       <div className="card">
         <div className="symbol-exp-row">
@@ -446,14 +471,16 @@ export default function StrikeLab() {
             </form>
             <span className="price-badge ok">
               Current price: ${spot.toFixed(2)}
-              {loadingChain ? " · syncing chain…" : ""}
+              {loadingChain && <span className="spinner spinner-sm" title="Syncing chain…" />}
             </span>
           </div>
 
           <div className="exp-group">
             <span className="metric-label">Expiration{dte != null ? ` · ${dte}d` : ""}</span>
             <div className="exp-pills">
-              {expirations.length === 0 && <span className="text-muted">Loading expirations…</span>}
+              {expirations.length === 0 && (
+                <span className="text-muted">{chainError ? "Failed to load expirations" : "Loading expirations…"}</span>
+              )}
               {expirations.map((e, i) => {
                 const { month, day } = expPillParts(e.date);
                 return (

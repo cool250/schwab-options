@@ -28,3 +28,8 @@
   flex-shrink: 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.spinner-sm {
+  width: 11px;
+  height: 11px;
+  border-width: 2px;
+}

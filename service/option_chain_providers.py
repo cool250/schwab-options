@@ -175,16 +175,11 @@ class TastytradeOptionChainProvider:
             return None
 
         try:
-            quotes = self.client.get_chain_quotes(contracts)
+            snapshot = self.client.get_chain_snapshot(symbol, contracts, known_spot=spot)
+            quotes, greeks = snapshot["quotes"], snapshot["greeks"]
         except TastytradeAPIError as e:
-            logger.error("Failed to fetch chain quotes for %s: %s", symbol, e)
-            quotes = {}
-
-        try:
-            greeks = self.client.get_chain_greeks(contracts)
-        except TastytradeAPIError as e:
-            logger.error("Failed to fetch chain greeks for %s: %s", symbol, e)
-            greeks = {}
+            logger.error("Failed to fetch chain quotes/greeks for %s: %s", symbol, e)
+            quotes, greeks = {}, {}
 
         return self._normalize_chain(contracts, quotes, greeks, spot)
 
