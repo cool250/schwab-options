@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import json as _json
+import math
 import os
 import time
 import warnings
@@ -44,6 +45,23 @@ SANDBOX_BASE_URL = "https://api.cert.tastyworks.com"  # confirmed reachable; ver
 PROD_BASE_URL = "https://api.tastyworks.com"
 DEFAULT_BASE_URL = PROD_BASE_URL
 OAUTH_TOKEN_PATH = "/oauth/token"
+
+
+def _finite_float(value: Any) -> Optional[float]:
+    """Parse a dxFeed event field into a float, or None if it's missing/
+    unavailable. dxFeed marks "no value" (e.g. an illiquid strike with no
+    computable greeks) with the string "NaN" — valid JSON on its own wire,
+    since bare JSON has no NaN literal, but float("NaN") happily parses it
+    into an actual NaN. That NaN then round-trips through our own
+    json.dumps() as a bare, non-standard `NaN` token, which browsers'
+    strict JSON.parse() rejects outright — silently dropping whatever
+    message carried it (a chain snapshot, in the worst case) with no error
+    surfaced anywhere. Far more common on futures options than equities,
+    since thin/far strikes routinely have no computable IV. Collapsing NaN
+    (and, defensively, +/-inf) to None here keeps it valid JSON all the way
+    to the browser, where it renders as a blank rather than breaking parsing."""
+    f = float(value)
+    return f if math.isfinite(f) else None
 
 
 class TastytradeAPIError(Exception):
@@ -412,7 +430,7 @@ class TastytradeClient:
                     quote = await streamer.get_event("Quote")
                     sym = quote["eventSymbol"]
                     if sym in remaining:
-                        results[sym] = {"bid": float(quote["bidPrice"]), "ask": float(quote["askPrice"])}
+                        results[sym] = {"bid": _finite_float(quote["bidPrice"]), "ask": _finite_float(quote["askPrice"])}
                         remaining.discard(sym)
 
             async with DXLinkStreamer(quote_token) as streamer:
@@ -460,12 +478,12 @@ class TastytradeClient:
                     sym = greeks["eventSymbol"]
                     if sym in remaining:
                         results[sym] = {
-                            "delta": float(greeks["delta"]),
-                            "gamma": float(greeks["gamma"]),
-                            "theta": float(greeks["theta"]),
-                            "rho": float(greeks["rho"]),
-                            "vega": float(greeks["vega"]),
-                            "iv": float(greeks["volatility"]),
+                            "delta": _finite_float(greeks["delta"]),
+                            "gamma": _finite_float(greeks["gamma"]),
+                            "theta": _finite_float(greeks["theta"]),
+                            "rho": _finite_float(greeks["rho"]),
+                            "vega": _finite_float(greeks["vega"]),
+                            "iv": _finite_float(greeks["volatility"]),
                         }
                         remaining.discard(sym)
 
@@ -566,7 +584,10 @@ class TastytradeClient:
                             if not spot_box:
                                 spot_box.append((float(quote["bidPrice"]) + float(quote["askPrice"])) / 2)
                         elif sym in remaining_quotes:
-                            quotes[sym] = {"bid": float(quote["bidPrice"]), "ask": float(quote["askPrice"])}
+                            quotes[sym] = {
+                                "bid": _finite_float(quote["bidPrice"]),
+                                "ask": _finite_float(quote["askPrice"]),
+                            }
                             remaining_quotes.discard(sym)
 
                 async def _collect_greeks() -> None:
@@ -575,12 +596,12 @@ class TastytradeClient:
                         sym = event["eventSymbol"]
                         if sym in remaining_greeks:
                             greeks[sym] = {
-                                "delta": float(event["delta"]),
-                                "gamma": float(event["gamma"]),
-                                "theta": float(event["theta"]),
-                                "rho": float(event["rho"]),
-                                "vega": float(event["vega"]),
-                                "iv": float(event["volatility"]),
+                                "delta": _finite_float(event["delta"]),
+                                "gamma": _finite_float(event["gamma"]),
+                                "theta": _finite_float(event["theta"]),
+                                "rho": _finite_float(event["rho"]),
+                                "vega": _finite_float(event["vega"]),
+                                "iv": _finite_float(event["volatility"]),
                             }
                             remaining_greeks.discard(sym)
 

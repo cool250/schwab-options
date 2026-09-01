@@ -17,6 +17,7 @@ Protocol (JSON messages over the WebSocket):
 
 import asyncio
 import logging
+import time
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
@@ -95,8 +96,10 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
         # calling them directly here would raise "asyncio.run() cannot be
         # called from a running event loop" since this handler is itself a
         # coroutine. Push each onto a worker thread instead.
+        t0 = time.monotonic()
         try:
             spot = await asyncio.to_thread(client.get_live_underlying_price, symbol)
+            t_spot = time.monotonic()
             # Tastytrade's num_strikes keeps the N strikes closest to the
             # underlying total (not per side) — same doubling convention as
             # the REST snapshot path in TastytradeOptionChainProvider.
@@ -109,6 +112,7 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
                 underlying_price=spot,
                 fetch_live_price=False,
             )
+            t_contracts = time.monotonic()
         except (TastytradeAPIError, ValueError, TimeoutError) as e:
             await websocket.send_json({"type": "error", "message": f"Failed to fetch chain for {symbol}: {e}"})
             return
@@ -127,6 +131,16 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
         except TastytradeAPIError as e:
             logger.error("Failed to fetch initial chain quotes/greeks for %s: %s", symbol, e)
             quotes, greeks = {}, {}
+        t_snapshot = time.monotonic()
+        logger.info(
+            "Chain load for %s: spot=%.0fms contracts(%d)=%.0fms quotes+greeks=%.0fms total=%.0fms",
+            symbol,
+            (t_spot - t0) * 1000,
+            len(contracts),
+            (t_contracts - t_spot) * 1000,
+            (t_snapshot - t_contracts) * 1000,
+            (t_snapshot - t0) * 1000,
+        )
 
         snapshot = provider._normalize_chain(contracts, quotes, greeks, spot)
         if snapshot is None:
