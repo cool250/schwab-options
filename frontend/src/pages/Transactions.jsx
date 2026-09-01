@@ -108,7 +108,11 @@ export default function Transactions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const totalAmount = transactions?.reduce((s, t) => s + (t.total_amount ?? 0), 0) ?? 0
+  // Total is a realized gain/loss figure — a still-open leg's total_amount is
+  // just its entry credit/debit, not a completed gain, so zero it here (its
+  // unrealized gain is shown separately via the Unrealized Gain column).
+  const optionRows = (transactions ?? []).map((t) => (t.type === 'TRADE' ? { ...t, total_amount: 0 } : t))
+  const totalAmount = optionRows.reduce((s, t) => s + (t.total_amount ?? 0), 0)
 
   // Unrealized gain isn't a field on the row — it depends on the live price
   // fetched separately above — so it's added as a render-only column (like
@@ -343,7 +347,7 @@ export default function Transactions() {
                       )}
                     </span>
                   </div>
-                  <DataTable data={transactions} columns={optionColumns} defaultSortKey="close_date" defaultSortDir="desc" />
+                  <DataTable data={optionRows} columns={optionColumns} defaultSortKey="close_date" defaultSortDir="desc" />
                 </div>
               )}
             </>
