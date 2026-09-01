@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip as BarTooltip, Legend as BarLegend, ResponsiveContainer, LabelList,
-  LineChart, Line,
+  LineChart, Line, ReferenceLine,
 } from 'recharts'
 import { getAllocations, getEquityTransactions } from '../api/client'
 import Spinner from '../components/Spinner'
@@ -445,8 +445,13 @@ export default function Reports() {
                       tickFormatter={(d) => d.slice(5)}
                       interval={Math.max(0, Math.ceil(dailyData.length / 15) - 1)}
                     />
-                    <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
+                    <YAxis
+                      tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                      tick={{ fontSize: 12 }}
+                      domain={[(min) => Math.min(0, min), (max) => Math.max(0, max)]}
+                    />
                     <BarTooltip formatter={(v) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                    <ReferenceLine y={0} stroke="var(--text)" strokeOpacity={0.4} />
                     <Line type="monotone" dataKey="total" name="Total" stroke="var(--primary)" dot={<DailyDot />} activeDot={<DailyDot r={6} />} />
                   </LineChart>
                 </ResponsiveContainer>
