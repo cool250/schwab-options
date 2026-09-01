@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip as BarTooltip, Legend as BarLegend, ResponsiveContainer, LabelList,
+  LineChart, Line,
 } from 'recharts'
 import { getAllocations, getEquityTransactions } from '../api/client'
 import Spinner from '../components/Spinner'
@@ -106,23 +107,42 @@ function isoWeekRange(dateStr) {
   return { week, start: fmt(start), end: fmt(end) }
 }
 
-export default function ProfitLoss() {
+// Survives unmounting/remounting this page (e.g. navigating to Transactions
+// and back) within the same browser session — only a full page reload or an
+// explicit new Submit clears it, so a plain revisit shows the last-submitted
+// report as-is instead of blanking out and forcing a resubmit.
+const reportsCache = {
+  period: 'month', year: currentYear(), month: currentMonth(), realizedOnly: true,
+  submitted: false, symbolData: [], weeklyData: [], dailyData: [], tableData: [], total: 0,
+  equitySymbolData: [], equityTableData: [], equityTotal: 0, label: '',
+}
+
+export default function Reports() {
   const navigate = useNavigate()
-  const [period, setPeriod] = useState('month') // 'month' | 'ytd'
-  const [year, setYear] = useState(currentYear)
-  const [month, setMonth] = useState(currentMonth)
-  const [realizedOnly, setRealizedOnly] = useState(true)
+  const [period, setPeriod] = useState(reportsCache.period) // 'month' | 'ytd'
+  const [year, setYear] = useState(reportsCache.year)
+  const [month, setMonth] = useState(reportsCache.month)
+  const [realizedOnly, setRealizedOnly] = useState(reportsCache.realizedOnly)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [submitted, setSubmitted] = useState(false)
-  const [symbolData, setSymbolData] = useState([])
-  const [weeklyData, setWeeklyData] = useState([])
-  const [tableData, setTableData] = useState([])
-  const [total, setTotal] = useState(0)
-  const [equitySymbolData, setEquitySymbolData] = useState([])
-  const [equityTableData, setEquityTableData] = useState([])
-  const [equityTotal, setEquityTotal] = useState(0)
-  const [label, setLabel] = useState('')
+  const [submitted, setSubmitted] = useState(reportsCache.submitted)
+  const [symbolData, setSymbolData] = useState(reportsCache.symbolData)
+  const [weeklyData, setWeeklyData] = useState(reportsCache.weeklyData)
+  const [dailyData, setDailyData] = useState(reportsCache.dailyData)
+  const [tableData, setTableData] = useState(reportsCache.tableData)
+  const [total, setTotal] = useState(reportsCache.total)
+  const [equitySymbolData, setEquitySymbolData] = useState(reportsCache.equitySymbolData)
+  const [equityTableData, setEquityTableData] = useState(reportsCache.equityTableData)
+  const [equityTotal, setEquityTotal] = useState(reportsCache.equityTotal)
+  const [label, setLabel] = useState(reportsCache.label)
+
+  useEffect(() => {
+    Object.assign(reportsCache, {
+      period, year, month, realizedOnly, submitted, symbolData, weeklyData, dailyData,
+      tableData, total, equitySymbolData, equityTableData, equityTotal, label,
+    })
+  }, [period, year, month, realizedOnly, submitted, symbolData, weeklyData, dailyData,
+      tableData, total, equitySymbolData, equityTableData, equityTotal, label])
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear() - i)
 
@@ -153,7 +173,7 @@ export default function ProfitLoss() {
       }
 
       if (!data || data.length === 0) {
-        setSymbolData([]); setWeeklyData([]); setTableData([]); setTotal(0)
+        setSymbolData([]); setWeeklyData([]); setDailyData([]); setTableData([]); setTotal(0)
         setSubmitted(true)
         return
       }
@@ -185,9 +205,22 @@ export default function ProfitLoss() {
           return { week, ...syms, total, zero: 0 }
         })
       setWeeklyData({ rows: weekly, symbols: allSymbols, ranges: weekRanges })
+
+      // Daily line chart — total P&L per day (all symbols combined), same
+      // source data as the weekly chart just grouped by day instead of week.
+      const dayMap = {} // { date: total }
+      for (const row of data) {
+        if (!row.close_date) continue
+        dayMap[row.close_date] = (dayMap[row.close_date] ?? 0) + (row.total_amount ?? 0)
+      }
+      const daily = Object.entries(dayMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, total]) => ({ date, total }))
+      setDailyData(daily)
+
       setSubmitted(true)
     } catch (err) {
-      setSymbolData([]); setWeeklyData([]); setTableData([]); setTotal(0)
+      setSymbolData([]); setWeeklyData([]); setDailyData([]); setTableData([]); setTotal(0)
       setEquitySymbolData([]); setEquityTotal(0); setEquityTableData([])
       const msg = err?.message ?? ''
       if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
@@ -228,6 +261,26 @@ export default function ProfitLoss() {
     navigate(`/transactions?${params}`)
   }
 
+  function handleDayPointClick(date) {
+    if (!date) return
+    const params = new URLSearchParams({ start: date, end: date, realized: String(realizedOnly) })
+    navigate(`/transactions?${params}`)
+  }
+
+  // Recharts renders `activeDot` on top of `dot` on hover — without its own
+  // onClick, that enlarged hover dot silently swallows the click before it
+  // ever reaches the plain dot underneath. Both need the handler, and a
+  // transparent oversized hit-circle underneath makes the point easier to
+  // click precisely (the visible dot is only 4px).
+  function DailyDot({ cx, cy, payload, r = 4 }) {
+    return (
+      <g cursor="pointer" onClick={() => handleDayPointClick(payload.date)}>
+        <circle cx={cx} cy={cy} r={10} fill="transparent" />
+        <circle cx={cx} cy={cy} r={r} fill={payload.total >= 0 ? 'var(--success)' : 'var(--error)'} stroke="none" />
+      </g>
+    )
+  }
+
   function WeekAxisTick({ x, y, payload }) {
     return (
       <text
@@ -262,7 +315,7 @@ export default function ProfitLoss() {
 
   return (
     <div className="page">
-      <h2 className="page-title">Profit/Loss</h2>
+      <h2 className="page-title">Reports</h2>
 
       <div className="button-row">
         <button
@@ -329,14 +382,14 @@ export default function ProfitLoss() {
         <>
           <div className="charts-row">
             <SymbolProfitChart
-              title="Option Trade Profit"
+              title="Monthly Option P&amp;L"
               label={label}
               data={symbolData}
               total={total}
               onBarClick={(row) => handleBarClick(row)}
             />
             <SymbolProfitChart
-              title="Equity/Future Profit"
+              title="Monthly Equity/Future P&amp;L"
               label={label}
               data={equitySymbolData}
               total={equityTotal}
@@ -346,7 +399,7 @@ export default function ProfitLoss() {
             {/* Weekly bar chart — spans the full row width, below the per-symbol charts */}
             {weeklyData.rows?.length > 0 && (
               <div className="card chart-card chart-card--full">
-                <h3 className="section-title">Weekly Allocation — {label}</h3>
+                <h3 className="section-title">Weekly P&amp;L — {label}</h3>
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={weeklyData.rows} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -376,6 +429,28 @@ export default function ProfitLoss() {
                   </BarChart>
                 </ResponsiveContainer>
                 <p className="chart-caption">Click a bar for that symbol's transactions that week, or the week label for all transactions that week</p>
+              </div>
+            )}
+
+            {/* Daily line chart — spans the full row width, below the weekly chart */}
+            {dailyData.length > 0 && (
+              <div className="card chart-card chart-card--full">
+                <h3 className="section-title">Daily P&amp;L — {label}</h3>
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={dailyData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={(d) => d.slice(5)}
+                      interval={Math.max(0, Math.ceil(dailyData.length / 15) - 1)}
+                    />
+                    <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 12 }} />
+                    <BarTooltip formatter={(v) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                    <Line type="monotone" dataKey="total" name="Total" stroke="var(--primary)" dot={<DailyDot />} activeDot={<DailyDot r={6} />} />
+                  </LineChart>
+                </ResponsiveContainer>
+                <p className="chart-caption">Click a point to view that day's transactions</p>
               </div>
             )}
           </div>

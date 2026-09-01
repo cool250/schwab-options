@@ -40,23 +40,62 @@ function todayStr() {
   return new Date().toISOString().split('T')[0]
 }
 
+// Survives unmounting/remounting this page (e.g. navigating to Reports and
+// back) within the same browser session — only a full page reload or an
+// explicit new search clears it. Without this, switching tabs away and back
+// silently re-ran the last search and threw away whatever the user was
+// looking at.
+const transactionsCache = {
+  tab: null,
+  options: null, // { ticker, contractType, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes }
+  equity: null, // { ticker, assetType, realizedOnly, startDate, endDate, transactions }
+}
+
 export default function Transactions() {
   const [searchParams] = useSearchParams()
-  const initialTab = searchParams.get('tab') === 'equity' ? 'equity' : 'options'
+  // A chart-click link (e.g. from Reports) always carries its own ticker/dates
+  // and should run a fresh search rather than restoring whatever was cached.
+  const fromLink = Boolean(searchParams.get('ticker') || searchParams.get('start'))
+  const urlTab = searchParams.get('tab') === 'equity' ? 'equity' : (searchParams.get('tab') === 'options' ? 'options' : null)
+  // An incoming link with no explicit ?tab= (the options-chart click-through)
+  // means "options" specifically, not whatever tab happened to be cached —
+  // only a plain revisit (no link params at all) should restore the cache.
+  const initialTab = urlTab ?? (fromLink ? 'options' : transactionsCache.tab ?? 'options')
   const [tab, setTab] = useState(initialTab) // 'options' | 'equity'
 
+  const cachedOptions = !fromLink ? transactionsCache.options : null
+  const cachedEquity = !fromLink ? transactionsCache.equity : null
+
   // ---- Option transactions ----
-  const [ticker, setTicker] = useState(initialTab === 'options' ? (searchParams.get('ticker')?.toUpperCase() ?? '') : '')
-  const [contractType, setContractType] = useState('ALL')
-  const [realizedOnly, setRealizedOnly] = useState(initialTab === 'options' ? searchParams.get('realized') !== 'false' : true)
-  const [unrealizedOnly, setUnrealizedOnly] = useState(initialTab === 'options' ? searchParams.get('unrealized') === 'true' : false)
-  const [startDate, setStartDate] = useState(() => (initialTab === 'options' ? (searchParams.get('start') ?? firstOfMonth()) : firstOfMonth()))
-  const [endDate, setEndDate] = useState(() => (initialTab === 'options' ? (searchParams.get('end') ?? todayStr()) : todayStr()))
+  const [ticker, setTicker] = useState(
+    initialTab === 'options' ? (searchParams.get('ticker')?.toUpperCase() ?? cachedOptions?.ticker ?? '') : ''
+  )
+  const [contractType, setContractType] = useState(cachedOptions?.contractType ?? 'ALL')
+  const [realizedOnly, setRealizedOnly] = useState(
+    initialTab === 'options' && searchParams.get('realized') ? searchParams.get('realized') !== 'false' : cachedOptions?.realizedOnly ?? true
+  )
+  const [unrealizedOnly, setUnrealizedOnly] = useState(
+    initialTab === 'options' && searchParams.get('unrealized') ? searchParams.get('unrealized') === 'true' : cachedOptions?.unrealizedOnly ?? false
+  )
+  const [startDate, setStartDate] = useState(() => (
+    initialTab === 'options' ? (searchParams.get('start') ?? cachedOptions?.startDate ?? firstOfMonth()) : (cachedOptions?.startDate ?? firstOfMonth())
+  ))
+  const [endDate, setEndDate] = useState(() => (
+    initialTab === 'options' ? (searchParams.get('end') ?? cachedOptions?.endDate ?? todayStr()) : (cachedOptions?.endDate ?? todayStr())
+  ))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [transactions, setTransactions] = useState(null)
-  const [optionQuotes, setOptionQuotes] = useState({})
+  const [transactions, setTransactions] = useState(cachedOptions?.transactions ?? null)
+  const [optionQuotes, setOptionQuotes] = useState(cachedOptions?.optionQuotes ?? {})
   const [optionQuotesLoading, setOptionQuotesLoading] = useState(false)
+
+  useEffect(() => {
+    transactionsCache.tab = tab
+  }, [tab])
+
+  useEffect(() => {
+    transactionsCache.options = { ticker, contractType, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes }
+  }, [ticker, contractType, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes])
 
   async function runSearch(tickerVal, startVal, endVal, contractTypeVal, realizedVal, unrealizedVal) {
     setLoading(true)
@@ -99,10 +138,12 @@ export default function Transactions() {
     runSearch(ticker, startDate, endDate, contractType, realizedOnly, unrealizedOnly)
   }
 
-  // Arriving from a chart click (e.g. Profit/Loss) pre-fills the filters via
-  // the URL — run the search immediately instead of waiting for another click.
+  // Arriving from a chart click (e.g. Reports) pre-fills the filters via the
+  // URL — run the search immediately instead of waiting for another click.
+  // Otherwise (a plain revisit of this page), the cached results restored
+  // above are shown as-is with no fetch at all.
   useEffect(() => {
-    if (initialTab === 'options' && (searchParams.get('ticker') || searchParams.get('start'))) {
+    if (initialTab === 'options' && fromLink) {
       runSearch(ticker, startDate, endDate, contractType, realizedOnly, unrealizedOnly)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,14 +212,29 @@ export default function Transactions() {
     : null
 
   // ---- Equity / futures transactions ----
-  const [equityTicker, setEquityTicker] = useState(initialTab === 'equity' ? (searchParams.get('ticker')?.toUpperCase() ?? '') : '')
-  const [assetType, setAssetType] = useState('ALL')
-  const [equityRealizedOnly, setEquityRealizedOnly] = useState(initialTab === 'equity' ? searchParams.get('realized') !== 'false' : true)
-  const [equityStartDate, setEquityStartDate] = useState(() => (initialTab === 'equity' ? (searchParams.get('start') ?? firstOfMonth()) : firstOfMonth()))
-  const [equityEndDate, setEquityEndDate] = useState(() => (initialTab === 'equity' ? (searchParams.get('end') ?? todayStr()) : todayStr()))
+  const [equityTicker, setEquityTicker] = useState(
+    initialTab === 'equity' ? (searchParams.get('ticker')?.toUpperCase() ?? cachedEquity?.ticker ?? '') : ''
+  )
+  const [assetType, setAssetType] = useState(cachedEquity?.assetType ?? 'ALL')
+  const [equityRealizedOnly, setEquityRealizedOnly] = useState(
+    initialTab === 'equity' && searchParams.get('realized') ? searchParams.get('realized') !== 'false' : cachedEquity?.realizedOnly ?? true
+  )
+  const [equityStartDate, setEquityStartDate] = useState(() => (
+    initialTab === 'equity' ? (searchParams.get('start') ?? cachedEquity?.startDate ?? firstOfMonth()) : (cachedEquity?.startDate ?? firstOfMonth())
+  ))
+  const [equityEndDate, setEquityEndDate] = useState(() => (
+    initialTab === 'equity' ? (searchParams.get('end') ?? cachedEquity?.endDate ?? todayStr()) : (cachedEquity?.endDate ?? todayStr())
+  ))
   const [equityLoading, setEquityLoading] = useState(false)
   const [equityError, setEquityError] = useState(null)
-  const [equityTransactions, setEquityTransactions] = useState(null)
+  const [equityTransactions, setEquityTransactions] = useState(cachedEquity?.transactions ?? null)
+
+  useEffect(() => {
+    transactionsCache.equity = {
+      ticker: equityTicker, assetType, realizedOnly: equityRealizedOnly,
+      startDate: equityStartDate, endDate: equityEndDate, transactions: equityTransactions,
+    }
+  }, [equityTicker, assetType, equityRealizedOnly, equityStartDate, equityEndDate, equityTransactions])
 
   async function runEquitySearch(tickerVal, startVal, endVal, assetTypeVal, realizedVal) {
     setEquityLoading(true)
@@ -206,7 +262,7 @@ export default function Transactions() {
 
   // Mirrors the options-tab bootstrap above, for links that arrive with ?tab=equity.
   useEffect(() => {
-    if (initialTab === 'equity' && (searchParams.get('ticker') || searchParams.get('start'))) {
+    if (initialTab === 'equity' && fromLink) {
       runEquitySearch(equityTicker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
