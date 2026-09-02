@@ -35,6 +35,11 @@ export function getExpirationList(symbol, daysAhead = 60) {
   return request(`/market/options/expiration-list?${p}`)
 }
 
+export function getPriceHistory(symbol, days = 30) {
+  const p = new URLSearchParams({ symbol, days })
+  return request(`/market/price-history?${p}`)
+}
+
 export function getPositions() {
   return request('/positions/')
 }

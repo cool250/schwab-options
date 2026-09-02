@@ -4,13 +4,15 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  ComposedChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   ReferenceLine,
   Tooltip,
 } from "recharts";
-import { getExpirationList } from "../api/client";
+import { getExpirationList, getPriceHistory } from "../api/client";
 import { MULTIPLIER, getMultiplier } from "../utils/contractMultiplier";
 
 /** Patches a live bid/ask tick into whichever leg (call or put, on whichever
@@ -208,7 +210,16 @@ export default function StrikeLab() {
   const [chain, setChain] = useState(strikeLabCache.chain ?? null);
   const [loadingChain, setLoadingChain] = useState(false);
   const [chainError, setChainError] = useState(null);
-  const [view, setView] = useState(location.state?.view || strikeLabCache.view || "chain"); // 'chain' | 'table' | 'graph'
+  const [view, setView] = useState(location.state?.view || strikeLabCache.view || "chain"); // 'chain' | 'table' | 'graph' | 'charts'
+
+  // Charts tab: 30-day closing-price history + support/resistance. Fetched
+  // lazily on first visit to the tab (and again on a symbol change while
+  // already on it) rather than alongside the chain/expirations data, since
+  // most visits never open this tab and it's a separate broker call.
+  const [priceHistory, setPriceHistory] = useState(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+  const historySymbolRef = useRef(null);
 
   // Skip the initial network fetch when we're restoring the same symbol's
   // already-cached expirations rather than starting a genuinely new search —
@@ -283,6 +294,37 @@ export default function StrikeLab() {
       cancelled = true;
     };
   }, [symbol]);
+
+  useEffect(() => {
+    if (view !== "charts" || historySymbolRef.current === symbol) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingHistory(true);
+      try {
+        const result = await getPriceHistory(symbol, 30);
+        if (cancelled) return;
+        if (result?.candles?.length) {
+          setPriceHistory(result);
+          setHistoryError(null);
+        } else {
+          setPriceHistory(null);
+          setHistoryError(result?.message || "No price history available for this symbol.");
+        }
+        historySymbolRef.current = symbol;
+      } catch (e) {
+        console.error("Failed to load price history:", e);
+        if (!cancelled) {
+          setPriceHistory(null);
+          setHistoryError(e.message || "Failed to load price history.");
+        }
+      } finally {
+        if (!cancelled) setLoadingHistory(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, view]);
 
   // Live chain feed: opens one WebSocket per symbol/dte, gets a full snapshot
   // back immediately (same shape the old one-shot REST call returned), then
@@ -612,13 +654,14 @@ export default function StrikeLab() {
         </div>
       </div>
 
-      {/* ---------------- Chain / Table / Graph ---------------- */}
+      {/* ---------------- Chain / Table / Graph / Charts ---------------- */}
       <div className="card">
         <div className="button-row">
           {[
             { id: "chain", label: "Chain" },
             { id: "table", label: "Table" },
             { id: "graph", label: "Graph" },
+            { id: "charts", label: "Charts" },
           ].map((t) => (
             <button
               key={t.id}
@@ -630,7 +673,9 @@ export default function StrikeLab() {
           ))}
         </div>
 
-        {positionDte == null ? (
+        {view === "charts" ? (
+          <PriceHistoryChart history={priceHistory} loading={loadingHistory} error={historyError} />
+        ) : positionDte == null ? (
           <div className="chain-empty">Loading expirations…</div>
         ) : view === "graph" ? (
           <>
@@ -1017,6 +1062,114 @@ function PayoffTooltip({ active, payload, label }) {
       <div className={`chart-tooltip-pl ${pl >= 0 ? "positive" : "negative"}`}>
         {pl >= 0 ? "+" : ""}
         {fmtMoney(pl)}
+      </div>
+    </div>
+  );
+}
+
+/** One candle's wick + body, drawn as a custom Bar `shape`. Recharts sizes
+ *  the Bar itself (x/y/width/height) from the `range` dataKey — [low, high]
+ *  mapped through the y-axis scale, so y/y+height already land exactly on
+ *  the pixel positions for this candle's high/low. open/close aren't part
+ *  of that range, so their pixel positions are interpolated linearly
+ *  between the same two points (valid since the y-axis is linear, which is
+ *  the only kind Recharts' YAxis renders here). */
+function Candle({ x, y, width, height, payload }) {
+  const { open, close, high, low } = payload;
+  if (![open, close, high, low].every(isNum)) return null;
+
+  const isUp = close >= open;
+  const color = isUp ? "var(--success)" : "var(--error)";
+  const span = high - low || 1;
+  const yFor = (price) => y + ((high - price) / span) * height;
+  const bodyTop = Math.min(yFor(open), yFor(close));
+  const bodyHeight = Math.max(Math.abs(yFor(open) - yFor(close)), 1);
+  const bodyWidth = Math.max(width * 0.6, 2);
+  const wickX = x + width / 2;
+
+  return (
+    <g>
+      <line x1={wickX} x2={wickX} y1={y} y2={y + height} stroke={color} strokeWidth={1} />
+      <rect x={x + (width - bodyWidth) / 2} y={bodyTop} width={bodyWidth} height={bodyHeight} fill={color} />
+    </g>
+  );
+}
+
+/** Last-30-days daily candlesticks with swing support/resistance levels
+ *  (see service/market.py's _swing_levels) drawn as horizontal reference
+ *  lines. Backed by Schwab regardless of BROKER_PROVIDER — Tastytrade has
+ *  no REST daily-bar endpoint — so this may come back empty for a futures
+ *  root like "/NQ" even when the chain/quotes above are working fine. */
+function PriceHistoryChart({ history, loading, error }) {
+  if (error) {
+    return <div className="chain-empty">{error}</div>;
+  }
+  if (!history) {
+    return <div className="chain-empty">{loading ? "Loading price history…" : "No price history available."}</div>;
+  }
+
+  const chartData = history.candles.map((c) => ({ ...c, range: [c.low, c.high] }));
+
+  return (
+    <>
+      <ResponsiveContainer width="100%" height={340}>
+        <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+          <XAxis
+            dataKey="date"
+            tickFormatter={formatExpLabel}
+            stroke="var(--text-faint)"
+            tick={{ fontSize: 12 }}
+            tickLine={false}
+            minTickGap={28}
+          />
+          <YAxis
+            domain={["auto", "auto"]}
+            tickFormatter={(v) => `$${Math.round(v)}`}
+            stroke="var(--text-faint)"
+            tick={{ fontSize: 12 }}
+            tickLine={false}
+            axisLine={false}
+            width={56}
+          />
+          <Tooltip content={<PriceHistoryTooltip />} />
+          {history.resistance.map((lvl, i) => (
+            <ReferenceLine
+              key={`r${i}`}
+              y={lvl}
+              stroke="var(--error)"
+              strokeDasharray="4 4"
+              strokeWidth={1.5}
+              label={{ value: `R $${lvl.toFixed(2)}`, position: "insideTopRight", fill: "var(--error)", fontSize: 11 }}
+            />
+          ))}
+          {history.support.map((lvl, i) => (
+            <ReferenceLine
+              key={`s${i}`}
+              y={lvl}
+              stroke="var(--success)"
+              strokeDasharray="4 4"
+              strokeWidth={1.5}
+              label={{ value: `S $${lvl.toFixed(2)}`, position: "insideBottomRight", fill: "var(--success)", fontSize: 11 }}
+            />
+          ))}
+          <Bar dataKey="range" shape={Candle} isAnimationActive={true} animationDuration={700} />
+        </ComposedChart>
+      </ResponsiveContainer>
+      <p className="chart-caption">Last 30 days · daily candles with swing support/resistance</p>
+    </>
+  );
+}
+
+function PriceHistoryTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  const { open, high, low, close } = payload[0].payload;
+  const isUp = close >= open;
+  return (
+    <div className="chart-tooltip">
+      <div className="chart-tooltip-price">{formatExpLabel(label)}</div>
+      <div className={`chart-tooltip-pl ${isUp ? "positive" : "negative"}`}>
+        O {open.toFixed(2)} · H {high.toFixed(2)} · L {low.toFixed(2)} · C {close.toFixed(2)}
       </div>
     </div>
   );
