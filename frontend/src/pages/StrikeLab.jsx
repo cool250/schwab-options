@@ -656,7 +656,7 @@ export default function StrikeLab() {
 
       {/* ---------------- Chain / Table / Graph / Charts ---------------- */}
       <div className="card">
-        <div className="button-row">
+        <div className="tab-row">
           {[
             { id: "chain", label: "Chain" },
             { id: "table", label: "Table" },
@@ -665,7 +665,7 @@ export default function StrikeLab() {
           ].map((t) => (
             <button
               key={t.id}
-              className={`btn ${view === t.id ? "btn-primary" : "btn-secondary"}`}
+              className={`tab-item ${view === t.id ? "active" : ""}`}
               onClick={() => setView(t.id)}
             >
               {t.label}

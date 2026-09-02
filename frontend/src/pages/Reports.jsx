@@ -317,17 +317,17 @@ export default function Reports() {
     <div className="page">
       <h2 className="page-title">Reports</h2>
 
-      <div className="button-row">
+      <div className="tab-row">
         <button
           type="button"
-          className={`btn ${period === 'month' ? 'btn-primary' : 'btn-secondary'}`}
+          className={`tab-item ${period === 'month' ? 'active' : ''}`}
           onClick={() => setPeriod('month')}
         >
           Month
         </button>
         <button
           type="button"
-          className={`btn ${period === 'ytd' ? 'btn-primary' : 'btn-secondary'}`}
+          className={`tab-item ${period === 'ytd' ? 'active' : ''}`}
           onClick={() => setPeriod('ytd')}
         >
           YTD

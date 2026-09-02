@@ -299,17 +299,17 @@ export default function Transactions() {
     <div className="page">
       <h2 className="page-title">Transactions</h2>
 
-      <div className="button-row">
+      <div className="tab-row">
         <button
           type="button"
-          className={`btn ${tab === 'options' ? 'btn-primary' : 'btn-secondary'}`}
+          className={`tab-item ${tab === 'options' ? 'active' : ''}`}
           onClick={() => setTab('options')}
         >
           Options
         </button>
         <button
           type="button"
-          className={`btn ${tab === 'equity' ? 'btn-primary' : 'btn-secondary'}`}
+          className={`tab-item ${tab === 'equity' ? 'active' : ''}`}
           onClick={() => setTab('equity')}
         >
           Equity &amp; Futures

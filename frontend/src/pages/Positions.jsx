@@ -213,27 +213,28 @@ export default function Positions() {
         <h2 className="page-title">Positions</h2>
       </div>
 
-      <div className="button-row">
-        <button
-          type="button"
-          className={`btn ${tab === 'equity' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setTab('equity')}
-        >
-          Equity
-        </button>
-        <button
-          type="button"
-          className={`btn ${tab === 'futures' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setTab('futures')}
-        >
-          Futures
-        </button>
+      <div className="tab-bar">
+        <div className="tab-row">
+          <button
+            type="button"
+            className={`tab-item ${tab === 'equity' ? 'active' : ''}`}
+            onClick={() => setTab('equity')}
+          >
+            Equity
+          </button>
+          <button
+            type="button"
+            className={`tab-item ${tab === 'futures' ? 'active' : ''}`}
+            onClick={() => setTab('futures')}
+          >
+            Futures
+          </button>
+        </div>
         <button
           type="button"
           className="btn btn-primary"
           disabled={selected.size === 0}
           onClick={handleAnalyzeSelected}
-          style={{ marginLeft: 'auto' }}
         >
           Analyze Selected {selected.size > 0 ? `(${selected.size})` : ''}
         </button>
