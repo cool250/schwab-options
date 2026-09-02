@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import ErrorBoundary from './components/ErrorBoundary'
 import Navbar from './components/Navbar'
 import Login from './pages/Login'
 import Positions from './pages/Positions'
@@ -20,13 +21,15 @@ export default function App() {
               <ProtectedRoute>
                 <Navbar />
                 <main className="main-content">
-                  <Routes>
-                    <Route path="/" element={<Navigate to="/positions" replace={true} />} />
-                    <Route path="/positions" element={<Positions />} />
-                    <Route path="/transactions" element={<Transactions />} />
-                    <Route path="/allocation" element={<Reports />} />
-                    <Route path="/analyze" element={<StrikeLab />} />
-                  </Routes>
+                  <ErrorBoundary>
+                    <Routes>
+                      <Route path="/" element={<Navigate to="/positions" replace={true} />} />
+                      <Route path="/positions" element={<Positions />} />
+                      <Route path="/transactions" element={<Transactions />} />
+                      <Route path="/allocation" element={<Reports />} />
+                      <Route path="/analyze" element={<StrikeLab />} />
+                    </Routes>
+                  </ErrorBoundary>
                 </main>
               </ProtectedRoute>
             }

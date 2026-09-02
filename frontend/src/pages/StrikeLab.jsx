@@ -161,6 +161,13 @@ const fmtMoney = (n) => {
 const formatExpLabel = (dateStr) =>
   new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
+// Bid/ask/delta from the backend are usually a number or null/undefined, but
+// a stray non-numeric value (e.g. dxFeed's "NaN" sentinel string slipping
+// through unsanitized) has crashed the whole chain table before — `!= null`
+// alone doesn't catch that, and calling .toFixed() on a string throws with
+// no error boundary anywhere in the app to stop it taking down the page.
+const isNum = (x) => typeof x === "number" && Number.isFinite(x);
+
 /* ============================================================================
    MAIN PAGE
 ============================================================================ */
@@ -951,37 +958,37 @@ function OptionChainTable({ chain, spot, loading, onAddLeg, onRemoveLeg, legs })
                     </span>
                   )}
                 </span>
-                <span className="chain-delta">{row.call?.delta != null ? row.call.delta.toFixed(2) : "—"}</span>
+                <span className="chain-delta">{isNum(row.call?.delta) ? row.call.delta.toFixed(2) : "—"}</span>
                 <span
-                  className={`chain-bid ${row.call?.bid != null ? "" : "chain-disabled"}`}
-                  onClick={() => row.call?.bid != null && onAddLeg("CALL", "SELL", row.strikePrice, row.call.bid)}
-                  title={row.call?.bid != null ? "Sell a call at bid" : undefined}
+                  className={`chain-bid ${isNum(row.call?.bid) ? "" : "chain-disabled"}`}
+                  onClick={() => isNum(row.call?.bid) && onAddLeg("CALL", "SELL", row.strikePrice, row.call.bid)}
+                  title={isNum(row.call?.bid) ? "Sell a call at bid" : undefined}
                 >
-                  {row.call?.bid != null ? row.call.bid.toFixed(2) : "—"}
+                  {isNum(row.call?.bid) ? row.call.bid.toFixed(2) : "—"}
                 </span>
                 <span
-                  className={`chain-ask ${row.call?.ask != null ? "" : "chain-disabled"}`}
-                  onClick={() => row.call?.ask != null && onAddLeg("CALL", "BUY", row.strikePrice, row.call.ask)}
-                  title={row.call?.ask != null ? "Buy a call at ask" : undefined}
+                  className={`chain-ask ${isNum(row.call?.ask) ? "" : "chain-disabled"}`}
+                  onClick={() => isNum(row.call?.ask) && onAddLeg("CALL", "BUY", row.strikePrice, row.call.ask)}
+                  title={isNum(row.call?.ask) ? "Buy a call at ask" : undefined}
                 >
-                  {row.call?.ask != null ? row.call.ask.toFixed(2) : "—"}
+                  {isNum(row.call?.ask) ? row.call.ask.toFixed(2) : "—"}
                 </span>
                 <span className="chain-strike">{row.strikePrice}</span>
                 <span
-                  className={`chain-bid ${row.put?.bid != null ? "" : "chain-disabled"}`}
-                  onClick={() => row.put?.bid != null && onAddLeg("PUT", "SELL", row.strikePrice, row.put.bid)}
-                  title={row.put?.bid != null ? "Sell a put at bid" : undefined}
+                  className={`chain-bid ${isNum(row.put?.bid) ? "" : "chain-disabled"}`}
+                  onClick={() => isNum(row.put?.bid) && onAddLeg("PUT", "SELL", row.strikePrice, row.put.bid)}
+                  title={isNum(row.put?.bid) ? "Sell a put at bid" : undefined}
                 >
-                  {row.put?.bid != null ? row.put.bid.toFixed(2) : "—"}
+                  {isNum(row.put?.bid) ? row.put.bid.toFixed(2) : "—"}
                 </span>
                 <span
-                  className={`chain-ask ${row.put?.ask != null ? "" : "chain-disabled"}`}
-                  onClick={() => row.put?.ask != null && onAddLeg("PUT", "BUY", row.strikePrice, row.put.ask)}
-                  title={row.put?.ask != null ? "Buy a put at ask" : undefined}
+                  className={`chain-ask ${isNum(row.put?.ask) ? "" : "chain-disabled"}`}
+                  onClick={() => isNum(row.put?.ask) && onAddLeg("PUT", "BUY", row.strikePrice, row.put.ask)}
+                  title={isNum(row.put?.ask) ? "Buy a put at ask" : undefined}
                 >
-                  {row.put?.ask != null ? row.put.ask.toFixed(2) : "—"}
+                  {isNum(row.put?.ask) ? row.put.ask.toFixed(2) : "—"}
                 </span>
-                <span className="chain-delta">{row.put?.delta != null ? row.put.delta.toFixed(2) : "—"}</span>
+                <span className="chain-delta">{isNum(row.put?.delta) ? row.put.delta.toFixed(2) : "—"}</span>
                 <span className="chain-leg-col">
                   {putLeg && (
                     <span className={`chain-leg-badge ${putLeg.side === "SELL" ? "tag-sell" : "tag-buy"}`}>

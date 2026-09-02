@@ -59,7 +59,10 @@ def _finite_float(value: Any) -> Optional[float]:
     surfaced anywhere. Far more common on futures options than equities,
     since thin/far strikes routinely have no computable IV. Collapsing NaN
     (and, defensively, +/-inf) to None here keeps it valid JSON all the way
-    to the browser, where it renders as a blank rather than breaking parsing."""
+    to the browser, where it renders as a blank rather than breaking parsing.
+    Also tolerates a field that's outright missing/None rather than "NaN"."""
+    if value is None:
+        return None
     f = float(value)
     return f if math.isfinite(f) else None
 

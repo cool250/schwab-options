@@ -23,6 +23,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from api.auth import verify_token
 from broker.tastytrade import DXLinkStreamer, TastytradeAPIError, TastytradeClient
+from broker.tastytrade.client import _finite_float
 from service.option_chain_providers import TastytradeOptionChainProvider
 
 logger = logging.getLogger(__name__)
@@ -71,11 +72,16 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
                 symbol = event.get("eventSymbol")
                 if symbol not in valid_symbols:
                     continue
+                # dxFeed marks "no value" with the string "NaN" (see
+                # TastytradeClient._finite_float) — forwarded as-is that's
+                # still valid JSON, but the frontend expects a number here
+                # and crashes calling .toFixed() on a string, so sanitize it
+                # the same way the initial snapshot already is.
                 await websocket.send_json({
                     "type": "quote",
                     "symbol": symbol,
-                    "bid": event.get("bidPrice"),
-                    "ask": event.get("askPrice"),
+                    "bid": _finite_float(event.get("bidPrice")),
+                    "ask": _finite_float(event.get("askPrice")),
                 })
         except asyncio.CancelledError:
             raise
