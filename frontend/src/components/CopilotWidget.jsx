@@ -10,6 +10,7 @@ import { sendCopilotMessage } from "../api/client";
 // nothing is persisted server-side.
 export default function CopilotWidget() {
   const [open, setOpen] = useState(false);
+  const [fullPage, setFullPage] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,19 +50,34 @@ export default function CopilotWidget() {
   };
 
   return (
-    <div className="copilot-widget">
+    <div className={`copilot-widget${fullPage ? " full-page" : ""}`}>
+      {open && fullPage && <div className="copilot-backdrop" onClick={() => setFullPage(false)} />}
       {open && (
         <div className="copilot-panel card">
           <div className="copilot-panel-header">
             <span>Copilot</span>
-            <button
-              type="button"
-              className="copilot-panel-close"
-              onClick={() => setOpen(false)}
-              aria-label="Close copilot"
-            >
-              ×
-            </button>
+            <div className="copilot-panel-header-actions">
+              <button
+                type="button"
+                className="copilot-panel-close"
+                onClick={() => setFullPage((f) => !f)}
+                aria-label={fullPage ? "Exit full page" : "Open full page"}
+                title={fullPage ? "Exit full page" : "Open full page"}
+              >
+                {fullPage ? "⤡" : "⤢"}
+              </button>
+              <button
+                type="button"
+                className="copilot-panel-close"
+                onClick={() => {
+                  setOpen(false);
+                  setFullPage(false);
+                }}
+                aria-label="Close copilot"
+              >
+                ×
+              </button>
+            </div>
           </div>
 
           {error && <div className="alert error">{error}</div>}
@@ -117,14 +133,19 @@ export default function CopilotWidget() {
         </div>
       )}
 
+      {!(open && fullPage) && (
       <button
         type="button"
         className="copilot-launcher"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (open) setFullPage(false);
+          setOpen((o) => !o);
+        }}
         aria-label={open ? "Close copilot" : "Open copilot"}
       >
         {open ? "×" : "💬"}
       </button>
+      )}
     </div>
   );
 }

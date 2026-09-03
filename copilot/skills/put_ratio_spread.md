@@ -30,11 +30,44 @@ needs to be sized and margined accordingly. Above the long strike, if
 entered as a net debit, the whole premium paid is at risk if the stock
 just runs up and neither put ever goes ITM.
 
+**Only ever suggest a net-credit (or at worst zero-cost) setup — never
+recommend one that's a net debit.** The mechanics above describe the
+general strategy, which can land as a net debit if the long strike isn't
+sufficiently offset by the extra short premium, but that's not an
+acceptable recommendation here: if the numbers on a candidate long/short
+combination come out to a net debit, adjust it — move the long strike
+further OTM, move the short strike, or widen the ratio — until it's net
+credit, or say plainly that no combination in the requested range works as
+a credit rather than presenting a debit trade anyway.
+
 **Strike/ratio selection:** the ratio (2:1 is standard; wider ratios like
 3:1 increase the credit/leverage and the downside risk proportionally),
 and how far below the long strike the short strikes sit, both trade off how
 much of the long put's cost gets offset against how much naked short
 exposure is being taken on below that level.
+
+**Within the net-credit constraint above, favor a long strike closer to
+ATM rather than pushing it OTM too — but the credit requirement wins if the
+two conflict.** The long put is the only thing capping the position's risk
+above the naked short strikes, and that protection is strongest when it
+actually has meaningful delta from the start:
+- **Long strike near ATM:** more expensive up front (higher premium than a
+  further-OTM long put), but it starts gaining value as soon as the stock
+  dips at all, rather than needing a large move first to have any delta —
+  meaningfully better protection against a fast, sharp drop right after
+  entry, and it widens the strike-width between long and short, which
+  widens the max-profit zone too. Only usable up to the point where the
+  short premium still fully offsets it, per the constraint above.
+- **Long strike pushed OTM:** cheaper, so it's what keeps the trade net
+  credit when a closer-to-ATM long strike wouldn't be fully offset — but a
+  deep-OTM long put has little delta near entry, so it isn't doing much
+  protective work until the stock has already fallen most of the way
+  toward it, which narrows the strike width (and thus the profit zone) and
+  leaves more of the trade's real protection resting on the short
+  strike/support-level placement above rather than the long leg itself.
+So the actual rule is: pick the closest-to-ATM long strike that still
+keeps the trade net credit at the chosen ratio and short strike — not the
+closest-to-ATM strike outright, and not the cheapest outright either.
 
 **Use support levels — and delta — to place the short strike; this matters
 more here than on a plain CSP.** The short strike is both where max profit

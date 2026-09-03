@@ -45,6 +45,11 @@
   font-weight: 700;
   font-size: 0.95rem;
 }
+.copilot-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .copilot-panel-close {
   background: none;
   border: none;
@@ -55,6 +60,32 @@
   padding: 0 2px;
 }
 .copilot-panel-close:hover { color: var(--text); }
+
+/* ─── Full-page mode ─────────────────────────────────── */
+.copilot-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 199;
+}
+.copilot-widget.full-page {
+  right: 0;
+  bottom: 0;
+}
+.copilot-widget.full-page .copilot-panel {
+  position: fixed;
+  inset: 40px;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  z-index: 201;
+}
+.copilot-widget.full-page .copilot-panel-header { font-size: 1.1rem; }
+.copilot-widget.full-page .copilot-bubble { font-size: 0.95rem; }
+
+@media (max-width: 600px) {
+  .copilot-widget.full-page .copilot-panel { inset: 0; border-radius: 0; }
+}
 
 .copilot-messages {
   display: flex;
