@@ -4,4 +4,7 @@
 // not React context: each page already keeps its own remount-persistence
 // cache this same way, and the two pages are never mounted at once (routes
 // are exclusive) so nothing needs to react live to a change here.
-export const symbolStore = { symbol: null };
+//
+// Starts empty rather than defaulting to some ticker — neither page should
+// ever show or fetch data for a symbol the user didn't actually enter.
+export const symbolStore = { symbol: "" };

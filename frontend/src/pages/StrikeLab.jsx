@@ -140,7 +140,6 @@ function maxLossProfit(legs, lo, hi) {
   return { maxProfit: maxP, maxLoss: minP };
 }
 
-const DEFAULT_SYMBOL = "SPY";
 const DEFAULT_SPOT = 0;
 
 /** Splits a "YYYY-MM-DD" date into the { month, day } shown on an expiration pill. */
@@ -199,16 +198,13 @@ export default function StrikeLab() {
   const pendingPositions = useRef(location.state?.analyzePositions ?? []);
   const isNewAnalyzeRequest = pendingPositions.current.length > 0;
 
-  // symbolStore is shared with the Charts page — it takes priority over this
-  // page's own cache so switching symbol on either page carries over to the
-  // other, but an explicit "Analyze Selected" request (pendingPositions)
-  // always wins over both since it's a deliberate new symbol.
-  const [symbol, setSymbol] = useState(
-    pendingPositions.current[0]?.symbol || symbolStore.symbol || strikeLabCache.symbol || DEFAULT_SYMBOL
-  );
-  const [symbolInput, setSymbolInput] = useState(
-    pendingPositions.current[0]?.symbol || symbolStore.symbol || strikeLabCache.symbolInput || DEFAULT_SYMBOL
-  );
+  // symbolStore is shared with the Charts page (and always has a value, its
+  // own default included) — it takes priority over this page's own cache so
+  // switching symbol on either page carries over to the other, but an
+  // explicit "Analyze Selected" request (pendingPositions) always wins over
+  // both since it's a deliberate new symbol.
+  const [symbol, setSymbol] = useState(pendingPositions.current[0]?.symbol || symbolStore.symbol);
+  const [symbolInput, setSymbolInput] = useState(pendingPositions.current[0]?.symbol || symbolStore.symbol);
   const [spot, setSpot] = useState(strikeLabCache.spot ?? DEFAULT_SPOT);
   const [expIndex, setExpIndex] = useState(strikeLabCache.expIndex ?? 0);
   const [legs, setLegs] = useState(isNewAnalyzeRequest ? [] : strikeLabCache.legs ?? []);
@@ -268,6 +264,11 @@ export default function StrikeLab() {
   useEffect(() => {
     if (skipInitialExpirationsFetch.current) {
       skipInitialExpirationsFetch.current = false;
+      return;
+    }
+    if (!symbol) {
+      setExpirations([]);
+      setChainError(null);
       return;
     }
     let cancelled = false;
@@ -482,21 +483,26 @@ export default function StrikeLab() {
             <form onSubmit={submitSymbol}>
               <input
                 className="input"
+                placeholder="e.g. AAPL"
                 value={symbolInput}
                 onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
               />
             </form>
-            <span className="price-badge ok">
-              Current price: ${spot.toFixed(2)}
-              {loadingChain && <span className="spinner spinner-sm" title="Syncing chain…" />}
-            </span>
+            {symbol && (
+              <span className="price-badge ok">
+                Current price: ${spot.toFixed(2)}
+                {loadingChain && <span className="spinner spinner-sm" title="Syncing chain…" />}
+              </span>
+            )}
           </div>
 
           <div className="exp-group">
             <span className="metric-label">Expiration{dte != null ? ` · ${dte}d` : ""}</span>
             <div className="exp-pills">
               {expirations.length === 0 && (
-                <span className="text-muted">{chainError ? "Failed to load expirations" : "Loading expirations…"}</span>
+                <span className="text-muted">
+                  {!symbol ? "Enter a symbol to get started" : chainError ? "Failed to load expirations" : "Loading expirations…"}
+                </span>
               )}
               {expirations.map((e, i) => {
                 const { month, day } = expPillParts(e.date);
@@ -641,7 +647,7 @@ export default function StrikeLab() {
         </div>
 
         {positionDte == null ? (
-          <div className="chain-empty">Loading expirations…</div>
+          <div className="chain-empty">{!symbol ? "Enter a symbol to get started" : "Loading expirations…"}</div>
         ) : view === "graph" ? (
           <>
             <ResponsiveContainer width="100%" height={340}>

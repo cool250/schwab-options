@@ -12,26 +12,28 @@ import {
 import { getPriceHistory } from "../api/client";
 import { symbolStore } from "../utils/symbolStore";
 
-const DEFAULT_SYMBOL = "SPY";
-
 const isNum = (x) => typeof x === "number" && Number.isFinite(x);
 
 const formatDateLabel = (dateStr) =>
   new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 export default function Charts() {
-  // symbolStore is shared with Analyze (StrikeLab) — switching symbol here
-  // carries over there, and vice versa, instead of each page drifting
-  // independently. Falls back to a default only on the very first visit
-  // this session, before either page has set anything.
-  const [symbol, setSymbol] = useState(symbolStore.symbol || DEFAULT_SYMBOL);
-  const [symbolInput, setSymbolInput] = useState(symbolStore.symbol || DEFAULT_SYMBOL);
+  // symbolStore is shared with Analyze (StrikeLab, and always has a value,
+  // its own default included) — switching symbol here carries over there,
+  // and vice versa, instead of each page drifting independently.
+  const [symbol, setSymbol] = useState(symbolStore.symbol);
+  const [symbolInput, setSymbolInput] = useState(symbolStore.symbol);
   const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     symbolStore.symbol = symbol;
+    if (!symbol) {
+      setHistory(null);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -78,6 +80,7 @@ export default function Charts() {
           <form onSubmit={submitSymbol}>
             <input
               className="input"
+              placeholder="e.g. AAPL"
               value={symbolInput}
               onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
             />
@@ -86,7 +89,7 @@ export default function Charts() {
       </div>
 
       <div className="card">
-        <PriceHistoryChart history={history} loading={loading} error={error} />
+        <PriceHistoryChart history={history} loading={loading} error={symbol ? error : null} noSymbol={!symbol} />
       </div>
     </div>
   );
@@ -125,7 +128,10 @@ function Candle({ x, y, width, height, payload }) {
  *  lines. Backed by Schwab regardless of BROKER_PROVIDER — Tastytrade has
  *  no REST daily-bar endpoint — so this may come back empty for a futures
  *  root like "/NQ" even when the option chain elsewhere is working fine. */
-function PriceHistoryChart({ history, loading, error }) {
+function PriceHistoryChart({ history, loading, error, noSymbol }) {
+  if (noSymbol) {
+    return <div className="chain-empty">Enter a symbol to get started</div>;
+  }
   if (error) {
     return <div className="chain-empty">{error}</div>;
   }
