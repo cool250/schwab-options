@@ -1,6 +1,6 @@
 /* ─── Navbar ─────────────────────────────────────────── */
 .navbar {
-  background: rgba(255,255,255,0.9);
+  background: var(--navbar-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -58,6 +58,19 @@
 /* Desktop sign-out — shown on desktop */
 .navbar-logout--desktop { display: block; }
 
+/* Theme toggle — icon button on desktop, a labeled link inside the mobile dropdown */
+.navbar-theme-toggle--mobile { display: none; }
+.navbar-theme-toggle--desktop {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+.navbar-theme-toggle--desktop:hover { background: var(--bg); }
+
 /* ─── Navbar logout button ───────────────────────────── */
 .navbar-logout {
   margin-left: auto;
@@ -84,6 +97,8 @@
 
   /* Desktop sign-out hidden; mobile one inside dropdown shown */
   .navbar-logout--desktop { display: none; }
+  .navbar-theme-toggle--desktop { display: none; }
+  .navbar-theme-toggle--mobile { display: block; }
 
   /* Collapsed by default */
   .navbar-links {
