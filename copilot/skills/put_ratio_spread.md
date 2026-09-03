@@ -30,15 +30,12 @@ needs to be sized and margined accordingly. Above the long strike, if
 entered as a net debit, the whole premium paid is at risk if the stock
 just runs up and neither put ever goes ITM.
 
-**Only ever suggest a net-credit (or at worst zero-cost) setup — never
-recommend one that's a net debit.** The mechanics above describe the
-general strategy, which can land as a net debit if the long strike isn't
-sufficiently offset by the extra short premium, but that's not an
-acceptable recommendation here: if the numbers on a candidate long/short
-combination come out to a net debit, adjust it — move the long strike
-further OTM, move the short strike, or widen the ratio — until it's net
-credit, or say plainly that no combination in the requested range works as
-a credit rather than presenting a debit trade anyway.
+The mechanics above describe the general strategy, which can land as a net
+debit if the long strike isn't sufficiently offset by the extra short
+premium — but per the net-credit hard constraint, that's not an acceptable
+recommendation here. If a candidate long/short combination prices as a net
+debit, adjust it — move the long strike further OTM, move the short
+strike, or widen the ratio — until it's net credit.
 
 **Strike/ratio selection:** the ratio (2:1 is standard; wider ratios like
 3:1 increase the credit/leverage and the downside risk proportionally),
