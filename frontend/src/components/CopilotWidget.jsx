@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { sendCopilotMessage } from "../api/client";
 
 // Mounted once at the App level (see App.jsx), outside the routed <main> —
@@ -73,7 +75,13 @@ export default function CopilotWidget() {
             ) : (
               messages.map((m, i) => (
                 <div key={i} className={`copilot-msg ${m.role}`}>
-                  <div className="copilot-bubble">{m.content}</div>
+                  <div className="copilot-bubble">
+                    {m.role === "assistant" ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    ) : (
+                      m.content
+                    )}
+                  </div>
                   {m.toolsUsed?.length > 0 && (
                     <div className="copilot-tools-used">
                       {m.toolsUsed.map((t, j) => (

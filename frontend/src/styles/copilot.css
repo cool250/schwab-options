@@ -77,7 +77,7 @@
   max-width: 88%;
 }
 .copilot-msg.user { align-self: flex-end; align-items: flex-end; }
-.copilot-msg.assistant { align-self: flex-start; align-items: flex-start; }
+.copilot-msg.assistant { align-self: flex-start; align-items: flex-start; max-width: 100%; }
 .copilot-bubble {
   padding: 8px 12px;
   border-radius: var(--radius);
@@ -93,6 +93,61 @@
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
+  /* Rendered markdown block elements (p, table, ul, ...) handle their own
+     spacing — pre-wrap here would double up blank lines between them. */
+  white-space: normal;
+}
+
+/* ─── Markdown rendered inside an assistant bubble ──────── */
+.copilot-bubble > :first-child { margin-top: 0; }
+.copilot-bubble > :last-child { margin-bottom: 0; }
+.copilot-bubble p { margin: 0 0 8px; }
+.copilot-bubble ul,
+.copilot-bubble ol { margin: 0 0 8px; padding-left: 20px; }
+.copilot-bubble li { margin: 2px 0; }
+.copilot-bubble strong { font-weight: 700; }
+.copilot-bubble code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8em;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.copilot-bubble pre {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 0 0 8px;
+}
+.copilot-bubble pre code { border: none; background: none; padding: 0; }
+.copilot-bubble h1,
+.copilot-bubble h2,
+.copilot-bubble h3 {
+  font-size: 0.95em;
+  font-weight: 700;
+  margin: 10px 0 6px;
+}
+.copilot-bubble table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+}
+.copilot-bubble th,
+.copilot-bubble td {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+.copilot-bubble thead th {
+  background: var(--card-bg);
+  font-weight: 700;
 }
 .copilot-tools-used {
   display: flex;
