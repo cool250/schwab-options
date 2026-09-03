@@ -147,6 +147,8 @@ heroku buildpacks:add --index 2 heroku/python
 | `ADMIN_USERNAME` | Yes | Login username for the dashboard |
 | `ADMIN_PASSWORD` | Yes | Login password for the dashboard |
 | `TOKEN_JSON` | Yes | Full Schwab OAuth token as a single-line JSON string (initial seed) |
+| `OPENAI_API_KEY` | For the Copilot feature | OpenAI API key powering the read-only financial copilot chat (`/copilot`) |
+| `OPENAI_MODEL` | No | Model used by the Copilot chat — defaults to `gpt-4o` |
 | `USE_DB` | No | Set to `true` to store the token in Redis instead of the env var |
 | `REDIS_URL` | If `USE_DB=true` | Redis connection URL (set automatically by the Heroku Redis addon) |
 

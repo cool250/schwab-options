@@ -4,10 +4,10 @@ function getToken() {
   return sessionStorage.getItem('auth_token')
 }
 
-async function request(path) {
+async function request(path, options = {}) {
   const token = getToken()
-  const headers = token ? { Authorization: `Bearer ${token}` } : {}
-  const res = await fetch(`${BASE}${path}`, { headers, cache: 'no-store' })
+  const headers = { ...options.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+  const res = await fetch(`${BASE}${path}`, { ...options, headers, cache: 'no-store' })
   if (res.status === 401) {
     sessionStorage.removeItem('auth_token')
     window.location.href = '/login'
@@ -87,6 +87,14 @@ export function getEquityTransactions(stockTicker, startDate, endDate, assetType
     realized_gains_only: realizedGainsOnly,
   })
   return request(`/transactions/equity?${p}`)
+}
+
+export function sendCopilotMessage(messages) {
+  return request('/copilot/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages }),
+  })
 }
 
 export function getAllocations(startDate, endDate, realizedGainsOnly) {

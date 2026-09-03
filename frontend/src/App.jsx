@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import ErrorBoundary from './components/ErrorBoundary'
 import Navbar from './components/Navbar'
+import CopilotWidget from './components/CopilotWidget'
 import Login from './pages/Login'
 import Positions from './pages/Positions'
 import Transactions from './pages/Transactions'
@@ -33,6 +34,7 @@ export default function App() {
                     </Routes>
                   </ErrorBoundary>
                 </main>
+                <CopilotWidget />
               </ProtectedRoute>
             }
           />

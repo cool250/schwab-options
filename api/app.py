@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from broker.schwab.exceptions import BrokerAuthError
 from api.auth import router as auth_router, require_auth
+from api.copilot import router as copilot_router
 from api.market import router as market_router
 from api.market_stream import router as market_stream_router
 from api.position import router as position_router
@@ -77,6 +78,7 @@ app.include_router(market_router, prefix="/api/market", tags=["Market"], depende
 app.include_router(market_stream_router, prefix="/api/market/ws", tags=["Market"])
 app.include_router(position_router, prefix="/api/positions", tags=["Positions"], dependencies=[Depends(require_auth)])
 app.include_router(transactions_router, prefix="/api/transactions", tags=["Transactions"], dependencies=[Depends(require_auth)])
+app.include_router(copilot_router, prefix="/api/copilot", tags=["Copilot"], dependencies=[Depends(require_auth)])
 
 # Serve the React SPA from frontend/dist when it has been built (production).
 # This mount must come AFTER all API routers so API routes take priority.
