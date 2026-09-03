@@ -26,4 +26,34 @@ as the stock, just muted).
 more premium relative to time, more theta decay per day, but higher
 assignment odds and more gamma risk near expiration. 30-45 DTE at a
 ~0.20-0.30 delta is a common starting point balancing premium income against
-assignment frequency.
+assignment frequency; favor the lower end of that range (**0.30 delta or
+lower**) when the priority is a higher probability of the put simply
+expiring worthless over squeezing out extra premium — delta is a rough
+proxy for assignment odds, so a lower delta trades some income for a better
+win rate.
+
+**Use support levels, not just delta, to place the strike:** delta gives a
+rough statistical assignment probability, but it says nothing about the
+stock's own recent price behavior. Before recommending or picking a strike,
+pull `get_price_history` for the underlying and look at the support levels
+it returns (recent swing lows) — they mark where the stock has actually
+found buyers before, which is a more specific signal than delta alone. Two
+common ways to combine them:
+- **Strike at/near a support level, at ≤0.30 delta:** the strongest
+  combination — it's already at or below the delta threshold favored above
+  for win-rate, *and* the stock has historically held there, and if it
+  doesn't this time, assignment happens at a level that was already
+  "tested," not an arbitrary point.
+- **Strike below the nearest support:** more conservative still — treats
+  the support level as a line that's expected to hold, and sets the strike
+  (and its delta, naturally lower still) further out so assignment only
+  happens if that support genuinely breaks, not just approaches.
+If support and the ≤0.30-delta strike don't line up closely, say so rather
+than picking one arbitrarily — note the tradeoff (e.g. "the nearest support
+is a bit above/below the 0.30-delta strike, so here's a level at each") and
+let the user weigh probability-of-winning against how much premium is on
+the table. A support level from a short lookback window isn't a guarantee
+either — note that in the recommendation (e.g. "support from the last 30
+days") rather than stating it as a hard floor, since older or wider-window
+support/resistance could differ from what `get_price_history`'s default
+30-day window shows.

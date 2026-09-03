@@ -35,3 +35,28 @@ just runs up and neither put ever goes ITM.
 and how far below the long strike the short strikes sit, both trade off how
 much of the long put's cost gets offset against how much naked short
 exposure is being taken on below that level.
+
+**Use support levels — and delta — to place the short strike; this matters
+more here than on a plain CSP.** The short strike is both where max profit
+is realized *and* where the uncapped downside begins, so its placement does
+double duty. Favor **0.30 delta or lower** on the short strike when the
+priority is a higher probability of it simply expiring worthless rather
+than maximizing the credit collected, same reasoning as a CSP — and pull
+`get_price_history` for the underlying to check the support levels it
+returns (recent swing lows) before picking it:
+- **Short strike at/near a support level, at ≤0.30 delta:** the ideal
+  combination — the max-profit outcome coincides with both a level the
+  stock has actually held before and a lower statistical assignment
+  probability, and the uncapped-risk zone only opens up if that support
+  genuinely breaks, not on an ordinary pullback.
+- **Avoid placing the short strike well above a nearby support** in an
+  attempt to collect more credit — that leaves the max-profit point sitting
+  in a range the stock could easily blow through on its way down to the
+  level it's actually likely to test, turning what looked like the "sweet
+  spot" into a strike that's already deep in the uncapped-loss zone.
+Because the downside below the short strike is uncapped (not bounded at
+zero like a CSP's), a support level that turns out to be weak or from too
+short a lookback window is a bigger problem here — flag the lookback window
+used (`get_price_history`'s default is 30 days) rather than treating it as
+settled, and prefer a support level that's held across more than one recent
+test over a single unconfirmed swing low.
