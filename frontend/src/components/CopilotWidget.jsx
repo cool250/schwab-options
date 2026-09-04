@@ -111,7 +111,11 @@ export default function CopilotWidget() {
             {loading && (
               <div className="copilot-msg assistant">
                 <div className="copilot-bubble">
-                  <span className="spinner spinner-sm" title="Thinking…" />
+                  <span className="copilot-typing" title="Thinking…">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
                 </div>
               </div>
             )}
