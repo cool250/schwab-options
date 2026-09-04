@@ -428,7 +428,10 @@ class TransactionService:
         return results
 
     def _populate_equity_futures(self, stock_ticker: str, asset_type: str, transactions: List[Any]) -> List[Dict]:
-        stock_ticker = stock_ticker.upper()
+        # See _populate_options for why the leading "/" is stripped: futures
+        # symbols are normalized to their bare root below, but "/NQ" is the
+        # convention used everywhere else in this app (chains, price history).
+        stock_ticker = stock_ticker.upper().lstrip("/")
         results = []
         for transaction in transactions:
             try:
@@ -645,6 +648,13 @@ class TransactionService:
         Returns:
             list: Extracted and parsed option transactions
         """
+        # Futures underlyings are normalized to their bare root below (e.g.
+        # "NQ", never "/NQ") — accept a caller-supplied "/NQ" here too rather
+        # than silently matching nothing, since "/NQ" is the convention every
+        # other tool in this app (chains, price history) actually uses.
+        if stock_ticker:
+            stock_ticker = stock_ticker.lstrip("/")
+
         parsed_transactions = []
         # Safely process each transaction
         for transaction in transactions:
