@@ -149,13 +149,26 @@ export default function Transactions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Total is a realized gain/loss figure — a still-open leg's total_amount is
-  // just its entry credit/debit, not a completed gain, so zero it here (its
-  // unrealized gain is shown separately via the Unrealized Gain column).
-  const optionRows = (transactions ?? []).map((t) => (t.type === 'TRADE' ? { ...t, total_amount: 0 } : t))
-  const totalAmount = optionRows.reduce((s, t) => s + (t.total_amount ?? 0), 0)
+  // The Total column doubles as both figures rather than needing a separate
+  // Unrealized Gain column: a still-open leg's total_amount as returned by
+  // the API is just its entry credit/debit (not a completed gain), so swap
+  // it here for the live-priced unrealized gain instead — a row is either
+  // realized (closed, shows its real total_amount) or unrealized (open,
+  // shows its unrealized gain), never both, so one column covers it.
+  // null while the live quote hasn't loaded yet, rendered as "—" by DataTable.
+  const optionRows = (transactions ?? []).map((t) => {
+    if (t.type !== 'TRADE') return t
+    const price = optionQuotes[t.symbol]
+    if (price == null) return { ...t, total_amount: null }
+    return { ...t, total_amount: t.amount * getMultiplier(t.underlying_symbol) * (price - t.open_price) }
+  })
 
-  // Unrealized gain isn't a field on the row — it depends on the live price
+  // The summary line's realized "Total" stays realized-only — computed from
+  // the raw transactions (not optionRows, whose total_amount now mixes in
+  // unrealized figures for open rows) so it isn't diluted by unrealized P&L.
+  const totalAmount = (transactions ?? []).reduce((s, t) => s + (t.type === 'TRADE' ? 0 : (t.total_amount ?? 0)), 0)
+
+  // Live current price isn't a field on the row — it depends on the quote
   // fetched separately above — so it's added as a render-only column (like
   // the futures tab's current_price) rather than merged into the row data.
   function currentPriceColumn() {
@@ -171,37 +184,14 @@ export default function Transactions() {
     }
   }
 
-  function unrealizedGainColumn() {
-    return {
-      key: 'unrealized_gain',
-      label: 'Unrealized Gain',
-      align: 'right',
-      render: (row) => {
-        const price = optionQuotes[row.symbol]
-        if (price == null) return optionQuotesLoading ? '…' : '—'
-        const gain = row.amount * getMultiplier(row.underlying_symbol) * (price - row.open_price)
-        const cls = gain > 0 ? 'cell-positive' : gain < 0 ? 'cell-negative' : ''
-        return (
-          <span className={cls}>
-            ${gain.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-        )
-      },
-    }
-  }
-
-  // Live pricing/unrealized-gain columns are relevant whenever open rows can
-  // appear: the unrealized-only view (every row is open), or the unfiltered
-  // "show everything" view (open and closed rows mixed). Realized-only never
-  // has open rows. Close Price is only dropped in the pure-unrealized view —
-  // in the mixed view, closed rows still have a real close price to show.
+  // Live pricing is relevant whenever open rows can appear: the
+  // unrealized-only view (every row is open), or the unfiltered "show
+  // everything" view (open and closed rows mixed). Realized-only never has
+  // open rows. Close Price is only dropped in the pure-unrealized view — in
+  // the mixed view, closed rows still have a real close price to show.
   const showLivePricing = !realizedOnly
   const optionColumns = showLivePricing
-    ? [
-        ...(unrealizedOnly ? OPTION_COLUMNS.filter((c) => c.key !== 'close_price') : OPTION_COLUMNS),
-        currentPriceColumn(),
-        unrealizedGainColumn(),
-      ]
+    ? [...(unrealizedOnly ? OPTION_COLUMNS.filter((c) => c.key !== 'close_price') : OPTION_COLUMNS), currentPriceColumn()]
     : OPTION_COLUMNS
 
   const totalUnrealizedGain = showLivePricing
