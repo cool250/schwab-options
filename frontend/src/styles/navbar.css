@@ -24,7 +24,7 @@
   gap: 8px;
 }
 .navbar-logo {
-  width: 200px;
+  width: 300px;
   object-fit: contain;
 }
 .navbar-links { display: flex; gap: 2px; }
@@ -92,7 +92,7 @@
     gap: 0;
   }
   .navbar-brand  { flex: 1; padding: 10px 0; }
-  .navbar-logo   { width: 140px; }
+  .navbar-logo   { width: 210px; }
   .navbar-hamburger { display: block; }
 
   /* Desktop sign-out hidden; mobile one inside dropdown shown */

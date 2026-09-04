@@ -12,7 +12,11 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <span className="navbar-brand">
-        <img src="/nutrade_icon.svg" alt="NuTrade" className="navbar-logo" />
+        <img
+          src={theme === 'dark' ? '/nutrade_icon_dark.svg' : '/nutrade_icon.svg'}
+          alt="NuTrade"
+          className="navbar-logo"
+        />
       </span>
 
       <button
