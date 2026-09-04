@@ -1,7 +1,7 @@
 <svg viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
 
   <!-- Icon mark on dark pill -->
-  <rect x="0" y="34" width="52" height="52" rx="10" fill="#f1f5f9/>
+  <rect x="0" y="34" width="52" height="52" rx="10" fill="#f1f5f9"/>
   <!-- Candlestick bars -->
   <rect x="11" y="65" width="7" height="13" fill="#e05c5c" rx="1"/>
   <rect x="22" y="58" width="7" height="18" fill="#00c896" rx="1"/>
