@@ -64,6 +64,7 @@ export function getOptionTransactions(stockTicker, startDate, endDate, contractT
     contract_type: contractType,
     realized_gains_only: realizedGainsOnly,
     unrealized_only: unrealizedOnly,
+    group_ratio_spreads: true,
   })
   return request(`/transactions/options?${p}`)
 }

@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
+import math
 from broker.schwab import Client
 from broker.schwab.exceptions import BrokerAuthError, BrokerError
 from utils.utils import get_date_object, get_date_string
@@ -245,6 +246,161 @@ class TransactionService:
                     result_transactions.append(transaction)
 
         return result_transactions
+
+    @staticmethod
+    def group_ratio_spreads(trades: List[Dict]) -> List[Dict]:
+        """Merge matched-trade legs that together form a ratio spread (e.g.
+        buy 1 higher/lower strike, sell 2+ lower/higher strike, same
+        underlying/expiration/type, opened the same day) into a single
+        grouped record, so a caller sees "one ratio-spread position" instead
+        of loose legs it has to reassemble itself.
+
+        Input/output shape: takes the flat list get_option_transactions()
+        returns; returns a list of the same shape, except any legs
+        identified as one ratio spread are replaced by a single record with
+        `"strategy": "RATIO_SPREAD"` as the grouping marker — `"type"` keeps
+        its normal meaning (CLOSED/EXPIRED/ASSIGNED, taken from whichever
+        leg closed last), since callers like the UI's Status column read it
+        directly and it must mean the same thing on every row. The record
+        also carries a `"legs"` list of the original member records, and
+        `total_amount`/`close_date` rolled up across the group. Everything
+        that isn't part of a qualifying group passes through unchanged —
+        this never invents a grouping it isn't confident about.
+
+        Grouping key: (underlying_symbol, option_type, date) — `date` is
+        each leg's *open* date (per OptionTransaction), on the assumption a
+        ratio spread is entered as one combo order, so its legs share an
+        open date even if they're later closed at different times. A group
+        only qualifies if it has legs on exactly two distinct strikes, one
+        side net long (BTO) and the other net short (STO) at a *different*
+        strike, and the short:long quantity ratio is a whole number >= 2 —
+        anything messier (more than two strikes, no clean whole-number
+        ratio, or only one side present) is left ungrouped rather than
+        guessed at.
+        """
+        by_key: Dict[tuple, List[Dict]] = defaultdict(list)
+        passthrough: List[Dict] = []
+        for trade in trades:
+            # Still-open ("TRADE") legs are deliberately excluded: grouping
+            # would relabel their type away from "TRADE", which is what
+            # callers use to know a leg's total_amount is just entry credit,
+            # not a realized gain — grouping only ever covers closed/settled
+            # legs, where total_amount is a real, summable P&L.
+            if trade.get("type") not in ("CLOSED", "EXPIRED", "ASSIGNED"):
+                passthrough.append(trade)
+                continue
+            # expirationDate is part of the key, not just underlying/type/date:
+            # a ratio spread's legs share one expiration by definition, and
+            # without this, two unrelated ratio spreads opened the same day
+            # on different expirations (that happen to share a strike, e.g.
+            # both shorting the same round-number strike) get lumped into one
+            # candidate group, see more than two distinct strikes overall,
+            # and silently fail to group at all.
+            key = (
+                trade.get("underlying_symbol"),
+                trade.get("option_type"),
+                trade.get("date"),
+                trade.get("expirationDate"),
+            )
+            by_key[key].append(trade)
+
+        grouped: List[Dict] = []
+        for (underlying_symbol, option_type, open_date, expiration_date), legs in by_key.items():
+            if len(legs) < 2:
+                passthrough.extend(legs)
+                continue
+
+            by_strike: Dict[float, List[Dict]] = defaultdict(list)
+            for leg in legs:
+                by_strike[leg.get("strike_price")].append(leg)
+
+            if len(by_strike) != 2:
+                passthrough.extend(legs)
+                continue
+
+            (strike_a, legs_a), (strike_b, legs_b) = by_strike.items()
+            side_a = legs_a[0].get("open_type", "")
+            side_b = legs_b[0].get("open_type", "")
+            if not all(leg.get("open_type") == side_a for leg in legs_a) or not all(
+                leg.get("open_type") == side_b for leg in legs_b
+            ):
+                # Mixed open_type within one strike — not a clean ratio spread.
+                passthrough.extend(legs)
+                continue
+
+            if side_a.startswith("B") and side_b.startswith("S"):
+                long_strike, long_legs, short_strike, short_legs = strike_a, legs_a, strike_b, legs_b
+            elif side_b.startswith("B") and side_a.startswith("S"):
+                long_strike, long_legs, short_strike, short_legs = strike_b, legs_b, strike_a, legs_a
+            else:
+                passthrough.extend(legs)
+                continue
+
+            long_qty = sum(leg.get("amount", 0) for leg in long_legs)
+            short_qty = sum(leg.get("amount", 0) for leg in short_legs)
+            if long_qty <= 0 or short_qty <= 0 or short_qty % long_qty != 0:
+                passthrough.extend(legs)
+                continue
+            ratio = short_qty / long_qty
+            if ratio < 2:
+                passthrough.extend(legs)
+                continue
+
+            def _fmt_strike(s: float) -> str:
+                return f"{s:g}"
+
+            cp = "C" if option_type == "CALL" else "P"
+            ratio_label = f"{int(long_qty)}:{int(short_qty)}"
+
+            # Real status (CLOSED/EXPIRED/ASSIGNED), not a grouping marker —
+            # the UI's Status column reads `type` directly, so it must keep
+            # meaning what it means on every other row. Whichever leg closed
+            # last determines it, matching how close_date itself is picked.
+            last_leg = max(legs, key=lambda leg: leg.get("close_date", ""))
+
+            grouped.append({
+                "type": last_leg.get("type"),
+                "strategy": "RATIO_SPREAD",
+                "underlying_symbol": underlying_symbol,
+                "option_type": option_type,
+                "expirationDate": expiration_date,
+                "date": open_date,
+                "close_date": max(leg.get("close_date", "") for leg in legs),
+                "ratio": ratio_label,
+                "long_leg": {"strike_price": long_strike, "amount": long_qty},
+                "short_leg": {"strike_price": short_strike, "amount": short_qty},
+                "total_amount": sum(leg.get("total_amount", 0) for leg in legs),
+                "legs": legs,
+                # Display-friendly fields so this record renders directly in
+                # the same flat-leg table the UI already has, with no
+                # special-cased columns for a grouped row.
+                "symbol": f"{underlying_symbol} {ratio_label} Ratio "
+                f"(+{_fmt_strike(long_strike)}{cp}/-{_fmt_strike(short_strike)}{cp})",
+                "open_type": "RATIO SPREAD",
+                "amount": ratio_label,
+                "open_price": None,
+                "close_price": None,
+            })
+
+        result = sorted(grouped + passthrough, key=lambda t: t.get("close_date", ""))
+
+        # Grouping must be purely organizational — every input leg lands in
+        # exactly one output record (standalone or folded into a group's
+        # summed total_amount), so the grand total can never legitimately
+        # change. Guard it rather than assume it: a future edit to the
+        # grouping logic that double-counts or drops a leg would otherwise
+        # silently misstate realized P&L.
+        input_total = sum(t.get("total_amount", 0) or 0 for t in trades)
+        output_total = sum(t.get("total_amount", 0) or 0 for t in result)
+        if not math.isclose(input_total, output_total, abs_tol=0.01):
+            logger.error(
+                "group_ratio_spreads changed the total realized P&L: input=%.2f output=%.2f "
+                "(input legs=%d, output records=%d) — grouping bug, falling back to ungrouped.",
+                input_total, output_total, len(trades), len(result),
+            )
+            return trades
+
+        return result
 
     @classmethod
     def get_option_quotes(cls, legs: list) -> dict:

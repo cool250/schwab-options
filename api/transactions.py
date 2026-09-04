@@ -25,11 +25,15 @@ def get_option_transactions(
     contract_type: str = "PUT",
     realized_gains_only: bool = False,
     unrealized_only: bool = False,
+    group_ratio_spreads: bool = False,
     service: TransactionService = Depends(get_service),
 ):
-    return service.get_option_transactions(
+    trades = service.get_option_transactions(
         stock_ticker, start_date, end_date, contract_type, realized_gains_only, unrealized_only
     )
+    if group_ratio_spreads:
+        trades = service.group_ratio_spreads(trades)
+    return trades
 
 
 @router.get(

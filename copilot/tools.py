@@ -76,12 +76,23 @@ def get_option_trade_history(
     ticker: str = "", start_date: str = "", end_date: str = "", realized_gains_only: bool = True
 ) -> str:
     default_start, default_end = _default_date_range(90)
+
+    def _fetch_and_group(ticker, start_date, end_date, realized_gains_only):
+        service = TransactionService()
+        trades = service.get_option_transactions(ticker, start_date, end_date, realized_gains_only=realized_gains_only)
+        # Merges legs that form a ratio spread (e.g. buy 1 / sell 2+ at a
+        # different strike, same underlying/expiration/type, opened together)
+        # into one grouped record — see group_ratio_spreads' docstring. Lets
+        # the model report an actual ratio-spread position directly instead
+        # of inferring the structure itself from a flat leg list.
+        return service.group_ratio_spreads(trades)
+
     return _safe(
-        TransactionService().get_option_transactions,
+        _fetch_and_group,
         ticker,
         start_date or default_start,
         end_date or default_end,
-        realized_gains_only=realized_gains_only,
+        realized_gains_only,
     )
 
 
@@ -208,7 +219,12 @@ TOOL_SCHEMAS = [
             "name": "get_option_trade_history",
             "description": "Get the user's equity-option trade history with matched open/close "
             "legs and realized P&L. Defaults to the last 90 days across all tickers if no dates "
-            "are given.",
+            "are given. Legs that form a ratio spread (buy 1 / sell 2+ at a different strike, "
+            "same underlying/expiration/type, opened together) are already merged into a single "
+            "record with \"strategy\": \"RATIO_SPREAD\" (its \"type\" still holds the normal "
+            "CLOSED/EXPIRED/ASSIGNED status), a \"ratio\" like \"1:2\", \"long_leg\"/\"short_leg\" "
+            "strikes, and one combined total_amount — report those as one position, don't "
+            "re-derive the grouping yourself from individual legs.",
             "parameters": {
                 "type": "object",
                 "properties": {
