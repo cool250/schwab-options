@@ -758,10 +758,6 @@ export default function StrikeLab() {
           />
         </div>
       </div>
-
-      <p className="text-muted" style={{ textAlign: "center" }}>
-        Simplified intrinsic-value model at expiration · not investment advice
-      </p>
     </div>
   );
 }
