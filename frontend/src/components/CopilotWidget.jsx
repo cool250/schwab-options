@@ -21,6 +21,14 @@ export default function CopilotWidget() {
     if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, open]);
 
+  // Docked (non-full-page) mode reserves space at the right edge so the
+  // panel sits beside the app instead of over it; full-page mode is a
+  // dimmed overlay instead, so it doesn't need the push.
+  useEffect(() => {
+    document.body.classList.toggle("copilot-open", open && !fullPage);
+    return () => document.body.classList.remove("copilot-open");
+  }, [open, fullPage]);
+
   const send = async (e) => {
     e.preventDefault();
     const text = input.trim();
@@ -55,7 +63,7 @@ export default function CopilotWidget() {
       {open && (
         <div className="copilot-panel card">
           <div className="copilot-panel-header">
-            <span>Copilot</span>
+            <span>NuTrade Copilot</span>
             <div className="copilot-panel-header-actions">
               <button
                 type="button"
@@ -137,17 +145,14 @@ export default function CopilotWidget() {
         </div>
       )}
 
-      {!(open && fullPage) && (
+      {!open && (
       <button
         type="button"
         className="copilot-launcher"
-        onClick={() => {
-          if (open) setFullPage(false);
-          setOpen((o) => !o);
-        }}
-        aria-label={open ? "Close copilot" : "Open copilot"}
+        onClick={() => setOpen(true)}
+        aria-label="Open copilot"
       >
-        {open ? "×" : "💬"}
+        💬
       </button>
       )}
     </div>

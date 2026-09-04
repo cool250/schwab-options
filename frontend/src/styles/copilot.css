@@ -1,4 +1,17 @@
 /* ─── Copilot floating widget ────────────────────────── */
+:root {
+  --copilot-width: 400px;
+}
+
+/* Reserves space at the viewport's right edge so the docked panel sits
+   beside the app instead of over it — toggled on <body> from
+   CopilotWidget since the panel is a sibling of the routed content,
+   not an ancestor. */
+body.copilot-open {
+  padding-right: var(--copilot-width);
+  transition: padding-right 0.25s ease;
+}
+
 .copilot-widget {
   position: fixed;
   right: 20px;
@@ -31,12 +44,23 @@
 }
 
 .copilot-panel {
-  width: 570px;
-  max-width: calc(100vw - 40px);
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--copilot-width);
+  max-width: 100vw;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: min(750px, calc(100vh - 100px));
+  max-height: none;
+  border-radius: 0;
+  border-top: none;
+  border-bottom: none;
+  border-right: none;
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.12);
+  z-index: 200;
 }
 .copilot-panel-header {
   display: flex;
@@ -45,12 +69,14 @@
   font-weight: 700;
   font-size: 0.95rem;
   /* Bleed past the card's own padding so the titlebar spans edge-to-edge,
-     then re-pad internally. */
+     then re-pad internally. Same blue as an active expiration pill in
+     StrikeLab (--primary), not a one-off color. */
   margin: -24px -24px 0;
   padding: 14px 20px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--primary);
+  color: var(--text-inverse);
+  border-radius: 0;
+  flex-shrink: 0;
 }
 .copilot-panel-header-actions {
   display: flex;
@@ -62,32 +88,36 @@
   border: none;
   font-size: 1.3rem;
   line-height: 1;
-  color: var(--text-muted);
+  color: var(--text-inverse);
+  opacity: 0.75;
   cursor: pointer;
   padding: 0 2px;
 }
-.copilot-panel-close:hover { color: var(--text); }
+.copilot-panel-close:hover { opacity: 1; }
 
-/* ─── Full-page mode ─────────────────────────────────── */
+/* ─── Full-page mode (maximize the docked panel) ───────── */
 .copilot-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
   z-index: 199;
 }
-.copilot-widget.full-page {
-  right: 0;
-  bottom: 0;
-}
 .copilot-widget.full-page .copilot-panel {
-  position: fixed;
   inset: 40px;
+  top: 40px;
+  right: 40px;
+  bottom: 40px;
   width: auto;
+  height: auto;
   max-width: none;
   max-height: none;
+  border-radius: var(--radius-lg);
   z-index: 201;
 }
-.copilot-widget.full-page .copilot-panel-header { font-size: 1.1rem; }
+.copilot-widget.full-page .copilot-panel-header {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  font-size: 1.1rem;
+}
 .copilot-widget.full-page .copilot-bubble { font-size: 0.95rem; }
 
 @media (max-width: 600px) {
@@ -248,5 +278,7 @@
 
 @media (max-width: 480px) {
   .copilot-widget { right: 12px; bottom: 12px; }
-  .copilot-panel { width: calc(100vw - 24px); }
+  .copilot-panel { width: 100vw; }
+  /* Full-width panel on mobile overlays instead of squeezing content to nothing. */
+  body.copilot-open { padding-right: 0; }
 }
