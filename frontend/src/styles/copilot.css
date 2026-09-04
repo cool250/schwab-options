@@ -31,12 +31,12 @@
 }
 
 .copilot-panel {
-  width: 760px;
+  width: 570px;
   max-width: calc(100vw - 40px);
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: min(600px, calc(100vh - 100px));
+  max-height: min(750px, calc(100vh - 100px));
 }
 .copilot-panel-header {
   display: flex;
@@ -44,6 +44,13 @@
   justify-content: space-between;
   font-weight: 700;
   font-size: 0.95rem;
+  /* Bleed past the card's own padding so the titlebar spans edge-to-edge,
+     then re-pad internally. */
+  margin: -24px -24px 0;
+  padding: 14px 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 .copilot-panel-header-actions {
   display: flex;
