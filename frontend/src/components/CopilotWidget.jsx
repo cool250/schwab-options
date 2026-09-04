@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { sendCopilotMessage } from "../api/client";
+import { sendCopilotMessage, friendlyErrorMessage } from "../api/client";
 
 // Mounted once at the App level (see App.jsx), outside the routed <main> —
 // it never unmounts on navigation, so conversation state just lives in this
@@ -45,7 +45,7 @@ export default function CopilotWidget() {
       setMessages([...nextMessages, { role: "assistant", content: result.reply, toolsUsed: result.tools_used }]);
     } catch (err) {
       console.error("Copilot request failed:", err);
-      setError(err.message || "Copilot request failed.");
+      setError(friendlyErrorMessage(err, err.message || "Copilot request failed."));
     } finally {
       setLoading(false);
     }

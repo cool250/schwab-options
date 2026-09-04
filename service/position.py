@@ -31,6 +31,13 @@ class PositionService:
     def _initialize(self):
         try:
             self.position = self.client.fetch_positions()
+        except BrokerAuthError:
+            # Unlike a transient/API-shaped BrokerError, a dead broker session
+            # can't be degraded around — every getter below would just return
+            # empty/error-shaped data with a 200, masking the failure (see
+            # get_futures_position's identical handling below). Let it
+            # propagate so app.py's global handler turns it into a 503.
+            raise
         except BrokerError as e:
             logger.error("Failed to fetch positions: %s", e)
             self.position = None

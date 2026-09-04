@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getPositions, getFuturesPosition, getFuturesOptionPosition, getFuturesOptionQuotes } from '../api/client'
+import { getPositions, getFuturesPosition, getFuturesOptionPosition, getFuturesOptionQuotes, friendlyErrorMessage } from '../api/client'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
@@ -85,18 +85,18 @@ export default function Positions() {
         setData(d)
       })
       .catch((err) => {
-        const msg = err?.message ?? ''
-        if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
-          setError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
-        } else {
-          setError('Failed to load positions. Make sure the API server is running.')
-        }
+        setError(friendlyErrorMessage(err, 'Failed to load positions. Make sure the API server is running.'))
       })
       .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
-    if (tab !== 'futures' || futuresData || futuresLoading) return
+    // Deliberately excludes futuresLoading from the guard/deps: including it
+    // turned every failure into an infinite retry loop (loading -> false ->
+    // effect re-fires because futuresData is still null -> clears the error
+    // -> fails again), so the error banner never stayed on screen long enough
+    // to read. Re-fetching now only happens on an actual tab switch.
+    if (tab !== 'futures' || futuresData) return
     setFuturesLoading(true)
     setFuturesError(null)
     Promise.all([getFuturesPosition(), getFuturesOptionPosition()])
@@ -106,15 +106,10 @@ export default function Positions() {
         setFuturesData(combined)
       })
       .catch((err) => {
-        const msg = err?.message ?? ''
-        if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
-          setFuturesError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
-        } else {
-          setFuturesError('Failed to load futures positions. Make sure the API server is running.')
-        }
+        setFuturesError(friendlyErrorMessage(err, 'Failed to load futures positions. Make sure the API server is running.'))
       })
       .finally(() => setFuturesLoading(false))
-  }, [tab, futuresData, futuresLoading])
+  }, [tab, futuresData])
 
   useEffect(() => {
     if (!futuresData || positionsCache.futuresQuotes) return

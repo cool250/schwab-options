@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { getOptionTransactions, getOptionQuotes, getEquityTransactions } from '../api/client'
+import { getOptionTransactions, getOptionQuotes, getEquityTransactions, friendlyErrorMessage } from '../api/client'
 import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
@@ -122,12 +122,7 @@ export default function Transactions() {
           .finally(() => setOptionQuotesLoading(false))
       }
     } catch (err) {
-      const msg = err?.message ?? ''
-      if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
-        setError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
-      } else {
-        setError('Failed to fetch transactions. Make sure the API server is running.')
-      }
+      setError(friendlyErrorMessage(err, 'Failed to fetch transactions. Make sure the API server is running.'))
     } finally {
       setLoading(false)
     }
@@ -234,12 +229,7 @@ export default function Transactions() {
       const data = await getEquityTransactions(tickerVal.trim().toUpperCase(), startVal, endVal, assetTypeVal, realizedVal)
       setEquityTransactions(data)
     } catch (err) {
-      const msg = err?.message ?? ''
-      if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
-        setEquityError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
-      } else {
-        setEquityError('Failed to fetch transactions. Make sure the API server is running.')
-      }
+      setEquityError(friendlyErrorMessage(err, 'Failed to fetch transactions. Make sure the API server is running.'))
     } finally {
       setEquityLoading(false)
     }

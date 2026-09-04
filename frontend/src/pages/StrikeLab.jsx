@@ -10,7 +10,7 @@ import {
   ReferenceLine,
   Tooltip,
 } from "recharts";
-import { getExpirationList } from "../api/client";
+import { getExpirationList, friendlyErrorMessage } from "../api/client";
 import { MULTIPLIER, getMultiplier } from "../utils/contractMultiplier";
 import { symbolStore } from "../utils/symbolStore";
 
@@ -284,7 +284,7 @@ export default function StrikeLab() {
         console.error("Failed to load expirations:", e);
         if (!cancelled) {
           setExpirations([]);
-          setChainError(e.message || "Failed to load expirations.");
+          setChainError(friendlyErrorMessage(e, e.message || "Failed to load expirations."));
         }
       }
       if (!cancelled) setExpIndex(0);

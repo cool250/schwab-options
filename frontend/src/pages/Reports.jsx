@@ -4,7 +4,7 @@ import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip as BarTooltip, Legend as BarLegend, ResponsiveContainer, LabelList,
   LineChart, Line, ReferenceLine,
 } from 'recharts'
-import { getAllocations, getEquityTransactions } from '../api/client'
+import { getAllocations, getEquityTransactions, friendlyErrorMessage } from '../api/client'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
@@ -222,12 +222,7 @@ export default function Reports() {
     } catch (err) {
       setSymbolData([]); setWeeklyData([]); setDailyData([]); setTableData([]); setTotal(0)
       setEquitySymbolData([]); setEquityTotal(0); setEquityTableData([])
-      const msg = err?.message ?? ''
-      if (msg.toLowerCase().includes('token') || msg.toLowerCase().includes('auth')) {
-        setError('Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.')
-      } else {
-        setError('Failed to fetch allocation data. Make sure the API server is running.')
-      }
+      setError(friendlyErrorMessage(err, 'Failed to fetch allocation data. Make sure the API server is running.'))
     } finally {
       setLoading(false)
     }

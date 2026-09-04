@@ -20,9 +20,27 @@ async function request(path, options = {}) {
       const json = JSON.parse(text)
       if (json.detail) message = json.detail
     } catch {}
-    throw new Error(message)
+    const err = new Error(message)
+    err.status = res.status
+    throw err
   }
   return res.json()
+}
+
+// The backend maps a dead Schwab session (refresh token expired, or Schwab
+// itself rejecting re-auth) to 503 — see api/app.py's BrokerAuthError
+// handler. That's a broker-side outage, not something re-logging into this
+// app fixes, so callers surface it as a distinct message instead of the
+// generic "API server is down" one.
+export const BROKER_AUTH_MESSAGE =
+  'Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.'
+
+export function isBrokerAuthError(err) {
+  return err?.status === 503
+}
+
+export function friendlyErrorMessage(err, fallback) {
+  return isBrokerAuthError(err) ? BROKER_AUTH_MESSAGE : fallback
 }
 
 export function getOptionChain(symbol, dte) {

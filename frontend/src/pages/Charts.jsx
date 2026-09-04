@@ -9,7 +9,7 @@ import {
   ReferenceLine,
   Tooltip,
 } from "recharts";
-import { getPriceHistory } from "../api/client";
+import { getPriceHistory, friendlyErrorMessage } from "../api/client";
 import { symbolStore } from "../utils/symbolStore";
 
 const isNum = (x) => typeof x === "number" && Number.isFinite(x);
@@ -51,7 +51,7 @@ export default function Charts() {
         console.error("Failed to load price history:", e);
         if (!cancelled) {
           setHistory(null);
-          setError(e.message || "Failed to load price history.");
+          setError(friendlyErrorMessage(e, e.message || "Failed to load price history."));
         }
       } finally {
         if (!cancelled) setLoading(false);
