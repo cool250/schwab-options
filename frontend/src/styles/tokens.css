@@ -22,10 +22,6 @@
   --header-bg: #0f172a;
   --header-font-size: 0.93rem; /* shared by DataTable's <th> and StrikeLab's chain-table header spans */
 
-  /* Translucent navbar glass effect — separate from --card-bg since it needs
-     transparency, which a plain hex token can't express. */
-  --navbar-bg: rgba(255, 255, 255, 0.9);
-
   /* Semantic */
   --success:       #059669;
   --success-bg:    #f0fdf4;
@@ -78,7 +74,6 @@
   /* Kept as a distinct banner shade from --bg/--card-bg rather than reusing
      either, so table/chain headers still read as their own band. */
   --header-bg: #334155;
-  --navbar-bg: rgba(15, 23, 42, 0.85);
 
   --success:       #34d399;
   --success-bg:    rgba(52, 211, 153, 0.12);

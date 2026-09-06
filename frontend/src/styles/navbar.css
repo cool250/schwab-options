@@ -1,11 +1,16 @@
 /* ─── Navbar ─────────────────────────────────────────── */
+/* Solid --primary blue + white text, matching the Copilot panel's titlebar
+   (see copilot.css's .copilot-panel-header) — the two are meant to read as
+   the same "title bar" treatment, so this intentionally drops the old
+   translucent glass-blur look in favor of the same flat color. */
 .navbar {
-  background: var(--navbar-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
+  background: var(--primary);
   padding: 0 28px;
-  min-height: 60px;
+  /* min-height, not height — the mobile hamburger dropdown below needs the
+     bar to grow when open. It stays a stable 52px in practice because the
+     logo (the only thing that used to force it taller) is now capped by
+     height, not width — see .navbar-logo. */
+  min-height: 52px;
   display: flex;
   align-items: center;
   gap: 8px 36px;
@@ -17,14 +22,20 @@
 .navbar-brand {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--text);
+  color: var(--text-inverse);
   letter-spacing: -0.4px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .navbar-logo {
-  width: 300px;
+  /* Sized by height, not width — an <img> with only `width` set takes its
+     height from the logo's own aspect ratio (viewBox 400x120), which is
+     what let a wider logo silently stretch the whole bar taller. Capping
+     height and leaving width auto means the bar's height never moves no
+     matter how the logo is resized. */
+  height: 42px;
+  width: auto;
   object-fit: contain;
 }
 .navbar-links { display: flex; gap: 2px; }
@@ -32,14 +43,14 @@
   padding: 6px 14px;
   border-radius: var(--radius-sm);
   text-decoration: none;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.75);
   font-size: 0.875rem;
   font-weight: 500;
   transition: color 0.15s, background 0.15s;
   position: relative;
 }
-.nav-link:hover { color: var(--text); background: var(--bg); }
-.nav-link.active { color: var(--primary); background: var(--primary-light); font-weight: 600; }
+.nav-link:hover { color: var(--text-inverse); background: rgba(255, 255, 255, 0.12); }
+.nav-link.active { color: var(--text-inverse); background: rgba(255, 255, 255, 0.22); font-weight: 600; }
 
 /* Hamburger button — hidden on desktop */
 .navbar-hamburger {
@@ -50,7 +61,7 @@
   font-size: 1.4rem;
   line-height: 1;
   cursor: pointer;
-  color: var(--text);
+  color: var(--text-inverse);
   padding: 6px 8px;
 }
 /* Mobile sign-out inside the dropdown — hidden on desktop */
@@ -69,18 +80,20 @@
   padding: 6px 8px;
   border-radius: var(--radius-sm);
 }
-.navbar-theme-toggle--desktop:hover { background: var(--bg); }
+.navbar-theme-toggle--desktop:hover { background: rgba(255, 255, 255, 0.12); }
 
 /* ─── Navbar logout button ───────────────────────────── */
 .navbar-logout {
   margin-left: auto;
   font-size: 0.95rem;
   letter-spacing: 0.03em;
-  color: var(--error);
+  color: var(--text-inverse);
+  opacity: 0.85;
   text-decoration: none;
   cursor: pointer;
 }
 .navbar-logout:hover {
+  opacity: 1;
   text-decoration: underline;
 }
 
@@ -92,7 +105,7 @@
     gap: 0;
   }
   .navbar-brand  { flex: 1; padding: 10px 0; }
-  .navbar-logo   { width: 210px; }
+  .navbar-logo   { height: 26px; width: auto; }
   .navbar-hamburger { display: block; }
 
   /* Desktop sign-out hidden; mobile one inside dropdown shown */

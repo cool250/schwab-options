@@ -70,9 +70,12 @@ body.copilot-open {
   font-size: 0.95rem;
   /* Bleed past the card's own padding so the titlebar spans edge-to-edge,
      then re-pad internally. Same blue as an active expiration pill in
-     StrikeLab (--primary), not a one-off color. */
+     StrikeLab (--primary), not a one-off color. min-height matches the
+     navbar's 52px (see navbar.css's .navbar) so the two title bars line up
+     as one continuous strip when the panel is docked open. */
   margin: -24px -24px 0;
   padding: 14px 20px;
+  min-height: 52px;
   background: var(--primary);
   color: var(--text-inverse);
   border-radius: 0;

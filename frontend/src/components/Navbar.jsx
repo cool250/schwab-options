@@ -12,11 +12,11 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <span className="navbar-brand">
-        <img
-          src={theme === 'dark' ? '/nutrade_icon_dark.svg' : '/nutrade_icon.svg'}
-          alt="NuTrade"
-          className="navbar-logo"
-        />
+        {/* Always the light-text variant now — the navbar itself is a solid
+            --primary blue regardless of app theme (see navbar.css), matching
+            the Copilot panel's titlebar, so the dark-navy "Nu" in the other
+            variant would have poor contrast here either way. */}
+        <img src="/nutrade_icon_dark.svg" alt="NuTrade" className="navbar-logo" />
       </span>
 
       <button
