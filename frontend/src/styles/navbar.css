@@ -72,6 +72,11 @@
 /* Theme toggle — icon button on desktop, a labeled link inside the mobile dropdown */
 .navbar-theme-toggle--mobile { display: none; }
 .navbar-theme-toggle--desktop {
+  /* Anchors the right-alignment for this whole group — pushes itself (and
+     Sign out, right after it in DOM order) to the far right edge, so the
+     two sit together instead of the icon floating in the middle of the gap
+     before Sign out's own right-alignment. */
+  margin-left: auto;
   background: none;
   border: none;
   font-size: 1.1rem;
@@ -84,7 +89,6 @@
 
 /* ─── Navbar logout button ───────────────────────────── */
 .navbar-logout {
-  margin-left: auto;
   font-size: 0.95rem;
   letter-spacing: 0.03em;
   color: var(--text-inverse);
