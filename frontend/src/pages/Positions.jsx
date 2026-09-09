@@ -138,18 +138,54 @@ export default function Positions() {
   const totalPutValue = puts.reduce((sum, p) => sum + (p.total_value ?? 0), 0)
   const totalCallValue = calls.reduce((sum, c) => sum + (c.total_value ?? 0), 0)
 
+  // A grouped ratio-spread row's own strike_price ("$7,695/$7,640") and
+  // quantity ("1:2") are display-only composites — toNumber() on either
+  // silently produces NaN, which is what broke "Analyze Selected" for these
+  // rows after grouping was added. Real per-leg strike/quantity/price live on
+  // long_leg/short_leg instead, so such a row expands to two selection
+  // entries (one per real leg) rather than one row => one entry.
+  function groupLegKeys(row) {
+    return [`${row.symbol}::long`, `${row.symbol}::short`]
+  }
+
   function toggleSelected(row, optionType, isFutures) {
+    // Futures roots come back stripped of their leading "/" (e.g. "ES", not
+    // "/ES") — StrikeLab's chain lookup uses that prefix to route to a
+    // futures-option chain instead of an equity one, so it has to be put
+    // back here or the graph silently comes back empty.
+    const underlyingSymbol = isFutures ? `/${row.ticker}` : row.ticker
     setSelected((prev) => {
       const next = new Map(prev)
+      if (row.long_leg && row.short_leg) {
+        const [longKey, shortKey] = groupLegKeys(row)
+        if (next.has(longKey) || next.has(shortKey)) {
+          next.delete(longKey)
+          next.delete(shortKey)
+        } else {
+          next.set(longKey, {
+            symbol: underlyingSymbol,
+            strike: row.long_leg.strike_price,
+            optionType,
+            quantity: row.long_leg.amount,
+            premium: row.long_leg.trade_price,
+            dte: row.days_to_expiry,
+          })
+          next.set(shortKey, {
+            symbol: underlyingSymbol,
+            strike: row.short_leg.strike_price,
+            optionType,
+            quantity: -row.short_leg.amount,
+            premium: row.short_leg.trade_price,
+            dte: row.days_to_expiry,
+          })
+        }
+        return next
+      }
       if (next.has(row.symbol)) {
         next.delete(row.symbol)
       } else {
         next.set(row.symbol, {
-          // Futures roots come back stripped of their leading "/" (e.g. "ES",
-          // not "/ES") — StrikeLab's chain lookup uses that prefix to route
-          // to a futures-option chain instead of an equity one, so it has to
-          // be put back here or the graph silently comes back empty.
-          symbol: isFutures ? `/${row.ticker}` : row.ticker,
+          symbol: underlyingSymbol,
           strike: toNumber(row.strike_price),
           optionType,
           quantity: toNumber(row.quantity),
@@ -161,7 +197,8 @@ export default function Positions() {
     })
   }
 
-  // Adds a checkbox column bound to `selected`, keyed by the row's symbol.
+  // Adds a checkbox column bound to `selected`, keyed by the row's symbol
+  // (or, for a grouped ratio-spread row, its two synthetic per-leg keys).
   function withSelectCheckbox(columns, optionType, isFutures = false) {
     return [
       {
@@ -170,7 +207,11 @@ export default function Positions() {
         render: (row) => (
           <input
             type="checkbox"
-            checked={selected.has(row.symbol)}
+            checked={
+              row.long_leg && row.short_leg
+                ? groupLegKeys(row).some((k) => selected.has(k))
+                : selected.has(row.symbol)
+            }
             onChange={() => toggleSelected(row, optionType, isFutures)}
           />
         ),
