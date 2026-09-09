@@ -402,6 +402,157 @@ class TransactionService:
 
         return result
 
+    @staticmethod
+    def group_open_ratio_spreads(legs: List[Dict]) -> List[Dict]:
+        """Same idea as group_ratio_spreads, but for currently-**open**
+        futures-option legs (as returned by get_open_futures_options()) —
+        used to display open positions, not closed/realized trade history.
+
+        The key difference from group_ratio_spreads: an open leg's `amount`
+        is signed (positive = long/BTO, negative = short/STO), not the
+        always-positive magnitude a matched/closed trade carries, so
+        quantities here are summed via abs() instead of taken as-is. There's
+        no total_amount/realized-P&L concept for an open position, so unlike
+        group_ratio_spreads this doesn't need to preserve a `type` field's
+        meaning — it just needs to preserve total open contract quantity.
+
+        Same grouping key and qualification rules as group_ratio_spreads
+        (two distinct strikes, one side net long, the other net short at a
+        whole-number ratio >= 2, all on the same underlying/type/expiration,
+        opened the same day) — anything that doesn't cleanly fit is left as
+        individual ungrouped legs.
+
+        Grouped records don't have a single meaningful strike_price or
+        quantity, so callers building a display row from these should check
+        for `"strategy": "RATIO_SPREAD"` and handle those two fields
+        specially (see PositionService.get_futures_option_position).
+        """
+        by_key: Dict[tuple, List[Dict]] = defaultdict(list)
+        for leg in legs:
+            key = (
+                leg.get("underlying_symbol"),
+                leg.get("option_type"),
+                leg.get("date"),
+                leg.get("expirationDate"),
+            )
+            by_key[key].append(leg)
+
+        grouped: List[Dict] = []
+        passthrough: List[Dict] = []
+        for (underlying_symbol, option_type, open_date, expiration_date), group_legs in by_key.items():
+            if len(group_legs) < 2:
+                passthrough.extend(group_legs)
+                continue
+
+            by_strike: Dict[float, List[Dict]] = defaultdict(list)
+            for leg in group_legs:
+                by_strike[leg.get("strike_price")].append(leg)
+
+            if len(by_strike) != 2:
+                passthrough.extend(group_legs)
+                continue
+
+            (strike_a, legs_a), (strike_b, legs_b) = by_strike.items()
+            side_a = legs_a[0].get("open_type", "")
+            side_b = legs_b[0].get("open_type", "")
+            if not all(leg.get("open_type") == side_a for leg in legs_a) or not all(
+                leg.get("open_type") == side_b for leg in legs_b
+            ):
+                passthrough.extend(group_legs)
+                continue
+
+            if side_a.startswith("B") and side_b.startswith("S"):
+                long_strike, long_legs, short_strike, short_legs = strike_a, legs_a, strike_b, legs_b
+            elif side_b.startswith("B") and side_a.startswith("S"):
+                long_strike, long_legs, short_strike, short_legs = strike_b, legs_b, strike_a, legs_a
+            else:
+                passthrough.extend(group_legs)
+                continue
+
+            long_qty = sum(abs(leg.get("amount", 0)) for leg in long_legs)
+            short_qty = sum(abs(leg.get("amount", 0)) for leg in short_legs)
+            if long_qty <= 0 or short_qty <= 0 or short_qty % long_qty != 0:
+                passthrough.extend(group_legs)
+                continue
+            ratio = short_qty / long_qty
+            if ratio < 2:
+                passthrough.extend(group_legs)
+                continue
+
+            def _fmt_strike(s: float) -> str:
+                return f"{s:g}"
+
+            def _weighted_price(side_legs: List[Dict]) -> float:
+                # Quantity-weighted average entry price for one side, in case
+                # it's made up of more than one same-strike opening trade —
+                # all such legs share one contract (same strike/expiration/
+                # type/underlying), so a single weighted price and symbol
+                # represent the whole side correctly.
+                qty = sum(abs(leg.get("amount", 0)) for leg in side_legs)
+                if qty == 0:
+                    return 0.0
+                return sum(
+                    leg.get("open_price", leg.get("price", 0)) * abs(leg.get("amount", 0)) for leg in side_legs
+                ) / qty
+
+            cp = "C" if option_type == "CALL" else "P"
+            ratio_label = f"{int(long_qty)}:{int(short_qty)}"
+            long_price = _weighted_price(long_legs)
+            short_price = _weighted_price(short_legs)
+            # Net entry price for one whole spread (1 long + `ratio` shorts,
+            # in the same per-point convention the individual legs' own
+            # trade_price already uses) — what was collected from the short
+            # side minus what was paid for the long side. Positive = net
+            # credit, negative = net debit.
+            net_trade_price = (short_qty * short_price) - (long_qty * long_price)
+
+            grouped.append({
+                "underlying_symbol": underlying_symbol,
+                "option_type": option_type,
+                "expirationDate": expiration_date,
+                "date": open_date,
+                "strategy": "RATIO_SPREAD",
+                "ratio": ratio_label,
+                "net_trade_price": net_trade_price,
+                "long_leg": {
+                    "strike_price": long_strike,
+                    "amount": long_qty,
+                    "trade_price": long_price,
+                    "symbol": long_legs[0].get("symbol"),
+                },
+                "short_leg": {
+                    "strike_price": short_strike,
+                    "amount": short_qty,
+                    "trade_price": short_price,
+                    "symbol": short_legs[0].get("symbol"),
+                },
+                "symbol": f"{underlying_symbol} {ratio_label} Ratio "
+                f"(+{_fmt_strike(long_strike)}{cp}/-{_fmt_strike(short_strike)}{cp})",
+                "legs": group_legs,
+            })
+
+        result = grouped + passthrough
+
+        # Same consistency guard as group_ratio_spreads, on total open
+        # contract quantity instead of total P&L: every input leg's
+        # magnitude must land in exactly one output record.
+        input_qty = sum(abs(leg.get("amount", 0) or 0) for leg in legs)
+        output_qty = sum(
+            (t["long_leg"]["amount"] + t["short_leg"]["amount"]) if t.get("strategy") == "RATIO_SPREAD"
+            else abs(t.get("amount", 0) or 0)
+            for t in result
+        )
+        if not math.isclose(input_qty, output_qty, abs_tol=0.001):
+            logger.error(
+                "group_open_ratio_spreads changed total open contract quantity: input=%.2f "
+                "output=%.2f (input legs=%d, output records=%d) — grouping bug, falling back "
+                "to ungrouped.",
+                input_qty, output_qty, len(legs), len(result),
+            )
+            return legs
+
+        return result
+
     @classmethod
     def get_option_quotes(cls, legs: list) -> dict:
         """Live current prices for a set of open (unrealized) option legs,

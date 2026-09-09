@@ -177,7 +177,20 @@ class PositionService:
         symbols — confirmed empirically, 'invalidSymbols') and can add several
         seconds per open expiration, so the frontend fetches that separately
         via get_futures_option_quotes() once this — the fast part — has
-        already rendered.
+        already rendered. A grouped ratio-spread row's own `symbol` is
+        synthetic (e.g. "ES 1:2 Ratio (...)") and never matches a real
+        contract symbol from that quote lookup, so the row also carries
+        `long_leg`/`short_leg` (each with its own real `symbol` and
+        quantity) — the frontend uses those to compute a live net Current
+        Price the same way trade_price is computed here, rather than a
+        single direct lookup.
+
+        Legs that form a ratio spread (buy 1 / sell 2+ at a different
+        strike, same underlying/expiration/type, opened together) are
+        merged into a single row, with both strikes shown in strike_price
+        and a net entry price (short side minus long side, weighted by each
+        side's quantity) in trade_price — see
+        TransactionService.group_open_ratio_spreads.
 
         Returns:
             tuple: (puts, calls), each a list of
@@ -186,13 +199,16 @@ class PositionService:
         """
         from service.transactions import TransactionService  # local: avoid import cost when unused
 
+        transaction_service = TransactionService()
         try:
-            legs = TransactionService().get_open_futures_options(lookback_days=lookback_days)
+            legs = transaction_service.get_open_futures_options(lookback_days=lookback_days)
         except BrokerAuthError:
             raise
         except BrokerError as e:
             logger.error("Failed to derive futures option positions: %s", e)
             return [], []
+
+        legs = transaction_service.group_open_ratio_spreads(legs)
 
         puts, calls = [], []
         for leg in legs:
@@ -204,23 +220,45 @@ class PositionService:
                 except ValueError:
                     days_to_expiry = None
 
+            is_group = leg.get("strategy") == "RATIO_SPREAD"
+            if is_group:
+                long_leg, short_leg = leg["long_leg"], leg["short_leg"]
+                net = leg.get("net_trade_price", 0)
+                strike_price = f"${long_leg['strike_price']:,.0f}/${short_leg['strike_price']:,.0f}"
+                trade_price = f"${net:,.2f}" if net >= 0 else f"-${abs(net):,.2f}"
+            else:
+                strike_price = f"${leg.get('strike_price', 0):,.0f}"
+                trade_price = f"${leg.get('open_price', leg.get('price', 0)):,.2f}"
+
             option_details = {
                 "ticker": leg.get("underlying_symbol"),
                 "symbol": leg.get("symbol"),
-                "strike_price": f"${leg.get('strike_price', 0):,.0f}",
+                "strike_price": strike_price,
                 "expiration_date": expiration_date,
                 "days_to_expiry": days_to_expiry,
-                "quantity": f"{leg.get('amount', 0):,.0f}",
-                "trade_price": f"${leg.get('open_price', leg.get('price', 0)):,.2f}",
+                "quantity": leg.get("ratio") if is_group else f"{leg.get('amount', 0):,.0f}",
+                "trade_price": trade_price,
             }
+            if is_group:
+                # Carried through so the frontend can compute a live net
+                # Current Price the same way (each real leg's own symbol,
+                # looked up in the separately-fetched quotes dict, weighted
+                # by that leg's quantity) — the group's own `symbol` above
+                # is synthetic and won't match a real quote.
+                option_details["long_leg"] = leg["long_leg"]
+                option_details["short_leg"] = leg["short_leg"]
             (puts if leg.get("option_type") == "PUT" else calls).append(option_details)
         return puts, calls
 
     def get_futures_option_quotes(self, lookback_days: int = 30) -> dict:
         """Live bid prices for currently-open futures-option positions, keyed
-        by the same `symbol` get_futures_option_position() returns each leg
-        under — split out from that method so the position table itself can
-        render immediately without waiting on Tastytrade's DXLink feed.
+        by the same `symbol` individual (ungrouped) legs carry in
+        get_futures_option_position() — split out from that method so the
+        position table itself can render immediately without waiting on
+        Tastytrade's DXLink feed. Deliberately fetches its own flat, ungrouped
+        legs rather than reusing get_futures_option_position()'s (which
+        merges ratio-spread legs into synthetic multi-leg rows) — each real
+        contract needs its own symbol to look up a quote for.
         """
         from service.transactions import TransactionService  # local: avoid import cost when unused
 

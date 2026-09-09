@@ -180,15 +180,28 @@ export default function Positions() {
 
   // current_price arrives separately (see futuresQuotes above) — this column
   // looks it up by symbol at render time instead of reading it off the row.
+  // For a grouped ratio-spread row (long_leg/short_leg present), row.symbol is
+  // the synthetic label and never matches a quote key — instead look up each
+  // real leg's own symbol and combine them the same way the backend computes
+  // net_trade_price: (short_qty * short_price) - (long_qty * long_price).
   function futuresCurrentPriceColumn() {
     return {
       key: 'current_price',
       label: 'Current Price',
       align: 'right',
       render: (row) => {
+        if (row.long_leg && row.short_leg) {
+          const longPrice = futuresQuotes[row.long_leg.symbol]
+          const shortPrice = futuresQuotes[row.short_leg.symbol]
+          if (longPrice != null && shortPrice != null) {
+            const net = (row.short_leg.amount * shortPrice) - (row.long_leg.amount * longPrice)
+            return net >= 0 ? `$${net.toFixed(2)}` : `-$${Math.abs(net).toFixed(2)}`
+          }
+          return futuresQuotesLoading ? 'Loading...' : '—'
+        }
         const price = futuresQuotes[row.symbol]
         if (price != null) return `$${price.toFixed(2)}`
-        return futuresQuotesLoading ? '…' : '—'
+        return futuresQuotesLoading ? 'Loading...' : '—'
       },
     }
   }
