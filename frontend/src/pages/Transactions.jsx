@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getOptionTransactions, getOptionQuotes, getEquityTransactions, friendlyErrorMessage } from '../api/client'
-import { getMultiplier } from '../utils/contractMultiplier'
+import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
@@ -71,6 +71,8 @@ export default function Transactions() {
     initialTab === 'options' ? (searchParams.get('ticker')?.toUpperCase() ?? cachedOptions?.ticker ?? '') : ''
   )
   const [contractType, setContractType] = useState(cachedOptions?.contractType ?? 'ALL')
+  const [ignoreFutures, setIgnoreFutures] = useState(cachedOptions?.ignoreFutures ?? false)
+  const [ignoreGrouping, setIgnoreGrouping] = useState(cachedOptions?.ignoreGrouping ?? false)
   const [realizedOnly, setRealizedOnly] = useState(
     initialTab === 'options' && searchParams.get('realized') ? searchParams.get('realized') !== 'false' : cachedOptions?.realizedOnly ?? true
   )
@@ -94,18 +96,24 @@ export default function Transactions() {
   }, [tab])
 
   useEffect(() => {
-    transactionsCache.options = { ticker, contractType, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes }
-  }, [ticker, contractType, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes])
+    transactionsCache.options = { ticker, contractType, ignoreFutures, ignoreGrouping, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes }
+  }, [ticker, contractType, ignoreFutures, ignoreGrouping, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes])
 
-  async function runSearch(tickerVal, startVal, endVal, contractTypeVal, realizedVal, unrealizedVal) {
+  async function runSearch(tickerVal, startVal, endVal, contractTypeVal, ignoreFuturesVal, ignoreGroupingVal, realizedVal, unrealizedVal) {
     setLoading(true)
     setError(null)
     setTransactions(null)
     setOptionQuotes({})
     try {
       const tickerUpper = tickerVal.trim().toUpperCase()
-      const data = await getOptionTransactions(tickerUpper, startVal, endVal, contractTypeVal, realizedVal, unrealizedVal)
-      setTransactions(data)
+      const data = await getOptionTransactions(tickerUpper, startVal, endVal, contractTypeVal, realizedVal, unrealizedVal, !ignoreGroupingVal)
+      // Ignore Futures is a separate asset-class filter, not a PUT/CALL/ALL
+      // value the backend's contract_type understands — applied client-side
+      // instead, on top of whichever contract_type was requested.
+      const filtered = ignoreFuturesVal
+        ? data.filter((t) => !isFuturesRoot(t.underlying_symbol))
+        : data
+      setTransactions(filtered)
 
       // Current price for still-open (unrealized) rows comes from Tastytrade
       // (Schwab has no quote endpoint we can use here either) — fetched
@@ -114,8 +122,11 @@ export default function Transactions() {
       // either the unrealized-only view, or the unfiltered "show everything"
       // view (realizedVal false, unrealizedVal false) which mixes open and
       // closed rows together. Realized-only never has open rows, so skip it.
-      if (!realizedVal && data.length > 0) {
+      if (!realizedVal && filtered.length > 0) {
         setOptionQuotesLoading(true)
+        // Quotes are keyed by each contract's own symbol, and the filtered-out
+        // futures rows above are never rendered — so their quotes (if any come
+        // back) simply sit unused in this dict, no separate filtering needed.
         getOptionQuotes(tickerUpper, startVal, endVal, contractTypeVal)
           .then(setOptionQuotes)
           .catch(() => {})
@@ -130,7 +141,7 @@ export default function Transactions() {
 
   function handleSearch(e) {
     e.preventDefault()
-    runSearch(ticker, startDate, endDate, contractType, realizedOnly, unrealizedOnly)
+    runSearch(ticker, startDate, endDate, contractType, ignoreFutures, ignoreGrouping, realizedOnly, unrealizedOnly)
   }
 
   // Arriving from a chart click (e.g. Reports) pre-fills the filters via the
@@ -139,7 +150,7 @@ export default function Transactions() {
   // above are shown as-is with no fetch at all.
   useEffect(() => {
     if (initialTab === 'options' && fromLink) {
-      runSearch(ticker, startDate, endDate, contractType, realizedOnly, unrealizedOnly)
+      runSearch(ticker, startDate, endDate, contractType, ignoreFutures, ignoreGrouping, realizedOnly, unrealizedOnly)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -355,6 +366,24 @@ export default function Transactions() {
                     className="toggle-checkbox"
                   />
                   <span>Unrealized Gains Only</span>
+                </label>
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={ignoreFutures}
+                    onChange={(e) => setIgnoreFutures(e.target.checked)}
+                    className="toggle-checkbox"
+                  />
+                  <span>Ignore Futures</span>
+                </label>
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={ignoreGrouping}
+                    onChange={(e) => setIgnoreGrouping(e.target.checked)}
+                    className="toggle-checkbox"
+                  />
+                  <span>Ignore Grouping</span>
                 </label>
                 <button type="submit" className="btn btn-primary" disabled={loading}>
                   Search Transactions

@@ -74,7 +74,7 @@ export function getFuturesOptionQuotes() {
   return request('/positions/futures/options/quotes')
 }
 
-export function getOptionTransactions(stockTicker, startDate, endDate, contractType, realizedGainsOnly, unrealizedOnly = false) {
+export function getOptionTransactions(stockTicker, startDate, endDate, contractType, realizedGainsOnly, unrealizedOnly = false, groupRatioSpreads = true) {
   const p = new URLSearchParams({
     stock_ticker: stockTicker,
     start_date: startDate,
@@ -82,7 +82,7 @@ export function getOptionTransactions(stockTicker, startDate, endDate, contractT
     contract_type: contractType,
     realized_gains_only: realizedGainsOnly,
     unrealized_only: unrealizedOnly,
-    group_ratio_spreads: true,
+    group_ratio_spreads: groupRatioSpreads,
   })
   return request(`/transactions/options?${p}`)
 }

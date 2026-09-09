@@ -12,3 +12,13 @@ export function getMultiplier(sym) {
   const root = sym.replace(/^\//, '').toUpperCase()
   return FUTURES_MULTIPLIER_BY_ROOT[root] ?? MULTIPLIER
 }
+
+// True for a futures underlying root (e.g. "ES", "/NQ") — transactions on
+// these come back with underlying_symbol already stripped of its leading
+// '/' (see TransactionService._normalize_futures_symbol), so this accepts
+// either form.
+export function isFuturesRoot(sym) {
+  if (!sym) return false
+  const root = sym.replace(/^\//, '').toUpperCase()
+  return root in FUTURES_MULTIPLIER_BY_ROOT
+}
