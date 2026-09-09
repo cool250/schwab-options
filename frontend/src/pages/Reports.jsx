@@ -4,7 +4,8 @@ import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip as BarTooltip, Legend as BarLegend, ResponsiveContainer, LabelList,
   LineChart, Line, ReferenceLine,
 } from 'recharts'
-import { getAllocations, getEquityTransactions, friendlyErrorMessage } from '../api/client'
+import { getAllocations, getEquityTransactions, getOptionQuotes, friendlyErrorMessage } from '../api/client'
+import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
@@ -21,13 +22,21 @@ const SUMMARY_COLUMNS = [
 
 // Shared by the option and equity/future per-symbol charts — identical shape,
 // just different data/total/click destination.
-function SymbolProfitChart({ title, label, data, total, onBarClick }) {
+// unrealizedGain: undefined when the view has no open-leg concept (e.g. the
+// equity/future chart, or realized-only option views); null while still open
+// legs exist but their live quotes haven't come back yet; a number once loaded.
+function SymbolProfitChart({ title, label, data, total, onBarClick, unrealizedGain }) {
   if (data.length === 0) return null
   return (
     <div className="card chart-card">
       <h3 className="section-title">
         {title} — {label}
         <span className="chart-total"> (${total.toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
+        {unrealizedGain !== undefined && (
+          <span className="chart-total">
+            {' '}| Unrealized Gain: {unrealizedGain == null ? 'Loading...' : `$${unrealizedGain.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+          </span>
+        )}
       </h3>
       <ResponsiveContainer width="100%" height={320}>
         <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
@@ -66,6 +75,33 @@ function ytdRange(year) {
   const start = `${year}-01-01`
   const end = year === currentYear() ? new Date().toISOString().split('T')[0] : `${year}-12-31`
   return { start, end }
+}
+
+// Same normalization Transactions.jsx applies to equity/future rows before
+// display: an unmatched leg — either a still-open position, or a closing
+// sale whose original open fell outside the backend's lookback window — has
+// no real gain/loss it can compute, so its total_amount (left as the raw
+// cash flow, e.g. a closing sale's full proceeds) must be zeroed rather than
+// summed as if it were realized P&L. Without this, a stale close like a
+// 200-share CRM sale shows its entire $40,000 in proceeds as "profit".
+function normalizeEquityRows(rows) {
+  return rows.map((t) => {
+    if (t.quantity < 0) {
+      return { ...t, close_date: t.date, close_price: t.open_price, date: null, open_price: null, status: 'CLOSED', total_amount: 0 }
+    }
+    return t.close_price == null ? { ...t, total_amount: 0 } : t
+  })
+}
+
+// Option-side counterpart to normalizeEquityRows: a still-open leg (Schwab's
+// own raw "TRADE" type, not yet promoted to CLOSED/EXPIRED/ASSIGNED by the
+// backend's matcher — see get_option_transactions/_match_trades) carries
+// total_amount as its raw entry credit/debit, not a realized gain. Without
+// this, a currently-open short position's full premium received gets summed
+// in as if it were profit — e.g. a $2,800 credit from an open NQ put spread
+// showing up as $2,800 "P&L" for a month it was never closed in.
+function normalizeOptionRows(rows) {
+  return rows.map((t) => (t.type === 'TRADE' ? { ...t, total_amount: 0 } : t))
 }
 
 // Aggregate a list of transactions by symbol, summing total_amount per symbol.
@@ -115,6 +151,7 @@ const reportsCache = {
   period: 'month', year: currentYear(), month: currentMonth(), realizedOnly: true,
   submitted: false, symbolData: [], weeklyData: [], dailyData: [], tableData: [], total: 0,
   equitySymbolData: [], equityTableData: [], equityTotal: 0, label: '',
+  openOptionLegs: [], optionQuotes: {},
 }
 
 export default function Reports() {
@@ -136,13 +173,23 @@ export default function Reports() {
   const [equityTotal, setEquityTotal] = useState(reportsCache.equityTotal)
   const [label, setLabel] = useState(reportsCache.label)
 
+  // Still-open option legs from the last submit, and their live quotes —
+  // fetched separately (Tastytrade DXLink, slow) so the chart itself renders
+  // with the realized total right away instead of blocking on it. See
+  // totalUnrealizedGain below for how these combine.
+  const [openOptionLegs, setOpenOptionLegs] = useState(reportsCache.openOptionLegs)
+  const [optionQuotes, setOptionQuotes] = useState(reportsCache.optionQuotes)
+  const [optionQuotesLoading, setOptionQuotesLoading] = useState(false)
+
   useEffect(() => {
     Object.assign(reportsCache, {
       period, year, month, realizedOnly, submitted, symbolData, weeklyData, dailyData,
       tableData, total, equitySymbolData, equityTableData, equityTotal, label,
+      openOptionLegs, optionQuotes,
     })
   }, [period, year, month, realizedOnly, submitted, symbolData, weeklyData, dailyData,
-      tableData, total, equitySymbolData, equityTableData, equityTotal, label])
+      tableData, total, equitySymbolData, equityTableData, equityTotal, label,
+      openOptionLegs, optionQuotes])
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear() - i)
 
@@ -164,7 +211,7 @@ export default function Reports() {
       setLabel(period === 'ytd' ? `YTD ${year}` : `${monthName(month)} ${year}`)
 
       if (equityData && equityData.length > 0) {
-        const { agg, tot, tableData: equityRows } = aggregateBySymbol(equityData)
+        const { agg, tot, tableData: equityRows } = aggregateBySymbol(normalizeEquityRows(equityData))
         setEquitySymbolData(agg)
         setEquityTotal(tot)
         setEquityTableData(equityRows)
@@ -174,19 +221,37 @@ export default function Reports() {
 
       if (!data || data.length === 0) {
         setSymbolData([]); setWeeklyData([]); setDailyData([]); setTableData([]); setTotal(0)
+        setOpenOptionLegs([]); setOptionQuotes({})
         setSubmitted(true)
         return
       }
 
-      const { agg, tot, tableData: optionRows } = aggregateBySymbol(data)
+      const normalizedData = normalizeOptionRows(data)
+
+      const { agg, tot, tableData: optionRows } = aggregateBySymbol(normalizedData)
       setSymbolData(agg)
       setTotal(tot)
       setTableData(optionRows)
 
+      // Live quotes for the Unrealized Gain figure — same rationale as
+      // Transactions.jsx: fetched separately (Tastytrade DXLink, slow) so the
+      // realized total above doesn't wait on it. Only relevant when open
+      // ("TRADE") legs can actually appear, i.e. realizedOnly is off.
+      const openLegs = normalizedData.filter((t) => t.type === 'TRADE')
+      setOpenOptionLegs(openLegs)
+      setOptionQuotes({})
+      if (!realizedOnly && openLegs.length > 0) {
+        setOptionQuotesLoading(true)
+        getOptionQuotes('', start, end, 'ALL')
+          .then(setOptionQuotes)
+          .catch(() => {})
+          .finally(() => setOptionQuotesLoading(false))
+      }
+
       // Weekly grouped bar chart
       const weekMap = {} // { week: { sym: amount } }
       const weekRanges = {} // { week: { start, end } }
-      for (const row of data) {
+      for (const row of normalizedData) {
         if (!row.close_date) continue
         const { week: weekNum, start: weekStart, end: weekEnd } = isoWeekRange(row.close_date)
         const week = `W${weekNum}`
@@ -209,7 +274,7 @@ export default function Reports() {
       // Daily line chart — total P&L per day (all symbols combined), same
       // source data as the weekly chart just grouped by day instead of week.
       const dayMap = {} // { date: total }
-      for (const row of data) {
+      for (const row of normalizedData) {
         if (!row.close_date) continue
         dayMap[row.close_date] = (dayMap[row.close_date] ?? 0) + (row.total_amount ?? 0)
       }
@@ -222,6 +287,7 @@ export default function Reports() {
     } catch (err) {
       setSymbolData([]); setWeeklyData([]); setDailyData([]); setTableData([]); setTotal(0)
       setEquitySymbolData([]); setEquityTotal(0); setEquityTableData([])
+      setOpenOptionLegs([]); setOptionQuotes({})
       setError(friendlyErrorMessage(err, 'Failed to fetch allocation data. Make sure the API server is running.'))
     } finally {
       setLoading(false)
@@ -229,6 +295,18 @@ export default function Reports() {
   }
 
   const noData = submitted && symbolData.length === 0 && equitySymbolData.length === 0
+
+  // undefined (hide the figure entirely) when realizedOnly is on — no open
+  // legs can appear in that view at all — or none were open for the period;
+  // null (show "Loading...") until the separately-fetched quotes land.
+  const totalUnrealizedGain = (!realizedOnly && openOptionLegs.length > 0)
+    ? (optionQuotesLoading
+        ? null
+        : openOptionLegs.reduce((s, t) => {
+            const price = optionQuotes[t.symbol]
+            return price == null ? s : s + t.amount * getMultiplier(t.underlying_symbol) * (price - t.open_price)
+          }, 0))
+    : undefined
 
   function handleBarClick(row, tab) {
     const symbol = row?.name ?? row?.payload?.name
@@ -382,6 +460,7 @@ export default function Reports() {
               data={symbolData}
               total={total}
               onBarClick={(row) => handleBarClick(row)}
+              unrealizedGain={totalUnrealizedGain}
             />
             <SymbolProfitChart
               title="Monthly Equity/Future P&amp;L"
