@@ -77,6 +77,7 @@ export default function Positions() {
   // Options picked (across either tab) to send to StrikeLab — keyed by the
   // row's own symbol, since that's unique per contract.
   const [selected, setSelected] = useState(new Map())
+  const [analyzeError, setAnalyzeError] = useState(null)
 
   useEffect(() => {
     if (positionsCache.data) return
@@ -154,6 +155,7 @@ export default function Positions() {
     // futures-option chain instead of an equity one, so it has to be put
     // back here or the graph silently comes back empty.
     const underlyingSymbol = isFutures ? `/${row.ticker}` : row.ticker
+    setAnalyzeError(null)
     setSelected((prev) => {
       const next = new Map(prev)
       if (row.long_leg && row.short_leg) {
@@ -169,6 +171,8 @@ export default function Positions() {
             quantity: row.long_leg.amount,
             premium: row.long_leg.trade_price,
             dte: row.days_to_expiry,
+            ticker: row.ticker,
+            expirationDate: row.expiration_date,
           })
           next.set(shortKey, {
             symbol: underlyingSymbol,
@@ -177,6 +181,8 @@ export default function Positions() {
             quantity: -row.short_leg.amount,
             premium: row.short_leg.trade_price,
             dte: row.days_to_expiry,
+            ticker: row.ticker,
+            expirationDate: row.expiration_date,
           })
         }
         return next
@@ -191,6 +197,8 @@ export default function Positions() {
           quantity: toNumber(row.quantity),
           premium: toNumber(row.trade_price),
           dte: row.days_to_expiry,
+          ticker: row.ticker,
+          expirationDate: row.expiration_date,
         })
       }
       return next
@@ -279,10 +287,24 @@ export default function Positions() {
     }
   }
 
+  // StrikeLab's payoff graph prices one spot for one underlying at one point
+  // in time — legs from different tickers or different expirations can't be
+  // combined into a single meaningful graph, so this is checked up front
+  // rather than letting Analyze silently plot a nonsensical mix.
   function handleAnalyzeSelected() {
+    const positions = Array.from(selected.values())
+    const tickers = new Set(positions.map((p) => p.ticker))
+    const expirations = new Set(positions.map((p) => p.expirationDate))
+    if (tickers.size > 1 || expirations.size > 1) {
+      setAnalyzeError(
+        'Select options for a single ticker and expiration date to analyze together.'
+      )
+      return
+    }
+    setAnalyzeError(null)
     navigate('/analyze', {
       state: {
-        analyzePositions: Array.from(selected.values()),
+        analyzePositions: positions,
         view: 'graph',
       },
     })
@@ -320,6 +342,8 @@ export default function Positions() {
           Analyze Selected {selected.size > 0 ? `(${selected.size})` : ''}
         </button>
       </div>
+
+      {analyzeError && <div className="alert error">{analyzeError}</div>}
 
       {tab === 'equity' && (
         <>
