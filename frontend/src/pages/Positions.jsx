@@ -28,7 +28,7 @@ const OPTION_COLUMNS = [
   { key: 'quantity',        label: 'Quantity',     align: 'right' },
   { key: 'trade_price',     label: 'Trade Price',  align: 'right' },
   { key: 'current_price',   label: 'Current Price',  align: 'right' },
-  { key: 'total_value',     label: 'Total Value',  align: 'right' },
+  { key: 'total_value',     label: 'P&L',          align: 'right' },
   { key: 'exposure',        label: 'Exposure',     align: 'right' },
   { key: 'symbol',          label: 'Symbol' },
 ]
@@ -51,6 +51,7 @@ const FUTURES_OPTION_COLUMNS = [
   { key: 'quantity',        label: 'Quantity',    align: 'right' },
   { key: 'trade_price',     label: 'Trade Price', align: 'right' },
 ]
+
 
 export default function Positions() {
   const navigate = useNavigate()
@@ -206,6 +207,37 @@ export default function Positions() {
     }
   }
 
+  // Unrealized P&L: total_value (trade_price-based cost basis, computed on
+  // the backend) minus the same position re-priced at the live quote — so it
+  // needs futuresQuotes the same way Current Price does, and can't be a plain
+  // data key. cell-positive/cell-negative applied manually since DataTable
+  // only auto-colors non-render columns.
+  function futuresPnLColumn() {
+    return {
+      key: 'pl',
+      label: 'P&L',
+      align: 'right',
+      render: (row) => {
+        const multiplier = row.multiplier ?? 100
+        let currentValue = null
+        if (row.long_leg && row.short_leg) {
+          const longPrice = futuresQuotes[row.long_leg.symbol]
+          const shortPrice = futuresQuotes[row.short_leg.symbol]
+          if (longPrice != null && shortPrice != null) {
+            currentValue = ((row.short_leg.amount * shortPrice) - (row.long_leg.amount * longPrice)) * multiplier
+          }
+        } else {
+          const price = futuresQuotes[row.symbol]
+          if (price != null) currentValue = price * -toNumber(row.quantity) * multiplier
+        }
+        if (currentValue == null) return futuresQuotesLoading ? 'Loading...' : '—'
+        const pl = (row.total_value ?? 0) - currentValue
+        const text = pl >= 0 ? `$${pl.toFixed(2)}` : `-$${Math.abs(pl).toFixed(2)}`
+        return <span className={pl > 0 ? 'cell-positive' : pl < 0 ? 'cell-negative' : ''}>{text}</span>
+      },
+    }
+  }
+
   function handleAnalyzeSelected() {
     navigate('/analyze', {
       state: {
@@ -302,7 +334,7 @@ export default function Positions() {
                   <p className="summary-line">
                     Total: {puts.length}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Value: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
                   <DataTable data={puts} columns={withSelectCheckbox(OPTION_COLUMNS, 'PUT')} defaultSortKey="days_to_expiry" />
                 </div>
@@ -316,7 +348,7 @@ export default function Positions() {
                   <h3 className="section-title">Calls</h3>
                   <p className="summary-line">
                     Total: {calls.length}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Value: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
                   <DataTable data={calls} columns={withSelectCheckbox(OPTION_COLUMNS, 'CALL')} defaultSortKey="days_to_expiry" />
                 </div>
@@ -351,7 +383,7 @@ export default function Positions() {
                   <h3 className="section-title">Futures Puts</h3>
                   <DataTable
                     data={futuresPuts}
-                    columns={withSelectCheckbox([...FUTURES_OPTION_COLUMNS, futuresCurrentPriceColumn()], 'PUT', true)}
+                    columns={withSelectCheckbox([...FUTURES_OPTION_COLUMNS, futuresCurrentPriceColumn(), futuresPnLColumn()], 'PUT', true)}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>
@@ -365,7 +397,7 @@ export default function Positions() {
                   <h3 className="section-title">Futures Calls</h3>
                   <DataTable
                     data={futuresCalls}
-                    columns={withSelectCheckbox([...FUTURES_OPTION_COLUMNS, futuresCurrentPriceColumn()], 'CALL', true)}
+                    columns={withSelectCheckbox([...FUTURES_OPTION_COLUMNS, futuresCurrentPriceColumn(), futuresPnLColumn()], 'CALL', true)}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>

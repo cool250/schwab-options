@@ -195,7 +195,16 @@ class PositionService:
         Returns:
             tuple: (puts, calls), each a list of
                 {"ticker", "symbol", "strike_price", "expiration_date",
-                 "days_to_expiry", "quantity", "trade_price"}.
+                 "days_to_expiry", "quantity", "trade_price", "total_value",
+                 "multiplier"}.
+                total_value is trade_price × quantity × contract multiplier
+                (same sign convention as the equity-option total_value: short
+                positive/credit, long negative/debit) — computed from
+                trade_price like the equity version, not the live quote, so
+                it renders immediately without waiting on futuresQuotes.
+                multiplier is carried through separately so the frontend can
+                reprice the position at the live quote and show P&L as
+                total_value minus that live-priced value.
         """
         from service.transactions import TransactionService  # local: avoid import cost when unused
 
@@ -221,14 +230,22 @@ class PositionService:
                     days_to_expiry = None
 
             is_group = leg.get("strategy") == "RATIO_SPREAD"
+            multiplier = TransactionService._get_multiplier(leg.get("underlying_symbol", ""))
             if is_group:
                 long_leg, short_leg = leg["long_leg"], leg["short_leg"]
                 net = leg.get("net_trade_price", 0)
                 strike_price = f"${long_leg['strike_price']:,.0f}/${short_leg['strike_price']:,.0f}"
                 trade_price = f"${net:,.2f}" if net >= 0 else f"-${abs(net):,.2f}"
+                # Both sides' quantities are already netted into `net`, so the
+                # multiplier is applied once here rather than per leg.
+                total_value = net * multiplier
             else:
                 strike_price = f"${leg.get('strike_price', 0):,.0f}"
                 trade_price = f"${leg.get('open_price', leg.get('price', 0)):,.2f}"
+                # Same sign convention as the equity-option total_value above:
+                # short (negative amount) shows a positive credit received,
+                # long (positive amount) shows a negative debit paid.
+                total_value = leg.get("open_price", leg.get("price", 0)) * -leg.get("amount", 0) * multiplier
 
             option_details = {
                 "ticker": leg.get("underlying_symbol"),
@@ -238,6 +255,12 @@ class PositionService:
                 "days_to_expiry": days_to_expiry,
                 "quantity": leg.get("ratio") if is_group else f"{leg.get('amount', 0):,.0f}",
                 "trade_price": trade_price,
+                "total_value": total_value,
+                # Carried through (rather than baked only into total_value) so
+                # the frontend can price the *same* position at the live quote
+                # once futuresQuotes loads, and derive P&L as the difference —
+                # see FUTURES_TOTAL_VALUE_COLUMN's P&L render in Positions.jsx.
+                "multiplier": multiplier,
             }
             if is_group:
                 # Carried through so the frontend can compute a live net
@@ -415,13 +438,23 @@ class PositionService:
                         "quantity": f"{quantity:,.0f}",
                         "exposure": exposure,
                         "trade_price": f"${position.averagePrice:,.2f}",
+                        # Cost basis for now — get_current_price() (called by
+                        # every caller of this method) turns this into
+                        # unrealized P&L once the live quote is known.
                         "total_value": (position.averagePrice or 0) * -quantity * 100
                     }
                     option_positions_details.append(option_details)
         return option_positions_details
 
     def get_current_price(self, tickers):
-        """Fetch the current price for the given options."""
+        """Fetch the current price for the given options.
+
+        For options (identified by the presence of `total_value`, which
+        stock entries don't carry), total_value is repurposed here from a
+        trade-price cost basis into unrealized P&L — cost basis minus that
+        same position priced at the live quote, same sign convention as
+        before: short/credit positive, long/debit negative.
+        """
         ticker_list = [ticker.get("symbol") for ticker in tickers if ticker.get("symbol")]
 
         if not ticker_list:
@@ -441,6 +474,10 @@ class PositionService:
         for ticker in tickers:
             current_price = quote_data.get(ticker.get("symbol"), 0)
             ticker["current_price"] = f"${current_price:,.3f}"
+            if "total_value" in ticker:
+                quantity = float(str(ticker.get("quantity", 0)).replace(",", "") or 0)
+                current_value = current_price * -quantity * 100
+                ticker["total_value"] = ticker["total_value"] - current_value
 
         return tickers
 

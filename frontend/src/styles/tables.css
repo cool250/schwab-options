@@ -41,9 +41,12 @@
 /* Hover overrides stripe */
 .data-table tbody tr:hover td { background: var(--primary-light); }
 
-/* Semantic P&L colours */
-.cell-positive { color: var(--success); font-weight: 600; }
-.cell-negative { color: var(--error);   font-weight: 600; }
+/* Semantic P&L colours — scoped to .data-table td so specificity beats the
+   plain `.data-table td { color: var(--text) }` rule above it; a bare class
+   selector alone (0,1,0) loses to that rule's (0,1,1) when applied straight
+   to the <td>, which silently no-op'd this for every non-render column. */
+.data-table td.cell-positive { color: var(--success); font-weight: 600; }
+.data-table td.cell-negative { color: var(--error);   font-weight: 600; }
 
 .th-sortable {
   cursor: pointer;
