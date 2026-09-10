@@ -34,6 +34,40 @@
   transform: translateY(-1px);
 }
 
+/* ─── Icon + label buttons (e.g. a table's CSV download) ──
+   margin-left: auto pushes it to the far right within a flex row (e.g.
+   .section-header) without needing justify-content: space-between there,
+   which other pages sharing that class don't necessarily want. Mirrors
+   .btn-secondary's hover lift so it reads as the same family of button,
+   just smaller. */
+.icon-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 11px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+  box-shadow: var(--shadow-xs);
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.icon-btn svg { flex-shrink: 0; }
+.icon-btn:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
 /* ─── Tabs (view switchers, e.g. StrikeLab's Chain/Table/Graph/Charts) ──
    Deliberately unlike .btn — no fill, no shadow, no pill shape — so a row
    of view tabs doesn't read as a row of action buttons. */

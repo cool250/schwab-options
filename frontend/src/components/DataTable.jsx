@@ -26,7 +26,10 @@ function getCellClass(key, val) {
  *   columns         — optional array of { key, label, width?, align?, render? } for custom
  *                     headers; if omitted, columns are derived from Object.keys(data[0]).
  *                     `render(row)` overrides the default value formatting for that column
- *                     (e.g. a checkbox) and makes the column unsortable.
+ *                     (e.g. a checkbox, or a formatted date/symbol) — it's still sortable by
+ *                     `key` as long as `key` names a real field on the row data (sorting always
+ *                     compares the raw row[key], never the rendered output); a column whose
+ *                     `key` isn't a real field (e.g. a checkbox with no backing data) is not.
  *   defaultSortKey  — column key to sort by on first render
  *   maxHeight       — optional CSS max-height for the scroll container (e.g. "480px")
  */
@@ -65,15 +68,20 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
           <tr>
             {columns.map(({ key, label, width, align, render }) => {
               const isNumeric = align === 'right' || typeof data[0]?.[key] === 'number'
+              // A render column (e.g. a formatted date, or a checkbox) is
+              // still sortable by its raw row[key] as long as key names a
+              // real field on the row — only a key with no backing data
+              // (like a checkbox column) is excluded.
+              const sortable = key != null && data[0] != null && key in data[0]
               return (
                 <th
                   key={key}
-                  onClick={render ? undefined : () => toggleSort(key)}
-                  className={render ? '' : 'th-sortable'}
+                  onClick={sortable ? () => toggleSort(key) : undefined}
+                  className={sortable ? 'th-sortable' : ''}
                   style={{ width, textAlign: align ?? (isNumeric ? 'right' : 'left') }}
                 >
                   {label}
-                  {!render && sortCol === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                  {sortable && sortCol === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
                 </th>
               )
             })}

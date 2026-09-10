@@ -2,27 +2,46 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getOptionTransactions, getOptionQuotes, getEquityTransactions, friendlyErrorMessage } from '../api/client'
 import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
+import { formatDate } from '../utils/dateFormat'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
+// A `render` column formats the display only — DataTable still sorts by the
+// raw row[key] (ISO "YYYY-MM-DD", which sorts chronologically), so this
+// can't just be a plain-key column reformatted in place. Falls back to '—'
+// for a null date (e.g. close_date on a still-open row), matching what
+// DataTable's own default cell formatting would otherwise show.
+function dateColumn(key, label, align) {
+  return { key, label, align, render: (row) => (row[key] ? formatDate(row[key]) : '—') }
+}
+
+// e.g. "SPY 09/04/2026 756.00 P" — built from the row's own structured
+// fields rather than parsing the raw OCC-style contract symbol (e.g.
+// "SPY   260904P00756000"). A grouped ratio-spread row has no single strike
+// (see long_leg/short_leg) and keeps its existing synthetic "N:M Ratio"
+// label instead — it doesn't fit this one-strike template.
+function formatOptionSymbol(row) {
+  if (row.strike_price == null || row.underlying_symbol == null) return row.symbol
+  const cp = row.option_type === 'PUT' ? 'P' : 'C'
+  return `${row.underlying_symbol} ${formatDate(row.expirationDate)} ${row.strike_price.toFixed(2)} ${cp}`
+}
+
 const OPTION_COLUMNS = [
-  { key: 'symbol',          label: 'Symbol' },
-  { key: 'option_type',     label: 'Option Type' },
-  { key: 'date',          label: 'Open' },
-  { key: 'close_date',    label: 'Close' },
-  { key: 'expirationDate', label: 'Expire' },
+  { key: 'symbol', label: 'Symbol', render: formatOptionSymbol },
+  dateColumn('date', 'Opened Date'),
+  dateColumn('close_date', 'Closed Date'),
   { key: 'open_type',     label: 'Opened As' },
-  { key: 'amount',        label: 'Qty',     align: 'right' },
-  { key: 'open_price',     label: 'Open Price',  align: 'right' },
-  { key: 'close_price',   label: 'Close Price',  align: 'right' },
-  { key: 'total_amount',     label: 'Total',  align: 'right' },
+  { key: 'amount',        label: 'Quantity',     align: 'right' },
+  { key: 'open_price',     label: 'Cost basis',  align: 'right' },
+  { key: 'close_price',   label: 'Closing Price',  align: 'right' },
+  { key: 'total_amount',     label: 'Total Gain/Loss ($)',  align: 'right' },
   { key: 'type',     label: 'Status' },
 ]
 
 const EQUITY_COLUMNS = [
   { key: 'symbol',       label: 'Symbol' },
-  { key: 'date',         label: 'Opened' },
-  { key: 'close_date',   label: 'Closed' },
+  dateColumn('date', 'Opened'),
+  dateColumn('close_date', 'Closed'),
   { key: 'asset_type',   label: 'Asset Type' },
   { key: 'quantity',     label: 'Quantity',    align: 'right' },
   { key: 'open_price',   label: 'Open Price',  align: 'right' },
@@ -38,6 +57,49 @@ function firstOfMonth() {
 
 function todayStr() {
   return new Date().toISOString().split('T')[0]
+}
+
+// Exports exactly what's on screen — same columns (in the same order,
+// including a render column like Current Price, which returns a plain
+// string here) and the same row data DataTable is currently showing.
+function downloadCsv(filename, columns, rows) {
+  const escape = (val) => {
+    const s = val == null ? '' : String(val)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const header = columns.map((c) => escape(c.label)).join(',')
+  const lines = rows.map((row) => columns.map((c) => escape(c.render ? c.render(row) : row[c.key])).join(','))
+  const blob = new Blob([[header, ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// A crisp inline SVG instead of an emoji glyph — renders identically across
+// OS/browsers (unlike ⬇️, which varies a lot) and inherits the button's own
+// color via currentColor, so it already matches dark mode with no extra work.
+function DownloadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v11" />
+      <path d="M7.5 10.5 12 15l4.5-4.5" />
+      <path d="M4 19h16" />
+    </svg>
+  )
+}
+
+function DownloadCsvButton({ onClick }) {
+  return (
+    <button type="button" className="icon-btn" title="Download as CSV" onClick={onClick}>
+      <DownloadIcon />
+      <span>CSV</span>
+    </button>
+  )
 }
 
 // Survives unmounting/remounting this page (e.g. navigating to Reports and
@@ -411,6 +473,9 @@ export default function Transactions() {
                         </>
                       )}
                     </span>
+                    <DownloadCsvButton
+                      onClick={() => downloadCsv(`option-transactions_${startDate}_to_${endDate}.csv`, optionColumns, optionRows)}
+                    />
                   </div>
                   <DataTable data={optionRows} columns={optionColumns} defaultSortKey="close_date" defaultSortDir="desc" />
                 </div>
@@ -482,6 +547,9 @@ export default function Transactions() {
                     <span className="summary-line">
                       {equityRows.length} records &nbsp;|&nbsp; Total: ${equityTotalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
+                    <DownloadCsvButton
+                      onClick={() => downloadCsv(`equity-transactions_${equityStartDate}_to_${equityEndDate}.csv`, EQUITY_COLUMNS, equityRows)}
+                    />
                   </div>
                   <DataTable data={equityRows} columns={EQUITY_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" />
                 </div>
