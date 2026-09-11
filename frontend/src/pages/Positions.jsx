@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getPositions, getFuturesPosition, getFuturesOptionPosition, getFuturesOptionQuotes, friendlyErrorMessage } from '../api/client'
+import { getPositions, getFuturesPosition, getFuturesQuotes, getFuturesOptionPosition, getFuturesOptionQuotes, friendlyErrorMessage } from '../api/client'
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
@@ -20,6 +20,7 @@ const positionsCache = {
   data: null,
   futuresData: null,
   futuresQuotes: null,
+  futuresContractQuotes: null,
 }
 
 // broker_cost_basis (Schwab's own tax-lot-aware cost basis — see
@@ -79,11 +80,14 @@ function optionColumns(optionType) {
   ]
 }
 
+// current_price isn't part of this — get_futures_position() doesn't return
+// it (see the futuresContractQuotes lazy-load below), so it's added as its
+// own render-based column (futuresContractCurrentPriceColumn) instead of a
+// plain key, same pattern as the futures-option tables' Current Price.
 const FUTURES_COLUMNS = [
   { key: 'symbol',      label: 'Symbol' },
   { key: 'quantity',    label: 'Quantity',   align: 'right' },
   { key: 'open_price',  label: 'Open Price', align: 'right' },
-  { key: 'cost_basis',  label: 'Cost Basis', align: 'right' },
 ]
 
 // Same column set, order, and labels as optionColumns() above minus
@@ -129,6 +133,12 @@ export default function Positions() {
   // right away instead of blocking on the slow DXLink lookup. Keyed by symbol.
   const [futuresQuotes, setFuturesQuotes] = useState(positionsCache.futuresQuotes ?? {})
   const [futuresQuotesLoading, setFuturesQuotesLoading] = useState(false)
+
+  // Same idea, for the outright Futures table — keyed by root symbol (e.g.
+  // "ES"), not a contract symbol, so it's a separate state/cache from
+  // futuresQuotes above rather than sharing one dict.
+  const [futuresContractQuotes, setFuturesContractQuotes] = useState(positionsCache.futuresContractQuotes ?? {})
+  const [futuresContractQuotesLoading, setFuturesContractQuotesLoading] = useState(false)
 
   // Options picked (across either tab) to send to StrikeLab — keyed by the
   // row's own symbol, since that's unique per contract.
@@ -181,6 +191,18 @@ export default function Positions() {
       // here shouldn't surface an error banner over an otherwise-fine table.
       .catch(() => {})
       .finally(() => setFuturesQuotesLoading(false))
+  }, [futuresData])
+
+  useEffect(() => {
+    if (!futuresData || positionsCache.futuresContractQuotes) return
+    setFuturesContractQuotesLoading(true)
+    getFuturesQuotes()
+      .then((quotes) => {
+        positionsCache.futuresContractQuotes = quotes
+        setFuturesContractQuotes(quotes)
+      })
+      .catch(() => {})
+      .finally(() => setFuturesContractQuotesLoading(false))
   }, [futuresData])
 
   const puts = data?.puts ?? []
@@ -282,6 +304,22 @@ export default function Positions() {
       },
       ...columns,
     ]
+  }
+
+  // Outright futures contracts (not options) — current_price arrives
+  // separately (see futuresContractQuotes above), keyed by root symbol
+  // directly since there's no grouping concept here like the option tables.
+  function futuresContractCurrentPriceColumn() {
+    return {
+      key: 'current_price',
+      label: 'Current Price',
+      align: 'right',
+      render: (row) => {
+        const price = futuresContractQuotes[row.symbol]
+        if (price != null) return `$${price.toFixed(2)}`
+        return futuresContractQuotesLoading ? 'Loading...' : '—'
+      },
+    }
   }
 
   // current_price arrives separately (see futuresQuotes above) — this column
@@ -492,7 +530,7 @@ export default function Positions() {
               {futures.length > 0 ? (
                 <div className="card">
                   <h3 className="section-title">Futures</h3>
-                  <DataTable data={futures} columns={FUTURES_COLUMNS} defaultSortKey="symbol" />
+                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn()]} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No open futures positions found.</div>

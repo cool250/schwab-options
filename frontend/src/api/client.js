@@ -66,6 +66,10 @@ export function getFuturesPosition() {
   return request('/positions/futures')
 }
 
+export function getFuturesQuotes() {
+  return request('/positions/futures/quotes')
+}
+
 export function getFuturesOptionPosition() {
   return request('/positions/futures/options')
 }

@@ -137,6 +137,15 @@ class PositionService:
         (30 days) by design rather than Schwab's ~1-year request cap, since a
         wider window risks surfacing a leg that actually closed outside it, or
         hit some matching edge case, as a stale "still open" position.
+
+        Deliberately excludes current_price: pricing these requires
+        Tastytrade's DXLink feed and can take a few seconds per open root
+        symbol, so the frontend fetches that separately via
+        get_futures_quotes() once this — the fast part — has already
+        rendered, same pattern as get_futures_option_position/_quotes.
+
+        Returns:
+            list: [{"symbol", "quantity", "open_price"}, ...]
         """
         from service.transactions import TransactionService  # local: avoid import cost when unused
 
@@ -175,9 +184,40 @@ class PositionService:
                 "symbol": symbol,
                 "quantity": f"{entry['quantity']:,.0f}",
                 "open_price": f"${avg_price:,.2f}",
-                "cost_basis": f"${entry['cost']:,.2f}",
             })
         return futures
+
+    def get_futures_quotes(self, lookback_days: int = 30) -> dict:
+        """Live prices for currently-open outright futures positions, keyed by
+        `symbol` (the bare root, e.g. "ES") — split out from get_futures_position
+        so that table renders immediately without waiting on Tastytrade's
+        DXLink feed, same rationale as get_futures_option_quotes.
+
+        Any symbol whose live price can't be fetched in time is simply
+        omitted — this is a display nicety, not something that should ever
+        block showing the position.
+        """
+        positions = self.get_futures_position(lookback_days=lookback_days)
+        symbols = [p["symbol"] for p in positions if p.get("symbol")]
+        if not symbols:
+            return {}
+
+        from broker.tastytrade import TastytradeClient
+
+        try:
+            client = TastytradeClient.from_config()
+        except ValueError as e:
+            logger.error("Tastytrade credentials unavailable for futures quotes: %s", e)
+            return {}
+
+        result = {}
+        for symbol in symbols:
+            try:
+                result[symbol] = client.get_live_underlying_price(f"/{symbol}")
+            except (ValueError, TimeoutError) as e:
+                logger.error("Failed to fetch live price for /%s: %s", symbol, e)
+                continue
+        return result
 
     def get_futures_option_position(self, lookback_days: int = 30):
         """Derive currently-open futures-option positions (options on /ES,

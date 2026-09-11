@@ -27,10 +27,18 @@ def get_stock_position(service: PositionService = Depends(get_service)):
 
 @router.get(
     "/futures",
-    summary="Open futures positions, derived from transaction history (Schwab's positions API doesn't return futures)",
+    summary="Open futures positions, derived from transaction history (Schwab's positions API doesn't return futures) — no current_price, see /futures/quotes",
 )
 def get_futures_position(service: PositionService = Depends(get_service)):
     return service.get_futures_position()
+
+
+@router.get(
+    "/futures/quotes",
+    summary="Live current prices for open outright futures positions, keyed by symbol (slow — Tastytrade DXLink)",
+)
+def get_futures_quotes(service: PositionService = Depends(get_service)):
+    return service.get_futures_quotes()
 
 
 @router.get(
