@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getPositions, getFuturesPosition, getFuturesOptionPosition, getFuturesOptionQuotes, friendlyErrorMessage } from '../api/client'
+import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
@@ -21,17 +22,62 @@ const positionsCache = {
   futuresQuotes: null,
 }
 
-const OPTION_COLUMNS = [
-  { key: 'ticker',          label: 'Ticker' },
-  { key: 'strike_price',    label: 'Strike' },
-  { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
-  { key: 'quantity',        label: 'Quantity',     align: 'right' },
-  { key: 'trade_price',     label: 'Trade Price',  align: 'right' },
-  { key: 'current_price',   label: 'Current Price',  align: 'right' },
-  { key: 'total_value',     label: 'P&L',          align: 'right' },
-  { key: 'exposure',        label: 'Exposure',     align: 'right' },
-  { key: 'symbol',          label: 'Symbol' },
+// broker_cost_basis (Schwab's own tax-lot-aware cost basis — see
+// PositionService.get_stock_position) matches trade_price in the common
+// case, so showing it as its own column was pure duplication. It only ever
+// carries new information when it *diverges* from trade_price (a wash-sale
+// adjustment or non-FIFO cost-basis method this app's own reconstruction has
+// no way to see) — so it's folded into the Trade Price cell and only
+// rendered at all when there's an actual difference to flag.
+function stockTradePriceColumn() {
+  return {
+    key: 'trade_price',
+    label: 'Trade Price',
+    align: 'right',
+    render: (row) => (
+      row.broker_cost_basis && row.broker_cost_basis !== row.trade_price
+        ? `${row.trade_price} (broker: ${row.broker_cost_basis})`
+        : row.trade_price
+    ),
+  }
+}
+
+const STOCK_COLUMNS = [
+  { key: 'symbol',              label: 'Symbol' },
+  { key: 'quantity',            label: 'Quantity',           align: 'right' },
+  stockTradePriceColumn(),
+  { key: 'current_price',       label: 'Current Price',      align: 'right' },
+  { key: 'broker_pl',           label: 'Broker P&L',         align: 'right' },
 ]
+
+// PUT/CALL has to come from the caller (which table this column set is
+// being built for) on both equity and futures option rows here — unlike
+// Transactions' rows, a position row has no option_type field of its own,
+// since it's only known from which of the two tables (Puts vs Calls) it's
+// rendered in. strike_price arrives pre-formatted ("$175") rather than a raw
+// number, so it's run through toNumber first. A grouped ratio-spread row
+// (long_leg/short_leg present, see toggleSelected et al.) has no single
+// strike to show — toNumber can't detect that on its own (it maps an
+// unparseable "$7,695/$7,640" to 0, not NaN), so it's checked explicitly and
+// falls back to the row's own synthetic symbol.
+function positionOptionSymbol(row, optionType) {
+  if (row.long_leg && row.short_leg) return row.symbol
+  return formatOptionSymbol(row.ticker, row.expiration_date, toNumber(row.strike_price), optionType) ?? row.symbol
+}
+
+function optionColumns(optionType) {
+  return [
+    { key: 'ticker',          label: 'Ticker' },
+    { key: 'strike_price',    label: 'Strike' },
+    { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
+    { key: 'quantity',        label: 'Quantity',     align: 'right' },
+    { key: 'trade_price',     label: 'Trade Price',  align: 'right' },
+    { key: 'current_price',   label: 'Current Price',  align: 'right' },
+    { key: 'total_value',     label: 'P&L',          align: 'right' },
+    { key: 'exposure',        label: 'Exposure',     align: 'right' },
+    { key: 'symbol',          label: 'Symbol', render: (row) => positionOptionSymbol(row, optionType) },
+  ]
+}
 
 const FUTURES_COLUMNS = [
   { key: 'symbol',      label: 'Symbol' },
@@ -40,17 +86,27 @@ const FUTURES_COLUMNS = [
   { key: 'cost_basis',  label: 'Cost Basis', align: 'right' },
 ]
 
-// current_price isn't part of this — get_futures_option_position() doesn't
-// return it (see the futuresQuotes lazy-load below), so it's added as its
-// own render-based column instead of a plain key.
-const FUTURES_OPTION_COLUMNS = [
-  { key: 'ticker',          label: 'Ticker' },
-  { key: 'symbol',          label: 'Symbol' },
-  { key: 'strike_price',    label: 'Strike' },
-  { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
-  { key: 'quantity',        label: 'Quantity',    align: 'right' },
-  { key: 'trade_price',     label: 'Trade Price', align: 'right' },
-]
+// Same column set, order, and labels as optionColumns() above minus
+// Exposure (Ticker, Strike, DTE, Quantity, Trade Price, [Current Price],
+// [P&L], Symbol) — Current Price and P&L aren't included here since they
+// depend on futuresQuotes (component state) and have to be composed in at
+// the call site, same as futuresCurrentPriceColumn/futuresPnLColumn already
+// were; Symbol is split out the same way, via futuresSymbolColumn below, so
+// it can be spliced in last to match the equity table's order instead of
+// sitting second like a plain key column naturally would.
+function futuresOptionColumns() {
+  return [
+    { key: 'ticker',          label: 'Ticker' },
+    { key: 'strike_price',    label: 'Strike' },
+    { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
+    { key: 'quantity',        label: 'Quantity',    align: 'right' },
+    { key: 'trade_price',     label: 'Trade Price', align: 'right' },
+  ]
+}
+
+function futuresSymbolColumn(optionType) {
+  return { key: 'symbol', label: 'Symbol', render: (row) => positionOptionSymbol(row, optionType) }
+}
 
 
 export default function Positions() {
@@ -386,7 +442,7 @@ export default function Positions() {
               {stocks.length > 0 ? (
                 <div className="card">
                   <h3 className="section-title">Stocks</h3>
-                  <DataTable data={stocks} defaultSortKey="symbol" />
+                  <DataTable data={stocks} columns={STOCK_COLUMNS} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No stocks found.</div>
@@ -401,7 +457,7 @@ export default function Positions() {
                     Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
                     P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
-                  <DataTable data={puts} columns={withSelectCheckbox(OPTION_COLUMNS, 'PUT')} defaultSortKey="days_to_expiry" />
+                  <DataTable data={puts} columns={withSelectCheckbox(optionColumns('PUT'), 'PUT')} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No PUT option positions found.</div>
@@ -415,7 +471,7 @@ export default function Positions() {
                     Total: {calls.length}&nbsp;&nbsp;|&nbsp;&nbsp;
                     P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
-                  <DataTable data={calls} columns={withSelectCheckbox(OPTION_COLUMNS, 'CALL')} defaultSortKey="days_to_expiry" />
+                  <DataTable data={calls} columns={withSelectCheckbox(optionColumns('CALL'), 'CALL')} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No CALL option positions found.</div>
@@ -448,7 +504,7 @@ export default function Positions() {
                   <h3 className="section-title">Futures Puts</h3>
                   <DataTable
                     data={futuresPuts}
-                    columns={withSelectCheckbox([...FUTURES_OPTION_COLUMNS, futuresCurrentPriceColumn(), futuresPnLColumn()], 'PUT', true)}
+                    columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresSymbolColumn('PUT')], 'PUT', true)}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>
@@ -462,7 +518,7 @@ export default function Positions() {
                   <h3 className="section-title">Futures Calls</h3>
                   <DataTable
                     data={futuresCalls}
-                    columns={withSelectCheckbox([...FUTURES_OPTION_COLUMNS, futuresCurrentPriceColumn(), futuresPnLColumn()], 'CALL', true)}
+                    columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresSymbolColumn('CALL')], 'CALL', true)}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>

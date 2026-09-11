@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { getOptionTransactions, getOptionQuotes, getEquityTransactions, friendlyErrorMessage } from '../api/client'
 import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
 import { formatDate } from '../utils/dateFormat'
+import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
@@ -15,19 +16,16 @@ function dateColumn(key, label, align) {
   return { key, label, align, render: (row) => (row[key] ? formatDate(row[key]) : '—') }
 }
 
-// e.g. "SPY 09/04/2026 756.00 P" — built from the row's own structured
-// fields rather than parsing the raw OCC-style contract symbol (e.g.
-// "SPY   260904P00756000"). A grouped ratio-spread row has no single strike
-// (see long_leg/short_leg) and keeps its existing synthetic "N:M Ratio"
-// label instead — it doesn't fit this one-strike template.
-function formatOptionSymbol(row) {
-  if (row.strike_price == null || row.underlying_symbol == null) return row.symbol
-  const cp = row.option_type === 'PUT' ? 'P' : 'C'
-  return `${row.underlying_symbol} ${formatDate(row.expirationDate)} ${row.strike_price.toFixed(2)} ${cp}`
+// A grouped ratio-spread row has no single strike (see long_leg/short_leg)
+// — formatOptionSymbol returns null for that, so this keeps the row's
+// existing synthetic "N:M Ratio" label instead, which doesn't fit the
+// one-strike template.
+function optionSymbolCell(row) {
+  return formatOptionSymbol(row.underlying_symbol, row.expirationDate, row.strike_price, row.option_type) ?? row.symbol
 }
 
 const OPTION_COLUMNS = [
-  { key: 'symbol', label: 'Symbol', render: formatOptionSymbol },
+  { key: 'symbol', label: 'Symbol', render: optionSymbolCell },
   dateColumn('date', 'Opened Date'),
   dateColumn('close_date', 'Closed Date'),
   { key: 'open_type',     label: 'Opened As' },

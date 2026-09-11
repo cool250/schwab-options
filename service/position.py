@@ -10,11 +10,16 @@ logger = logging.getLogger(__name__)
 
 
 def parse_option_symbol(symbol):
-    """Parse an OCC equity option symbol into (ticker, strike_price, expiration_date)."""
+    """Parse an OCC equity option symbol into (ticker, strike_price, expiration_date).
+
+    expiration_date is full 4-digit-year ISO ("2026-09-18"), matching the
+    convention used everywhere else in the app (futures options, Transactions'
+    expirationDate) — the OCC symbol itself only carries a 2-digit year.
+    """
     try:
         strike_price = float(symbol[13:21]) / 1000
         ticker = symbol[:6].strip()
-        expiration_date = f"{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"
+        expiration_date = f"20{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"
         return ticker, strike_price, expiration_date
     except ValueError as e:
         logger.error(f"Error parsing option symbol {symbol}: {e}")
@@ -61,9 +66,6 @@ class PositionService:
 
     # --- Public getters ---
 
-    def get_positions(self):
-        return self.position
-
     def get_balances(self) -> dict:
         """Fetch and log the account balances."""
         if self.position is None:
@@ -102,11 +104,22 @@ class PositionService:
             if position.instrument and position.instrument.assetType in ("EQUITY", "COLLECTIVE_INVESTMENT"):
                 symbol = position.instrument.symbol
                 if symbol:
-                    quantity = position.longQuantity if position.longQuantity > 0 else -position.shortQuantity
+                    is_long = position.longQuantity > 0
+                    quantity = position.longQuantity if is_long else -position.shortQuantity
+                    # Schwab's own tax-lot-aware cost basis and unrealized P&L
+                    # for this position — computed broker-side, so it can
+                    # already reflect things this app's own FIFO reconstruction
+                    # doesn't (wash-sale adjustments, a non-FIFO cost-basis
+                    # method). Shown alongside our own figures for comparison,
+                    # not as a replacement — see averagePrice/trade_price above.
+                    broker_cost_basis = position.taxLotAverageLongPrice if is_long else position.taxLotAverageShortPrice
+                    broker_pl = position.longOpenProfitLoss if is_long else position.shortOpenProfitLoss
                     stocks.append({
                         "symbol": symbol,
                         "quantity": f"{quantity:,.0f}",
                         "trade_price": f"${position.averagePrice:,.2f}",
+                        "broker_cost_basis": f"${broker_cost_basis:,.2f}" if broker_cost_basis is not None else None,
+                        "broker_pl": broker_pl,
                     })
         stocks = self.get_current_price(stocks)
         return stocks
@@ -259,7 +272,7 @@ class PositionService:
                 # Carried through (rather than baked only into total_value) so
                 # the frontend can price the *same* position at the live quote
                 # once futuresQuotes loads, and derive P&L as the difference —
-                # see FUTURES_TOTAL_VALUE_COLUMN's P&L render in Positions.jsx.
+                # see futuresPnLColumn() in Positions.jsx.
                 "multiplier": multiplier,
             }
             if is_group:
@@ -425,7 +438,7 @@ class PositionService:
                         continue
                     exposure = PositionService._calculate_exposure(position, strike_price)
                     if expiration_date:
-                        exp = datetime.strptime(expiration_date, "%y-%m-%d").date()
+                        exp = datetime.strptime(expiration_date, "%Y-%m-%d").date()
                         days_to_expiry = (exp - date.today()).days
                     else:
                         days_to_expiry = None
