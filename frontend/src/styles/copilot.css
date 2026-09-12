@@ -64,6 +64,7 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   border-top: none;
   border-bottom: none;
   border-right: none;
+  border-left: 6px solid var(--border);
   box-shadow: -6px 0 24px rgba(0, 0, 0, 0.12);
   z-index: 200;
 }
