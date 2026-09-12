@@ -48,7 +48,7 @@ const STOCK_COLUMNS = [
   { key: 'quantity',            label: 'Quantity',           align: 'right' },
   stockTradePriceColumn(),
   { key: 'current_price',       label: 'Current Price',      align: 'right' },
-  { key: 'broker_pl',           label: 'Broker P&L',         align: 'right' },
+  { key: 'broker_pl',           label: 'P&L',                align: 'right' },
 ]
 
 // PUT/CALL has to come from the caller (which table this column set is
@@ -216,6 +216,7 @@ export default function Positions() {
   const totalPutExposure = puts.reduce((sum, p) => sum + (p.exposure ?? 0), 0)
   const totalPutValue = puts.reduce((sum, p) => sum + (p.total_value ?? 0), 0)
   const totalCallValue = calls.reduce((sum, c) => sum + (c.total_value ?? 0), 0)
+  const totalStockPL = stocks.reduce((sum, s) => sum + (s.broker_pl ?? 0), 0)
 
   // A grouped ratio-spread row's own strike_price ("$7,695/$7,640") and
   // quantity ("1:2") are display-only composites — toNumber() on either
@@ -480,6 +481,10 @@ export default function Positions() {
               {stocks.length > 0 ? (
                 <div className="card">
                   <h3 className="section-title">Stocks</h3>
+                  <p className="summary-line">
+                    Total: {stocks.length}&nbsp;&nbsp;|&nbsp;&nbsp;
+                    P&amp;L: ${totalStockPL.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </p>
                   <DataTable data={stocks} columns={STOCK_COLUMNS} defaultSortKey="symbol" />
                 </div>
               ) : (
