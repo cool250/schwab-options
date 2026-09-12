@@ -103,6 +103,11 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   border-radius: 0;
   flex-shrink: 0;
 }
+.copilot-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .copilot-panel-header-actions {
   display: flex;
   align-items: center;

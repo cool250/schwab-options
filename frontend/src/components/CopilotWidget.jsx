@@ -8,6 +8,16 @@ const MIN_WIDTH = 320;
 const MAX_WIDTH = 1200;
 const WIDTH_STORAGE_KEY = "copilot-width";
 
+function CopilotIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
+      <path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5Z" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
 // Mounted once at the App level (see App.jsx), outside the routed <main> —
 // it never unmounts on navigation, so conversation state just lives in this
 // component's own state for as long as the tab is open. Resets on a full
@@ -124,7 +134,7 @@ export default function CopilotWidget() {
             />
           )}
           <div className="copilot-panel-header">
-            <span>NuTrade Copilot</span>
+            <span className="copilot-panel-title"><CopilotIcon /> Copilot</span>
             <div className="copilot-panel-header-actions">
               <button
                 type="button"
