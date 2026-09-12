@@ -1,4 +1,8 @@
-<svg viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="-4 30 218 60" xmlns="http://www.w3.org/2000/svg">
+  <!-- viewBox tightly bounds the actual artwork (was 0 0 400 120, mostly
+       empty margin — every caller sizes this by height or width alone with
+       object-fit: contain, so shrinking the empty space makes the logo
+       render bigger within the same box rather than changing any layout. -->
 
   <!-- Icon mark on dark pill -->
   <rect x="0" y="34" width="52" height="52" rx="10" fill="#0f1e35"/>

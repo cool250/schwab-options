@@ -11,6 +11,11 @@ body.copilot-open {
   padding-right: var(--copilot-width);
   transition: padding-right 0.25s ease;
 }
+/* Dragging the resize handle updates --copilot-width on every mousemove —
+   the 0.25s easing above (meant for the open/close toggle) would otherwise
+   fight every frame of the drag, making it feel laggy. */
+body.copilot-resizing { transition: none !important; }
+body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 
 .copilot-widget {
   position: fixed;
@@ -62,6 +67,23 @@ body.copilot-open {
   box-shadow: -6px 0 24px rgba(0, 0, 0, 0.12);
   z-index: 200;
 }
+
+/* Drag the panel's left edge to resize (docked mode only — full-page mode
+   below sizes by `inset`, not --copilot-width, so this is hidden there and
+   on mobile, where the panel is already 100vw). Centered on the edge
+   (-4px/8px wide) so it's easy to grab without eating into the panel's own
+   content area. */
+.copilot-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 6;
+}
+.copilot-resize-handle:hover,
+.copilot-resize-handle.resizing { background: var(--primary-ring); }
 .copilot-panel-header {
   display: flex;
   align-items: center;
@@ -105,6 +127,7 @@ body.copilot-open {
   background: rgba(0, 0, 0, 0.4);
   z-index: 199;
 }
+.copilot-widget.full-page .copilot-resize-handle { display: none; }
 .copilot-widget.full-page .copilot-panel {
   inset: 40px;
   top: 40px;
@@ -284,4 +307,5 @@ body.copilot-open {
   .copilot-panel { width: 100vw; }
   /* Full-width panel on mobile overlays instead of squeezing content to nothing. */
   body.copilot-open { padding-right: 0; }
+  .copilot-resize-handle { display: none; }
 }

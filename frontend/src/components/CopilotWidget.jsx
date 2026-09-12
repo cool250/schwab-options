@@ -4,6 +4,10 @@ import remarkGfm from "remark-gfm";
 import { sendCopilotMessage, friendlyErrorMessage } from "../api/client";
 import { copilotContext } from "../utils/copilotContext";
 
+const MIN_WIDTH = 320;
+const MAX_WIDTH = 800;
+const WIDTH_STORAGE_KEY = "copilot-width";
+
 // Mounted once at the App level (see App.jsx), outside the routed <main> —
 // it never unmounts on navigation, so conversation state just lives in this
 // component's own state for as long as the tab is open. Resets on a full
@@ -16,6 +20,7 @@ export default function CopilotWidget() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [resizing, setResizing] = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -29,6 +34,50 @@ export default function CopilotWidget() {
     document.body.classList.toggle("copilot-open", open && !fullPage);
     return () => document.body.classList.remove("copilot-open");
   }, [open, fullPage]);
+
+  // Restore a previously-dragged width — --copilot-width otherwise always
+  // starts back at its CSS default (400px) on every page load.
+  useEffect(() => {
+    const stored = localStorage.getItem(WIDTH_STORAGE_KEY);
+    if (stored) document.documentElement.style.setProperty("--copilot-width", `${stored}px`);
+  }, []);
+
+  // Dragging the panel's left edge to resize (docked mode only — see
+  // .copilot-resize-handle in copilot.css). Updates the --copilot-width CSS
+  // variable directly rather than component state, since both the panel's
+  // own width and body's padding-right (which reserves space beside it)
+  // already read from that one variable — no need to plumb a width prop
+  // through both.
+  useEffect(() => {
+    if (!resizing) return;
+
+    function handleMove(e) {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - clientX));
+      document.documentElement.style.setProperty("--copilot-width", `${width}px`);
+    }
+    function handleUp() {
+      setResizing(false);
+      const width = getComputedStyle(document.documentElement).getPropertyValue("--copilot-width").trim();
+      if (width) localStorage.setItem(WIDTH_STORAGE_KEY, parseInt(width, 10));
+    }
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchmove", handleMove);
+    window.addEventListener("touchend", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleUp);
+    };
+  }, [resizing]);
+
+  useEffect(() => {
+    document.body.classList.toggle("copilot-resizing", resizing);
+    return () => document.body.classList.remove("copilot-resizing");
+  }, [resizing]);
 
   const send = async (e) => {
     e.preventDefault();
@@ -66,6 +115,14 @@ export default function CopilotWidget() {
       {open && fullPage && <div className="copilot-backdrop" onClick={() => setFullPage(false)} />}
       {open && (
         <div className="copilot-panel card">
+          {!fullPage && (
+            <div
+              className={`copilot-resize-handle${resizing ? " resizing" : ""}`}
+              onMouseDown={(e) => { e.preventDefault(); setResizing(true); }}
+              onTouchStart={() => setResizing(true)}
+              title="Drag to resize"
+            />
+          )}
           <div className="copilot-panel-header">
             <span>NuTrade Copilot</span>
             <div className="copilot-panel-header-actions">

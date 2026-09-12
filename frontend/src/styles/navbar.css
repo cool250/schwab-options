@@ -30,11 +30,13 @@
 }
 .navbar-logo {
   /* Sized by height, not width — an <img> with only `width` set takes its
-     height from the logo's own aspect ratio (viewBox 400x120), which is
-     what let a wider logo silently stretch the whole bar taller. Capping
-     height and leaving width auto means the bar's height never moves no
-     matter how the logo is resized. */
-  height: 42px;
+     height from the logo's own aspect ratio, which is what let a wider
+     logo silently stretch the whole bar taller. Capping height and
+     leaving width auto means the bar's height never moves no matter how
+     the logo is resized — safe up to 52px (the navbar's own min-height,
+     see .navbar); 30px (20% down again, from 38px) leaves plenty of
+     breathing room above/below rather than touching both edges exactly. */
+  height: 30px;
   width: auto;
   object-fit: contain;
 }

@@ -1,4 +1,8 @@
-<svg viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="-4 30 218 60" xmlns="http://www.w3.org/2000/svg">
+  <!-- viewBox tightly bounds the actual artwork (was 0 0 400 120, mostly
+       empty margin — every caller sizes this by height or width alone with
+       object-fit: contain, so shrinking the empty space makes the logo
+       render bigger within the same box rather than changing any layout. -->
 
   <!-- Icon mark on dark pill -->
   <rect x="0" y="34" width="52" height="52" rx="10" fill="#f1f5f9"/>
@@ -9,11 +13,15 @@
   <!-- Baseline -->
   <line x1="8" y1="79" x2="45" y2="79" stroke="#2a4a6a" stroke-width="1"/>
 
-  <!-- Wordmark — "Nu" flipped to a light fill for the dark navbar background;
-       "Trade" keeps the same teal, which already reads fine on both. -->
-  <text x="64" y="62" font-family="Arial, sans-serif" font-size="32" font-weight="700" fill="#f1f5f9">Nu<tspan fill="#00c896">Trade</tspan></text>
+  <!-- Wordmark — "Nu" flipped to a light fill for the dark navbar background.
+       "Trade"/tagline use a lighter mint (#99f6e4) here, not the same teal
+       (#00c896) the light variant uses — that teal is too close in
+       brightness to the navbar's own blue (WCAG contrast approx 1.7 to
+       2.4 to 1, since the navbar's blue shade itself changes with the
+       app's light/dark theme), reading as low-contrast/washed out. -->
+  <text x="64" y="62" font-family="Arial, sans-serif" font-size="32" font-weight="700" fill="#f1f5f9">Nu<tspan fill="#99f6e4">Trade</tspan></text>
 
   <!-- Tagline -->
-  <text x="65" y="82" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#00c896" letter-spacing="2">SMARTER MARKETS</text>
+  <text x="65" y="82" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#99f6e4" letter-spacing="2">SMARTER MARKETS</text>
 
 </svg>
