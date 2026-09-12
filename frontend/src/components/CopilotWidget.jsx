@@ -5,7 +5,7 @@ import { sendCopilotMessage, friendlyErrorMessage } from "../api/client";
 import { copilotContext } from "../utils/copilotContext";
 
 const MIN_WIDTH = 320;
-const MAX_WIDTH = 800;
+const MAX_WIDTH = 1200;
 const WIDTH_STORAGE_KEY = "copilot-width";
 
 // Mounted once at the App level (see App.jsx), outside the routed <main> —
