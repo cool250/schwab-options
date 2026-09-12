@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sendCopilotMessage, friendlyErrorMessage } from "../api/client";
+import { copilotContext } from "../utils/copilotContext";
 
 // Mounted once at the App level (see App.jsx), outside the routed <main> —
 // it never unmounts on navigation, so conversation state just lives in this
@@ -41,7 +42,10 @@ export default function CopilotWidget() {
     setError(null);
 
     try {
-      const result = await sendCopilotMessage(nextMessages);
+      // Read fresh at send-time (not captured earlier) so it reflects
+      // whatever the user is looking at right now, even if they navigated
+      // or edited the page since the widget was opened.
+      const result = await sendCopilotMessage(nextMessages, copilotContext);
       setMessages([...nextMessages, { role: "assistant", content: result.reply, toolsUsed: result.tools_used }]);
     } catch (err) {
       console.error("Copilot request failed:", err);

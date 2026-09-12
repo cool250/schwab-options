@@ -99,13 +99,35 @@ def _get_client() -> OpenAI:
     return _client
 
 
-def chat(messages: list[dict]) -> dict:
+def _format_page_context(page_context: dict) -> str:
+    page = page_context.get("page", "a page")
+    data = page_context.get("data", {})
+    return (
+        f"\n\n# Current page context\n"
+        f"The user is currently looking at {page} in the app, with this state:\n"
+        f"```json\n{json.dumps(data, indent=2, default=str)}\n```\n"
+        f"Use this to answer questions about \"this position\"/\"what I'm looking at\" "
+        f"without asking the user to restate it. It's a snapshot from the moment this "
+        f"message was sent, not live — still call a tool for anything not included here "
+        f"(e.g. a fresh quote) rather than assuming this stays current."
+    )
+
+
+def chat(messages: list[dict], page_context: dict | None = None) -> dict:
     """Run one turn of the copilot agent against the given conversation
     history (list of {"role": "user"|"assistant", "content": str}).
 
+    page_context, when given, is {"page": str, "data": dict} describing
+    whatever the user is currently looking at (e.g. StrikeLab's in-progress
+    position — see frontend/src/utils/copilotContext.js) — folded into this
+    turn's system prompt so the agent can answer questions about it directly.
+
     Returns {"reply": str, "tools_used": [str, ...]}.
     """
-    conversation = [{"role": "system", "content": _build_system_prompt()}] + list(messages)
+    system_prompt = _build_system_prompt()
+    if page_context:
+        system_prompt += _format_page_context(page_context)
+    conversation = [{"role": "system", "content": system_prompt}] + list(messages)
     tools_used: list[str] = []
 
     for _ in range(MAX_TOOL_ITERATIONS):

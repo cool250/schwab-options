@@ -112,11 +112,11 @@ export function getEquityTransactions(stockTicker, startDate, endDate, assetType
   return request(`/transactions/equity?${p}`)
 }
 
-export function sendCopilotMessage(messages) {
+export function sendCopilotMessage(messages, context) {
   return request('/copilot/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, context: context?.page ? context : undefined }),
   })
 }
 

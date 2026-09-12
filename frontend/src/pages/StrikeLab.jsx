@@ -13,6 +13,7 @@ import {
 import { getExpirationList, friendlyErrorMessage } from "../api/client";
 import { MULTIPLIER, getMultiplier } from "../utils/contractMultiplier";
 import { symbolStore } from "../utils/symbolStore";
+import { setCopilotContext, clearCopilotContext } from "../utils/copilotContext";
 
 /** Patches a live bid/ask tick into whichever leg (call or put, on whichever
  *  strike row) carries that streamer-symbol, leaving everything else as-is. */
@@ -478,6 +479,37 @@ export default function StrikeLab() {
     () => findBreakevens(legs, Math.max(0.01, spot * 0.01), spot * 4),
     [legs, spot]
   );
+
+  // Lets the copilot answer questions about "this position"/"this spread"
+  // without the user restating every strike — see copilotContext.js. Only
+  // meaningful once there's an actual position being built; an empty legs
+  // list clears it instead (a page revisit with nothing added yet shouldn't
+  // have the agent talk about a stale position from last time).
+  useEffect(() => {
+    if (!symbol || legs.length === 0) {
+      clearCopilotContext("StrikeLab");
+      return;
+    }
+    setCopilotContext("StrikeLab", {
+      symbol,
+      spot,
+      daysToExpiration: positionDte,
+      impliedVolatilityPct: ivPct,
+      netCreditOrDebit: credit,
+      maxProfit,
+      maxLoss: Number.isFinite(maxLoss) ? maxLoss : "unlimited",
+      breakevens,
+      legs: legs.map((l) => ({
+        side: l.side,
+        qty: l.qty,
+        type: l.type,
+        strike: l.strike,
+        premium: l.premium,
+        daysToExpiration: l.dte,
+      })),
+    });
+    return () => clearCopilotContext("StrikeLab");
+  }, [symbol, spot, positionDte, ivPct, credit, maxProfit, maxLoss, breakevens, legs]);
 
   const updateLeg = (id, patch) =>
     setLegs((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
