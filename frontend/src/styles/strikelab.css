@@ -27,7 +27,10 @@
 
 /* ─── StrikeLab: strike ruler ──────────────────────────── */
 .strike-ruler { display: flex; flex-direction: column; gap: 2px; }
-.ruler-track { position: relative; height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; margin: 50px 8px 60px; }
+/* Top/bottom margin has room for one stacked duplicate per side beyond the
+   base tag position (see StrikeRuler's stackIndexById) — e.g. a short
+   straddle's SELL call + SELL put at the same strike. */
+.ruler-track { position: relative; height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; margin: 76px 8px 86px; }
 .ruler-line { position: absolute; inset: 0; border-radius: 3px; background: linear-gradient(90deg, var(--border), var(--border-strong)); }
 .ruler-tick { position: absolute; top: 12px; transform: translateX(-50%); font-size: 0.7rem; color: var(--text-faint); }
 .ruler-spot { position: absolute; top: -24px; transform: translateX(-50%); text-align: center; }

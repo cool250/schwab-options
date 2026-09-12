@@ -168,6 +168,20 @@ const formatExpLabel = (dateStr) =>
 // no error boundary anywhere in the app to stop it taking down the page.
 const isNum = (x) => typeof x === "number" && Number.isFinite(x);
 
+// A leg's premium always comes from the mid of bid/ask (not whichever side
+// happened to be clicked/dragged to) — a fill at the raw bid or ask assumes
+// the worst side of the spread, which overstates credit or understates cost
+// for what's meant to be a neutral analysis tool. Falls back to whichever
+// single side is available if the other is missing.
+function midPrice(sideData) {
+  const bid = sideData?.bid;
+  const ask = sideData?.ask;
+  if (isNum(bid) && isNum(ask)) return (bid + ask) / 2;
+  if (isNum(bid)) return bid;
+  if (isNum(ask)) return ask;
+  return null;
+}
+
 /* ============================================================================
    MAIN PAGE
 ============================================================================ */
@@ -799,15 +813,14 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
     return availableStrikes.reduce((best, s) => (Math.abs(s - price) < Math.abs(best - price) ? s : best));
   }
 
-  // BUY pays the ask, SELL collects the bid — same convention the chain
-  // table itself uses when a bid/ask cell is clicked to add a leg. Returns
-  // null (leaving premium untouched) if this strike/side has no live quote,
+  // Mid of bid/ask — same convention the chain table itself uses when a
+  // bid/ask cell is clicked to add a leg (see midPrice). Returns null
+  // (leaving premium untouched) if this strike has no live quote at all,
   // rather than snapping premium to 0.
-  function premiumForStrike(strike, type, side) {
+  function premiumForStrike(strike, type) {
     const row = (chain?.chain ?? []).find((r) => r.strikePrice === strike);
     const sideData = type === "PUT" ? row?.put : row?.call;
-    const price = side === "SELL" ? sideData?.bid : sideData?.ask;
-    return isNum(price) ? price : null;
+    return midPrice(sideData);
   }
 
   useEffect(() => {
@@ -822,7 +835,7 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
       const snapped = nearestStrike(priceFromPct(pctPos));
       const leg = legs.find((l) => l.id === draggingId);
       if (!leg || leg.strike === snapped) return;
-      const newPremium = premiumForStrike(snapped, leg.type, leg.side);
+      const newPremium = premiumForStrike(snapped, leg.type);
       onUpdateLeg(draggingId, { strike: snapped, ...(newPremium != null ? { premium: newPremium } : {}) });
     }
     function handleUp() {
@@ -842,6 +855,20 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draggingId, legs, availableStrikes]);
 
+  // Legs sharing the same (strike, side) — e.g. a short straddle's SELL
+  // call + SELL put at one strike — would otherwise render exactly on top
+  // of each other (same left AND same top). Stack duplicates further from
+  // the ruler line instead, one below the other, so every leg stays visible.
+  const stackCounts = {};
+  const stackIndexById = {};
+  legs.forEach((leg) => {
+    const key = `${leg.strike}|${leg.side}`;
+    const idx = stackCounts[key] ?? 0;
+    stackCounts[key] = idx + 1;
+    stackIndexById[leg.id] = idx;
+  });
+  const STACK_STEP_PX = 26;
+
   return (
     <div className="strike-ruler">
       <span className="metric-label">Strikes</span>
@@ -856,19 +883,27 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
           <span className="ruler-spot-label">SPOT</span>
           <span className="ruler-spot-arrow">▾</span>
         </div>
-        {legs.map((leg) => (
-          <div
-            key={leg.id}
-            className={`ruler-tag ${leg.side === "SELL" ? "tag-sell tag-below" : "tag-buy tag-above"} tag-${leg.type.toLowerCase()} ${draggingId === leg.id ? "ruler-tag-dragging" : ""}`}
-            style={{ left: `${pct(leg.strike)}%`, cursor: onUpdateLeg ? "ew-resize" : undefined }}
-            onMouseDown={onUpdateLeg ? (e) => { e.preventDefault(); setDraggingId(leg.id); } : undefined}
-            onTouchStart={onUpdateLeg ? () => setDraggingId(leg.id) : undefined}
-            title={onUpdateLeg ? "Drag to change strike" : undefined}
-          >
-            {leg.strike}
-            {leg.type[0]}
-          </div>
-        ))}
+        {legs.map((leg) => {
+          const stackIdx = stackIndexById[leg.id] ?? 0;
+          const stackOffset = stackIdx * STACK_STEP_PX;
+          return (
+            <div
+              key={leg.id}
+              className={`ruler-tag ${leg.side === "SELL" ? "tag-sell tag-below" : "tag-buy tag-above"} tag-${leg.type.toLowerCase()} ${draggingId === leg.id ? "ruler-tag-dragging" : ""}`}
+              style={{
+                left: `${pct(leg.strike)}%`,
+                top: leg.side === "SELL" ? `calc(34px + ${stackOffset}px)` : `calc(-44px - ${stackOffset}px)`,
+                cursor: onUpdateLeg ? "ew-resize" : undefined,
+              }}
+              onMouseDown={onUpdateLeg ? (e) => { e.preventDefault(); setDraggingId(leg.id); } : undefined}
+              onTouchStart={onUpdateLeg ? () => setDraggingId(leg.id) : undefined}
+              title={onUpdateLeg ? "Drag to change strike" : undefined}
+            >
+              {leg.strike}
+              {leg.type[0]}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1043,30 +1078,30 @@ function OptionChainTable({ chain, spot, loading, onAddLeg, onRemoveLeg, legs })
                 <span className="chain-delta">{isNum(row.call?.delta) ? row.call.delta.toFixed(2) : "—"}</span>
                 <span
                   className={`chain-bid ${isNum(row.call?.bid) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.call?.bid) && onAddLeg("CALL", "SELL", row.strikePrice, row.call.bid)}
-                  title={isNum(row.call?.bid) ? "Sell a call at bid" : undefined}
+                  onClick={() => isNum(row.call?.bid) && onAddLeg("CALL", "SELL", row.strikePrice, midPrice(row.call))}
+                  title={isNum(row.call?.bid) ? "Sell a call at mid" : undefined}
                 >
                   {isNum(row.call?.bid) ? row.call.bid.toFixed(2) : "—"}
                 </span>
                 <span
                   className={`chain-ask ${isNum(row.call?.ask) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.call?.ask) && onAddLeg("CALL", "BUY", row.strikePrice, row.call.ask)}
-                  title={isNum(row.call?.ask) ? "Buy a call at ask" : undefined}
+                  onClick={() => isNum(row.call?.ask) && onAddLeg("CALL", "BUY", row.strikePrice, midPrice(row.call))}
+                  title={isNum(row.call?.ask) ? "Buy a call at mid" : undefined}
                 >
                   {isNum(row.call?.ask) ? row.call.ask.toFixed(2) : "—"}
                 </span>
                 <span className="chain-strike">{row.strikePrice}</span>
                 <span
                   className={`chain-bid ${isNum(row.put?.bid) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.put?.bid) && onAddLeg("PUT", "SELL", row.strikePrice, row.put.bid)}
-                  title={isNum(row.put?.bid) ? "Sell a put at bid" : undefined}
+                  onClick={() => isNum(row.put?.bid) && onAddLeg("PUT", "SELL", row.strikePrice, midPrice(row.put))}
+                  title={isNum(row.put?.bid) ? "Sell a put at mid" : undefined}
                 >
                   {isNum(row.put?.bid) ? row.put.bid.toFixed(2) : "—"}
                 </span>
                 <span
                   className={`chain-ask ${isNum(row.put?.ask) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.put?.ask) && onAddLeg("PUT", "BUY", row.strikePrice, row.put.ask)}
-                  title={isNum(row.put?.ask) ? "Buy a put at ask" : undefined}
+                  onClick={() => isNum(row.put?.ask) && onAddLeg("PUT", "BUY", row.strikePrice, midPrice(row.put))}
+                  title={isNum(row.put?.ask) ? "Buy a put at mid" : undefined}
                 >
                   {isNum(row.put?.ask) ? row.put.ask.toFixed(2) : "—"}
                 </span>
