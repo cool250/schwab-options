@@ -530,7 +530,7 @@ export default function StrikeLab() {
             + Add Leg
           </button>
         </div>
-        <StrikeRuler legs={legs} spot={spot} lo={lo} hi={hi} />
+        <StrikeRuler legs={legs} spot={spot} lo={lo} hi={hi} chain={chain} onUpdateLeg={updateLeg} />
         <span className="summary-line">
           {legs.length} leg{legs.length !== 1 ? "s" : ""}
         </span>
@@ -736,29 +736,31 @@ export default function StrikeLab() {
 
       {/* ---------------- Range / IV sliders ---------------- */}
       <div className="card">
-        <div className="slider-row">
-          <span className="slider-label">Range ±{rangePct.toFixed(1)}%</span>
-          <input
-            type="range"
-            min="0.5"
-            max="15"
-            step="0.1"
-            value={rangePct}
-            onChange={(e) => setRangePct(+e.target.value)}
-            className="range-slider"
-          />
-        </div>
-        <div className="slider-row">
-          <span className="slider-label">Implied Vol {ivPct.toFixed(1)}%</span>
-          <input
-            type="range"
-            min="2"
-            max="60"
-            step="0.1"
-            value={ivPct}
-            onChange={(e) => setIvPct(+e.target.value)}
-            className="range-slider"
-          />
+        <div className="slider-row-pair">
+          <div className="slider-row">
+            <span className="slider-label">Range ±{rangePct.toFixed(1)}%</span>
+            <input
+              type="range"
+              min="0.5"
+              max="15"
+              step="0.1"
+              value={rangePct}
+              onChange={(e) => setRangePct(+e.target.value)}
+              className="range-slider"
+            />
+          </div>
+          <div className="slider-row">
+            <span className="slider-label">Implied Vol {ivPct.toFixed(1)}%</span>
+            <input
+              type="range"
+              min="2"
+              max="60"
+              step="0.1"
+              value={ivPct}
+              onChange={(e) => setIvPct(+e.target.value)}
+              className="range-slider"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -766,22 +768,84 @@ export default function StrikeLab() {
 }
 
 /* ============================================================================
-   Strike ruler — horizontal number line with leg markers
+   Strike ruler — horizontal number line with leg markers, draggable to
+   re-strike a leg. Dragging a tag snaps to the nearest strike actually
+   listed on the live chain (not an arbitrary price) and pulls that strike's
+   real bid/ask from the chain into the leg's premium — same BUY=ask/
+   SELL=bid convention as clicking a cell directly in the chain table
+   (see addLegFromChain/OptionChainTable's onAddLeg calls).
 ============================================================================ */
-function StrikeRuler({ legs, spot, lo, hi }) {
+function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
   const width = 100;
   const strikes = legs.map((l) => l.strike);
   const effLo = Math.min(lo, ...strikes);
   const effHi = Math.max(hi, ...strikes);
   const pct = (price) => ((price - effLo) / (effHi - effLo)) * width;
+  const priceFromPct = (p) => effLo + (p / width) * (effHi - effLo);
   const ticks = [];
   const tickStep = (effHi - effLo) / 8;
   for (let i = 0; i <= 8; i++) ticks.push(effLo + i * tickStep);
 
+  const trackRef = useRef(null);
+  const [draggingId, setDraggingId] = useState(null);
+
+  const availableStrikes = useMemo(
+    () => [...new Set((chain?.chain ?? []).map((r) => r.strikePrice))].sort((a, b) => a - b),
+    [chain]
+  );
+
+  function nearestStrike(price) {
+    if (availableStrikes.length === 0) return price;
+    return availableStrikes.reduce((best, s) => (Math.abs(s - price) < Math.abs(best - price) ? s : best));
+  }
+
+  // BUY pays the ask, SELL collects the bid — same convention the chain
+  // table itself uses when a bid/ask cell is clicked to add a leg. Returns
+  // null (leaving premium untouched) if this strike/side has no live quote,
+  // rather than snapping premium to 0.
+  function premiumForStrike(strike, type, side) {
+    const row = (chain?.chain ?? []).find((r) => r.strikePrice === strike);
+    const sideData = type === "PUT" ? row?.put : row?.call;
+    const price = side === "SELL" ? sideData?.bid : sideData?.ask;
+    return isNum(price) ? price : null;
+  }
+
+  useEffect(() => {
+    if (draggingId == null || !onUpdateLeg) return;
+
+    function handleMove(e) {
+      const track = trackRef.current;
+      if (!track) return;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const rect = track.getBoundingClientRect();
+      const pctPos = Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100));
+      const snapped = nearestStrike(priceFromPct(pctPos));
+      const leg = legs.find((l) => l.id === draggingId);
+      if (!leg || leg.strike === snapped) return;
+      const newPremium = premiumForStrike(snapped, leg.type, leg.side);
+      onUpdateLeg(draggingId, { strike: snapped, ...(newPremium != null ? { premium: newPremium } : {}) });
+    }
+    function handleUp() {
+      setDraggingId(null);
+    }
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchmove", handleMove);
+    window.addEventListener("touchend", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingId, legs, availableStrikes]);
+
   return (
     <div className="strike-ruler">
       <span className="metric-label">Strikes</span>
-      <div className="ruler-track">
+      <div className="ruler-track" ref={trackRef}>
         <div className="ruler-line" />
         {ticks.map((t, i) => (
           <div key={i} className="ruler-tick" style={{ left: `${pct(t)}%` }}>
@@ -795,8 +859,11 @@ function StrikeRuler({ legs, spot, lo, hi }) {
         {legs.map((leg) => (
           <div
             key={leg.id}
-            className={`ruler-tag ${leg.side === "SELL" ? "tag-sell tag-below" : "tag-buy tag-above"} tag-${leg.type.toLowerCase()}`}
-            style={{ left: `${pct(leg.strike)}%` }}
+            className={`ruler-tag ${leg.side === "SELL" ? "tag-sell tag-below" : "tag-buy tag-above"} tag-${leg.type.toLowerCase()} ${draggingId === leg.id ? "ruler-tag-dragging" : ""}`}
+            style={{ left: `${pct(leg.strike)}%`, cursor: onUpdateLeg ? "ew-resize" : undefined }}
+            onMouseDown={onUpdateLeg ? (e) => { e.preventDefault(); setDraggingId(leg.id); } : undefined}
+            onTouchStart={onUpdateLeg ? () => setDraggingId(leg.id) : undefined}
+            title={onUpdateLeg ? "Drag to change strike" : undefined}
           >
             {leg.strike}
             {leg.type[0]}

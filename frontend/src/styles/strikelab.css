@@ -33,12 +33,26 @@
 .ruler-spot { position: absolute; top: -24px; transform: translateX(-50%); text-align: center; }
 .ruler-spot-label { font-size: 0.6rem; color: var(--primary); letter-spacing: 0.5px; font-weight: 700; display: block; }
 .ruler-spot-arrow { color: var(--primary); font-size: 12px; display: block; margin-top: -2px; }
-.ruler-tag { position: absolute; transform: translateX(-50%); font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: var(--radius-sm); white-space: nowrap; }
+.ruler-tag {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  /* Draggable to re-strike a leg (see StrikeRuler) — no-select and no-touch-
+     scroll so dragging doesn't select ruler text or scroll the page on mobile. */
+  user-select: none;
+  touch-action: none;
+  transition: box-shadow 0.1s, transform 0.05s;
+}
 /* BTO (bought) legs sit above the ruler line, STO (sold) legs sit below it */
 .ruler-tag.tag-above { top: -44px; }
 .ruler-tag.tag-below { top: 34px; }
 .ruler-tag.tag-sell { background: var(--error-bg);   color: var(--error);   border: 1px solid var(--error-border); }
 .ruler-tag.tag-buy  { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
+.ruler-tag-dragging { box-shadow: var(--shadow-md); transform: translateX(-50%) scale(1.12); z-index: 2; }
 
 /* ─── StrikeLab: P&L heatmap (Table view) ─────────────── */
 .pl-heatmap { display: grid; gap: 2px; min-width: 560px; }
@@ -85,6 +99,11 @@
 .chain-empty { color: var(--text-muted); font-size: 0.85rem; padding: 24px 0; text-align: center; }
 
 /* ─── StrikeLab: sliders above chain/table ─────────────── */
+/* Range and Implied Vol side by side on one row on desktop; each .slider-row
+   still stacks normally (via the + selector below) wherever it's used alone. */
+.slider-row-pair { display: flex; gap: 32px; }
+.slider-row-pair > .slider-row { flex: 1; min-width: 0; }
+.slider-row-pair > .slider-row + .slider-row { margin-top: 0; }
 .slider-row { display: flex; align-items: center; gap: 16px; }
 .slider-row + .slider-row { margin-top: 14px; }
 .chain-week-badge { font-size: 0.78rem; font-weight: 700; color: var(--primary); background: var(--primary-light); border: 1px solid var(--primary-ring); border-radius: var(--radius-sm); padding: 4px 10px; white-space: nowrap; }
@@ -118,4 +137,7 @@
 @media (max-width: 640px) {
   .leg-row { grid-template-columns: 62px 46px 68px 1fr 1fr 24px; }
   .slider-label { width: 120px; }
+  /* Back to stacked — side by side gets too cramped below this width. */
+  .slider-row-pair { flex-direction: column; gap: 0; }
+  .slider-row-pair > .slider-row + .slider-row { margin-top: 14px; }
 }
