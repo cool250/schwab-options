@@ -25,6 +25,7 @@ account. In production, FastAPI serves the built React SPA directly from
 | `frontend/src/pages/` | `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Login`. |
 | `frontend/src/components/` | `Navbar`, `CopilotWidget` (floating chat, mounted globally in `App.jsx`), `DataTable`, `ErrorBoundary`, `Spinner`, `ProtectedRoute`. |
 | `frontend/src/context/` | `AuthContext`, `ThemeContext` (dark mode). |
+| `frontend/src/utils/` | Small shared helpers, not page-specific: `optionSymbol.js` (the one canonical "TICKER MM/DD/YYYY STRIKE.00 P/C" formatter — every page showing an option contract should call this, not re-derive its own), `dateFormat.js` (MM/DD/YYYY), `contractMultiplier.js` (equity=100 vs futures-root multipliers + `isFuturesRoot`), `copilotContext.js` (see Copilot section below), `symbolStore.js` (see below). |
 | `frontend/src/styles/tokens.css` | All design tokens (colors, spacing, shadows) as CSS custom properties, including the dark-theme palette under `:root[data-theme="dark"]`. Every other stylesheet should reference tokens, not hardcode colors — a hardcoded color is the single most common way a change quietly breaks dark mode. |
 
 ## Guardrails — read before touching trading logic
@@ -73,12 +74,26 @@ manually inside the handler — follow that same pattern for any new WS route.
   system prompt (no RAG — the set is small enough that retrieval would be
   pure overhead for a single-user app). Adding a new strategy = adding a new
   `.md` file here; nothing else needs to change to pick it up.
-- `TransactionService.group_ratio_spreads()` merges matched trade legs that
-  form a ratio spread into one record before the copilot (and, via a
-  `group_ratio_spreads=true` query param, the Transactions page) sees them.
-  It carries an internal total-P&L consistency check that falls back to the
-  ungrouped result if grouping would ever change the sum — if you touch that
-  method, keep that guard.
+- `TransactionService.group_ratio_spreads()` (closed/historical trades) and
+  `.group_open_ratio_spreads()` (currently-open legs, used by the Positions
+  page's futures-option tables) both merge matched trade legs that form a
+  ratio spread into one record — same qualification rules (exactly two
+  strikes, one side net long/short, whole-number ratio ≥ 2), same internal
+  consistency guard (total P&L for closed, total quantity for open) that
+  falls back to the ungrouped result rather than risk silently misstating a
+  number. If you touch either method, keep that guard.
+- The copilot can see **what the user is currently looking at**, not just
+  brokerage data: a page sets `frontend/src/utils/copilotContext.js`
+  (`setCopilotContext(page, data)`) whenever its relevant state changes —
+  StrikeLab does this with the in-progress position (legs, spot, IV, net
+  credit, max profit/loss). `CopilotWidget` reads it fresh at send time and
+  passes it as `context: {page, data}` in the `/copilot/chat` request;
+  `agent.py`'s `chat(messages, page_context=...)` folds it into that turn's
+  system prompt as a labeled, explicitly-a-snapshot block. It's a plain
+  module-level store (mounted-once `CopilotWidget` has no prop path into a
+  routed page's state), same pattern as `symbolStore.js` (Layout table
+  above) — add a new page's context the same way rather than inventing a
+  second mechanism.
 
 ## Frontend conventions
 
@@ -99,6 +114,21 @@ manually inside the handler — follow that same pattern for any new WS route.
   shared `request(path, options)` helper (Bearer auth, redirects to
   `/login` on 401). Follow that pattern for new endpoints rather than
   introducing a second HTTP client.
+- `DataTable` (`components/DataTable.jsx`) auto-sorts a column by its raw
+  `row[key]` whenever `key` names a real field on the row data — a `render`
+  column (formatted date, custom cell) is still sortable as long as `key`
+  isn't purely cosmetic (a checkbox column with no backing field correctly
+  stays unsortable). Don't reintroduce the old "any `render` column is
+  unsortable" rule; that silently broke sorting on several columns once
+  before it was fixed.
+- `.cell-positive`/`.cell-negative` (green/red P&L text, `tables.css`) are
+  scoped as `.data-table td.cell-positive` (class on the `<td>` itself,
+  DataTable's own auto-coloring) **and** `.data-table td .cell-positive`
+  (class on a `<span>` a custom `render` wraps its text in, for a column
+  whose value isn't a plain row field — e.g. a live-quote-derived P&L). Both
+  forms exist in this codebase; a bare `.cell-positive` selector silently
+  loses to `.data-table td`'s own color rule on specificity, which is why
+  both variants are needed rather than one.
 
 ## Dev workflow
 
