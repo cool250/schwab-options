@@ -686,13 +686,17 @@ export default function StrikeLab() {
                 {breakevens.map((b, i) => (
                   <ReferenceLine key={i} x={b} stroke="#7c3aed" strokeDasharray="2 2" strokeWidth={1} />
                 ))}
+                {/* Animation off: chartData recomputes on every leg edit keystroke
+                    and every tick of the Range slider drag (uncapped, fires
+                    dozens of times/sec) — re-triggering a 700ms animated redraw
+                    on each one is what made this feel slow, not the underlying
+                    140-point payoff calc, which is cheap. */}
                 <Area
                   dataKey="pos"
                   stroke="var(--success)"
                   strokeWidth={2}
                   fill="url(#payoffPos)"
-                  isAnimationActive={true}
-                  animationDuration={700}
+                  isAnimationActive={false}
                   dot={false}
                 />
                 <Area
@@ -700,8 +704,7 @@ export default function StrikeLab() {
                   stroke="var(--error)"
                   strokeWidth={2}
                   fill="url(#payoffNeg)"
-                  isAnimationActive={true}
-                  animationDuration={700}
+                  isAnimationActive={false}
                   dot={false}
                 />
               </AreaChart>

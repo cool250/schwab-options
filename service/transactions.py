@@ -263,9 +263,14 @@ class TransactionService:
         leg closed last), since callers like the UI's Status column read it
         directly and it must mean the same thing on every row. The record
         also carries a `"legs"` list of the original member records, and
-        `total_amount`/`close_date` rolled up across the group. Everything
-        that isn't part of a qualifying group passes through unchanged —
-        this never invents a grouping it isn't confident about.
+        `total_amount`/`close_date` rolled up across the group. `open_price`
+        ("Cost basis" in the UI) and `close_price` ("Closing Price") are each
+        the short side's quantity-weighted price minus the long side's —
+        same net convention as group_open_ratio_spreads' net_trade_price —
+        rather than left null, which is what the UI showed before for every
+        grouped row. Everything that isn't part of a qualifying group passes
+        through unchanged — this never invents a grouping it isn't confident
+        about.
 
         Grouping key: (underlying_symbol, option_type, date) — `date` is
         each leg's *open* date (per OptionTransaction), on the assumption a
@@ -349,8 +354,30 @@ class TransactionService:
             def _fmt_strike(s: float) -> str:
                 return f"{s:g}"
 
+            def _weighted_price(field: str, side_legs: List[Dict]) -> float:
+                # Quantity-weighted average of one side's per-contract price —
+                # a side can be more than one same-strike closing lot if the
+                # position was trimmed/closed in pieces.
+                qty = sum(leg.get("amount", 0) for leg in side_legs)
+                if qty == 0:
+                    return 0.0
+                return sum((leg.get(field) or 0) * leg.get("amount", 0) for leg in side_legs) / qty
+
             cp = "C" if option_type == "CALL" else "P"
             ratio_label = f"{int(long_qty)}:{int(short_qty)}"
+
+            # Net cost basis / closing price for the group — same convention
+            # as group_open_ratio_spreads' net_trade_price: short side minus
+            # long side, weighted by each side's own quantity, not divided
+            # down to a single contract (there's no single "quantity" to
+            # divide by once the two sides differ, same reason the group's
+            # own "quantity" column shows a ratio like "1:2" rather than a
+            # plain number). Without this the UI's Cost Basis/Closing Price
+            # columns were blank for every grouped ratio-spread row.
+            net_open_price = (short_qty * _weighted_price("open_price", short_legs)
+                               - long_qty * _weighted_price("open_price", long_legs))
+            net_close_price = (short_qty * _weighted_price("close_price", short_legs)
+                                - long_qty * _weighted_price("close_price", long_legs))
 
             # Real status (CLOSED/EXPIRED/ASSIGNED), not a grouping marker —
             # the UI's Status column reads `type` directly, so it must keep
@@ -378,8 +405,8 @@ class TransactionService:
                 f"(+{_fmt_strike(long_strike)}{cp}/-{_fmt_strike(short_strike)}{cp})",
                 "open_type": "RATIO SPREAD",
                 "amount": ratio_label,
-                "open_price": None,
-                "close_price": None,
+                "open_price": net_open_price,
+                "close_price": net_close_price,
             })
 
         result = sorted(grouped + passthrough, key=lambda t: t.get("close_date", ""))
