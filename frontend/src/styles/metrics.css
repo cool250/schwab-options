@@ -30,6 +30,19 @@
 .metric-value.highlight { color: var(--primary); }
 .metric-value.positive { color: var(--success); }
 .metric-value.negative { color: var(--error); }
+/* Secondary detail inline with a metric value (e.g. Breakeven's "% from
+   spot") instead of wrapping to its own row underneath. */
+.metric-subtext { font-size: 0.75em; font-weight: 500; }
+
+/* Compact variant (e.g. StrikeLab's Net Credit/Max Loss/Max Profit/Breakeven
+   card) — smaller text and tighter padding so this particular card takes
+   noticeably less vertical space, without shrinking .metrics-row/.metric
+   everywhere else (e.g. Positions' balances row uses the plain classes). */
+.metrics-card--compact { padding: 12px 24px; gap: 0; }
+.metrics-card--compact .metrics-row { margin-bottom: 0; }
+.metrics-card--compact .metric { gap: 2px; padding-right: 18px; margin-right: 18px; }
+.metrics-card--compact .metric-label { font-size: 0.68rem; }
+.metrics-card--compact .metric-value { font-size: 0.95rem; }
 
 /* ─── Price badge ────────────────────────────────────── */
 .price-badge {

@@ -63,7 +63,7 @@
 .pl-corner { color: var(--text-faint); font-size: 0.7rem; }
 .pl-colhead { color: var(--text-muted); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.3px; }
 .pl-strike { color: var(--text); font-weight: 700; background: var(--bg); }
-.pl-value { font-weight: 600; }
+.pl-value { font-weight: 600; color: var(--text); }
 .pl-spotrow.pl-strike { outline: 2px solid var(--primary); color: var(--primary); }
 .pl-spotrow.pl-value { box-shadow: inset 0 0 0 1px rgba(37,99,235,0.4); }
 

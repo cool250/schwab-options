@@ -96,22 +96,71 @@ function totalTheoPL(legs, price, dte, iv) {
 }
 
 /** Builds the strike x date P&L grid used by the Table view. */
-function buildPLTable(legs, spot, lo, hi, maxDte, iv, rows = 16, cols = 8) {
-  const step = (hi - lo) / (rows - 1);
-  const prices = Array.from({ length: rows }, (_, i) => +(hi - i * step).toFixed(2));
-
-  const dteSteps = [];
-  for (let i = 0; i < cols; i++) {
-    const dte = Math.round(maxDte - (maxDte * i) / (cols - 1));
-    dteSteps.push(i === cols - 1 ? 0 : dte);
+function buildPLTable(legs, spot, lo, hi, maxDte, iv, chainStrikes, rows = 16, cols = 8) {
+  // Row prices are the option chain's own real strikes within [lo, hi]
+  // (highest first, same order the synthetic grid used) rather than an
+  // arbitrary evenly-spaced price grid — so each row lines up with a
+  // contract that actually exists. Falls back to the old evenly-spaced grid
+  // if the chain hasn't loaded yet (or has nothing in range), same "sample
+  // down to at most `rows`, keep both ends" approach as the date columns.
+  const strikesInRange = (chainStrikes ?? []).filter((s) => s >= lo && s <= hi).sort((a, b) => b - a);
+  let prices;
+  if (strikesInRange.length > 0) {
+    if (strikesInRange.length > rows) {
+      const idxStep = (strikesInRange.length - 1) / (rows - 1);
+      const seenIdx = new Set();
+      prices = [];
+      for (let i = 0; i < rows; i++) {
+        const idx = Math.round(i * idxStep);
+        if (!seenIdx.has(idx)) {
+          seenIdx.add(idx);
+          prices.push(strikesInRange[idx]);
+        }
+      }
+    } else {
+      prices = strikesInRange;
+    }
+  } else {
+    const step = (hi - lo) / (rows - 1);
+    prices = Array.from({ length: rows }, (_, i) => +(hi - i * step).toFixed(2));
   }
-  const uniqueDte = [...new Set(dteSteps)].sort((a, b) => b - a);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Only weekday calendar dates are real trading/decay days — weekends are
+  // skipped entirely (never shown as a column) rather than displaying a date
+  // where nothing actually changes. dte counts down from maxDte (today) to
+  // 0 (expiration), so each dte's calendar date is today + (maxDte - dte).
+  const weekdayEntries = [];
+  for (let d = maxDte; d >= 0; d--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() + (maxDte - d));
+    const dow = date.getDay();
+    if (dow !== 0 && dow !== 6) weekdayEntries.push({ dte: d, date });
+  }
+
+  // Evenly sample down to at most `cols` weekday entries — always keeping
+  // the first (today) and last (expiration, or the nearest weekday to it).
+  let sampled = weekdayEntries;
+  if (weekdayEntries.length > cols) {
+    const idxStep = (weekdayEntries.length - 1) / (cols - 1);
+    const seenIdx = new Set();
+    sampled = [];
+    for (let i = 0; i < cols; i++) {
+      const idx = Math.round(i * idxStep);
+      if (!seenIdx.has(idx)) {
+        seenIdx.add(idx);
+        sampled.push(weekdayEntries[idx]);
+      }
+    }
+  }
 
   const grid = prices.map((price) => ({
     price,
-    values: uniqueDte.map((dte) => totalTheoPL(legs, price, dte, iv)),
+    values: sampled.map(({ dte }) => totalTheoPL(legs, price, dte, iv)),
   }));
-  return { dteCols: uniqueDte, grid };
+  return { dateCols: sampled.map((s) => s.date), grid };
 }
 
 function maxLossProfit(legs, lo, hi) {
@@ -608,7 +657,7 @@ export default function StrikeLab() {
       </div>
 
       {/* ---------------- Metrics ---------------- */}
-      <div className="card">
+      <div className="card metrics-card--compact">
         <div className="metrics-row">
           <div className="metric">
             <span className="metric-label">Net Credit</span>
@@ -632,12 +681,12 @@ export default function StrikeLab() {
               {breakevens.length
                 ? breakevens.map((b) => `$${b.toFixed(2)}`).join(" / ")
                 : "None in range"}
+              {breakevens.length > 0 && (
+                <span className="text-muted metric-subtext">
+                  {" "}({(((breakevens[0] - spot) / spot) * 100).toFixed(1)}% from spot)
+                </span>
+              )}
             </span>
-            {breakevens.length > 0 && (
-              <span className="text-muted">
-                {(((breakevens[0] - spot) / spot) * 100).toFixed(1)}% from spot
-              </span>
-            )}
           </div>
         </div>
       </div>
@@ -735,6 +784,7 @@ export default function StrikeLab() {
             iv={ivPct / 100}
             maxProfit={maxProfit}
             maxLoss={maxLoss}
+            chain={chain}
           />
         ) : (
           <OptionChainTable
@@ -912,27 +962,26 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
 /* ============================================================================
    Table view — strike x date theta-decay heatmap
 ============================================================================ */
+// Text color is deliberately left to CSS (.pl-value uses var(--text)) rather
+// than set here — that token is already dark in light mode / light in dark
+// mode, which is exactly "black in normal mode, white in dark mode" without
+// hardcoding a theme check in JS.
 function cellColor(value, maxProfit, maxLoss) {
   if (value >= 0) {
     const t = maxProfit > 0 ? Math.min(1, value / maxProfit) : 0;
     const alpha = 0.08 + t * 0.55;
-    return { background: `rgba(5, 150, 105, ${alpha})`, color: t > 0.5 ? "#ffffff" : "#065f32" };
+    return { background: `rgba(5, 150, 105, ${alpha})` };
   }
   const t = maxLoss < 0 ? Math.min(1, value / maxLoss) : 0;
   const alpha = 0.08 + t * 0.55;
-  return { background: `rgba(220, 38, 38, ${alpha})`, color: t > 0.5 ? "#ffffff" : "#7f1d1d" };
+  return { background: `rgba(220, 38, 38, ${alpha})` };
 }
 
-function dteToLabel(dte, todayDte) {
-  if (dte === 0) return "Exp";
-  if (dte === todayDte) return "Today";
-  return `${dte}d`;
-}
-
-function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
-  const { dteCols, grid } = useMemo(
-    () => buildPLTable(legs, spot, lo, hi, dte, iv, 16, 8),
-    [legs, spot, lo, hi, dte, iv]
+function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss, chain }) {
+  const chainStrikes = useMemo(() => (chain?.chain ?? []).map((r) => r.strikePrice), [chain]);
+  const { dateCols, grid } = useMemo(
+    () => buildPLTable(legs, spot, lo, hi, dte, iv, chainStrikes, 16, 8),
+    [legs, spot, lo, hi, dte, iv, chainStrikes]
   );
   const spotRowIdx = grid.reduce(
     (best, row, i) =>
@@ -949,11 +998,11 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
   return (
     <>
       <div className="table-scroll">
-        <div className="pl-heatmap" style={{ gridTemplateColumns: `70px repeat(${dteCols.length}, 1fr)` }}>
+        <div className="pl-heatmap" style={{ gridTemplateColumns: `70px repeat(${dateCols.length}, 1fr)` }}>
           <div className="pl-cell pl-corner">Strike</div>
-          {dteCols.map((d, i) => (
+          {dateCols.map((date, i) => (
             <div key={i} className="pl-cell pl-colhead">
-              {dteToLabel(d, dte)}
+              {date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
             </div>
           ))}
           {grid.map((row, ri) => (
@@ -967,7 +1016,7 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss }) {
                   <div
                     key={ci}
                     className={`pl-cell pl-value ${ri === spotRowIdx ? "pl-spotrow" : ""}`}
-                    style={{ background: style.background, color: style.color }}
+                    style={{ background: style.background }}
                   >
                     {v >= 0 ? "+" : ""}
                     {Math.round(v)}
