@@ -9,6 +9,7 @@ answers with plain text instead of more tool calls.
 
 import json
 import logging
+import logging.handlers
 import os
 from pathlib import Path
 
@@ -17,6 +18,24 @@ from openai import OpenAI
 from copilot.tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
 
 logger = logging.getLogger(__name__)
+
+# Dedicated logger for per-turn skills/tools usage, written to its own file
+# (logs/copilot.log) rather than the general api.log — usage tracking is a
+# distinct concern from operational error logging, and this logger doesn't
+# propagate to root so entries aren't duplicated into api.log.
+_usage_logger = logging.getLogger("copilot.usage")
+_usage_logger.setLevel(logging.INFO)
+_usage_logger.propagate = False
+if not _usage_logger.handlers:
+    _log_dir = Path(__file__).resolve().parent.parent / "logs"
+    _log_dir.mkdir(exist_ok=True)
+    _handler = logging.handlers.RotatingFileHandler(
+        _log_dir / "copilot.log",
+        maxBytes=5 * 1024 * 1024,  # 5 MB
+        backupCount=5,
+    )
+    _handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    _usage_logger.addHandler(_handler)
 
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 MAX_TOOL_ITERATIONS = 8  # hard cap so a confused loop can't run away
@@ -74,19 +93,23 @@ don't repeat a disclaimer on every message.
 """
 
 
-def _load_skill_docs() -> str:
+def _load_skill_docs() -> tuple[str, list[str]]:
     """Concatenate every skill markdown file into one reference block. Full
     inclusion rather than retrieval — the doc set is small enough (a handful
     of short strategy write-ups) that RAG/embeddings would be pure overhead
-    for a single-user app."""
-    docs = []
-    for path in sorted(_SKILLS_DIR.glob("*.md")):
-        docs.append(path.read_text())
-    return "\n\n---\n\n".join(docs)
+    for a single-user app.
+
+    Returns (concatenated_text, [skill names]) so callers can log which
+    skills were loaded into a given turn's system prompt."""
+    paths = sorted(_SKILLS_DIR.glob("*.md"))
+    docs = [path.read_text() for path in paths]
+    names = [path.stem for path in paths]
+    return "\n\n---\n\n".join(docs), names
 
 
-def _build_system_prompt() -> str:
-    return _BASE_SYSTEM_PROMPT + "\n\n" + _load_skill_docs()
+def _build_system_prompt() -> tuple[str, list[str]]:
+    skill_docs, skill_names = _load_skill_docs()
+    return _BASE_SYSTEM_PROMPT + "\n\n" + skill_docs, skill_names
 
 
 _client: OpenAI | None = None
@@ -124,11 +147,12 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
 
     Returns {"reply": str, "tools_used": [str, ...]}.
     """
-    system_prompt = _build_system_prompt()
+    system_prompt, skill_names = _build_system_prompt()
     if page_context:
         system_prompt += _format_page_context(page_context)
     conversation = [{"role": "system", "content": system_prompt}] + list(messages)
     tools_used: list[str] = []
+    _usage_logger.info("Copilot turn started; skills loaded: %s", skill_names)
 
     for _ in range(MAX_TOOL_ITERATIONS):
         response = _get_client().chat.completions.create(
@@ -145,6 +169,7 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
         conversation.append(message.model_dump(exclude_none=True))
 
         if not message.tool_calls:
+            _usage_logger.info("Copilot turn finished; tools used: %s", tools_used)
             return {"reply": message.content or "", "tools_used": tools_used}
 
         for tool_call in message.tool_calls:
@@ -170,6 +195,7 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
                 {"role": "tool", "tool_call_id": tool_call.id, "content": result}
             )
 
+    _usage_logger.info("Copilot turn hit MAX_TOOL_ITERATIONS; tools used: %s", tools_used)
     return {
         "reply": "I wasn't able to finish that within the allowed number of steps — "
         "try rephrasing or narrowing the question.",
