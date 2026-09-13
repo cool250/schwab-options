@@ -59,8 +59,12 @@ class SchwabOptionChainProvider:
         except BrokerAuthError:
             raise
         except BrokerError as e:
+            # A fetch failure isn't the same as "this symbol has no listed
+            # options" (which _normalize_chain can legitimately return None
+            # for) — raise so it surfaces as a system error (app.py's
+            # BrokerError handler -> 502) instead of masquerading as that.
             logger.error("Failed to fetch option chain for %s: %s", symbol, e)
-            return None
+            raise
 
         return self._normalize_chain(option_chain, dte)
 
@@ -136,7 +140,7 @@ class SchwabOptionChainProvider:
             raise
         except BrokerError as e:
             logger.error("Failed to fetch expirations for %s: %s", symbol, e)
-            return []
+            raise
 
         keys = set(option_chain.callExpDateMap or {}) | set(option_chain.putExpDateMap or {})
         expirations = []
@@ -168,8 +172,14 @@ class TastytradeOptionChainProvider:
                 fetch_live_price=False,
             )
         except (TastytradeAPIError, ValueError, TimeoutError) as e:
+            # Same reasoning as SchwabOptionChainProvider above: a fetch
+            # failure must not read as "no listed options" — raise so
+            # TastytradeAPIError hits app.py's 502 handler (ValueError/
+            # TimeoutError here are rarer configuration/timeout cases and
+            # still surface as a real error, just via FastAPI's default
+            # handler instead of the branded one).
             logger.error("Failed to fetch option chain for %s: %s", symbol, e)
-            return None
+            raise
 
         if not contracts:
             return None
@@ -257,7 +267,7 @@ class TastytradeOptionChainProvider:
             )
         except (TastytradeAPIError, ValueError) as e:
             logger.error("Failed to fetch expirations for %s: %s", symbol, e)
-            return []
+            raise
 
         by_date: dict[str, int] = {}
         for contract in contracts:

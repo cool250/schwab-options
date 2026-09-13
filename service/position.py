@@ -31,6 +31,7 @@ class PositionService:
     def __init__(self):
         self.client = Client()
         self.position: Optional[SecuritiesAccount] = None
+        self._init_error: Optional[BrokerError] = None
         self._initialize()
 
     def _initialize(self):
@@ -46,6 +47,17 @@ class PositionService:
         except BrokerError as e:
             logger.error("Failed to fetch positions: %s", e)
             self.position = None
+            self._init_error = e
+
+    def _require_position(self) -> SecuritiesAccount:
+        """Raise the error that broke initial position fetch instead of
+        letting a caller silently treat "not fetched" the same as "genuinely
+        no positions" — a Schwab outage should surface to the user as a
+        system error (app.py's BrokerError handler -> 502), not as an empty
+        portfolio."""
+        if self.position is None:
+            raise self._init_error or BrokerError("Position data is unavailable.")
+        return self.position
 
     # --- Top-level aggregator ---
 
@@ -68,10 +80,7 @@ class PositionService:
 
     def get_balances(self) -> dict:
         """Fetch and log the account balances."""
-        if self.position is None:
-            logger.warning("Position is not initialized.")
-            return {"error": "Position is not initialized."}
-        securities_account: SecuritiesAccount = self.position
+        securities_account = self._require_position()
         current = securities_account.currentBalances
         if current is None:
             logger.warning("Current balances are not available.")
@@ -89,10 +98,7 @@ class PositionService:
 
     def get_stock_position(self):
         """Fetch and log the account stocks."""
-        if self.position is None:
-            logger.warning("Position is not initialized.")
-            return []
-        securities_account: SecuritiesAccount = self.position
+        securities_account = self._require_position()
 
         stocks = []
 
@@ -163,8 +169,12 @@ class PositionService:
         except BrokerAuthError:
             raise
         except BrokerError as e:
+            # This is the position list itself, not a quote enrichment layer
+            # (contrast get_futures_quotes below) — a fetch failure must not
+            # read as "no open futures", so it propagates to app.py's
+            # BrokerError handler (502) instead of degrading to [].
             logger.error("Failed to derive futures positions: %s", e)
-            return []
+            raise
 
         by_symbol: dict[str, dict] = {}
         for trade in trades:
@@ -267,8 +277,12 @@ class PositionService:
         except BrokerAuthError:
             raise
         except BrokerError as e:
+            # Same reasoning as get_futures_position above: this is the
+            # position list, not the quote enrichment (get_futures_option_quotes),
+            # so a failure here must surface as a system error, not "no open
+            # futures options".
             logger.error("Failed to derive futures option positions: %s", e)
-            return [], []
+            raise
 
         legs = transaction_service.group_open_ratio_spreads(legs)
 
@@ -450,10 +464,7 @@ class PositionService:
 
     def get_option_details(self, option_type: str):
         """Extract details for each option position based on the option type."""
-        if self.position is None:
-            logger.warning("Position is not initialized.")
-            return []
-        securities_account: SecuritiesAccount = self.position
+        securities_account = self._require_position()
         option_positions_details = []
 
         if not securities_account.positions:

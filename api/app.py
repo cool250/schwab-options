@@ -37,7 +37,8 @@ from fastapi import FastAPI, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from broker.schwab.exceptions import BrokerAuthError
+from broker.schwab.exceptions import BrokerAuthError, BrokerError
+from broker.tastytrade import TastytradeAPIError
 from api.auth import router as auth_router, require_auth
 from api.copilot import router as copilot_router
 from api.market import router as market_router
@@ -69,6 +70,26 @@ app = FastAPI(
 @app.exception_handler(BrokerAuthError)
 async def broker_auth_error_handler(request: Request, exc: BrokerAuthError):
     return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+# A transient broker-side failure (e.g. Schwab returning 503s after retries)
+# is not an auth problem — FastAPI dispatches to the most specific handler by
+# exception type, so BrokerAuthError still hits the 503 handler above; every
+# other BrokerError (e.g. PositionService._require_position surfacing a
+# fetch failure instead of silently degrading to an empty portfolio) lands
+# here as a 502 so the frontend can show it as a system error distinct from
+# "please re-authenticate".
+@app.exception_handler(BrokerError)
+async def broker_error_handler(request: Request, exc: BrokerError):
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+# Tastytrade is the default market-data/option-chain provider (see
+# service/option_chain_providers.get_option_chain_provider) and has no
+# separate auth-vs-transient exception split like Schwab's BrokerError does —
+# every failure surfaces the same way, as a system error rather than an
+# empty/"not found" result.
+@app.exception_handler(TastytradeAPIError)
+async def tastytrade_error_handler(request: Request, exc: TastytradeAPIError):
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(market_router, prefix="/api/market", tags=["Market"], dependencies=[Depends(require_auth)])

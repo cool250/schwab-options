@@ -139,8 +139,13 @@ class TransactionService:
         except BrokerAuthError:
             raise
         except BrokerError as e:
+            # Unlike a genuinely empty transaction history, a fetch failure
+            # shouldn't be reported as "nothing open" — let it propagate so
+            # app.py's BrokerError handler turns it into a 502 the frontend
+            # can show as a system error (see PositionService._require_position
+            # for the equivalent fix on the Positions page).
             logger.error("Failed to fetch transactions: %s", e)
-            return []
+            raise
 
         if not transactions:
             return []
@@ -171,7 +176,7 @@ class TransactionService:
             raise
         except BrokerError as e:
             logger.error("Failed to fetch transaction history: %s", e)
-            return []
+            raise
     
     def get_option_transactions(self, stock_ticker: str, start_date: str, end_date: str,
                              contract_type: str = "ALL", realized_gains_only: bool = True,
@@ -207,7 +212,7 @@ class TransactionService:
             raise
         except BrokerError as e:
             logger.error("Failed to fetch transactions: %s", e)
-            return []
+            raise
 
         if not transactions:
             return []
@@ -725,7 +730,7 @@ class TransactionService:
             raise
         except BrokerError as e:
             logger.error("Failed to fetch transactions: %s", e)
-            return []
+            raise
 
         if not transactions:
             return []

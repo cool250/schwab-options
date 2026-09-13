@@ -35,12 +35,25 @@ async function request(path, options = {}) {
 export const BROKER_AUTH_MESSAGE =
   'Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.'
 
+// The backend maps any other broker-side failure (e.g. Schwab itself
+// returning 503s after retries) to 502 — see api/app.py's BrokerError
+// handler. Distinct from BROKER_AUTH_MESSAGE: this isn't something
+// re-authenticating fixes, just an outage to wait out.
+export const SYSTEM_ERROR_MESSAGE =
+  'System error — the broker service is temporarily unavailable. Please try again shortly.'
+
 export function isBrokerAuthError(err) {
   return err?.status === 503
 }
 
+export function isSystemError(err) {
+  return err?.status === 502
+}
+
 export function friendlyErrorMessage(err, fallback) {
-  return isBrokerAuthError(err) ? BROKER_AUTH_MESSAGE : fallback
+  if (isBrokerAuthError(err)) return BROKER_AUTH_MESSAGE
+  if (isSystemError(err)) return SYSTEM_ERROR_MESSAGE
+  return fallback
 }
 
 export function getOptionChain(symbol, dte) {
