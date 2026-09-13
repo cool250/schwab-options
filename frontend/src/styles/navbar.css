@@ -46,7 +46,7 @@
   border-radius: var(--radius-sm);
   text-decoration: none;
   color: rgba(255, 255, 255, 0.75);
-  font-size: 0.875rem;
+  font-size: 1.0rem; 
   font-weight: 500;
   transition: color 0.15s, background 0.15s;
   position: relative;
@@ -133,7 +133,7 @@
 
   .nav-link {
     padding: 10px 12px;
-    font-size: 0.95rem;
+    font-size: 1.1rem; 
   }
   .navbar-logout--mobile {
     display: block;
