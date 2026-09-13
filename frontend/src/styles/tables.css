@@ -2,12 +2,20 @@
 .table-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch; /* iOS momentum scrolling */
+  /* Gives the table its own visible edge instead of just fading into the
+     card's own background — border-radius was already set here but had
+     nothing to actually round without this border (or the sticky header's
+     background otherwise clipping to square corners), which is most
+     noticeable in the dark theme where --card-bg and the table's own row
+     backgrounds sit close enough in tone to read as one merged surface.
+     Deliberately NOT bled out to the card's own edge (a prior version
+     canceled the card's padding with a negative margin so a wide table's
+     scrolled content could reach flush to the card edge) — with a border
+     on this element too, that bleed put this border right on top of the
+     card's, reading as one thicker line instead of two distinct ones. The
+     card's normal 24px padding is what keeps the two borders visibly apart. */
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  /* break out of card padding so the scroll edge aligns with the card edge */
-  margin-left: -24px;
-  margin-right: -24px;
-  padding-left: 24px;
-  padding-right: 24px;
 }
 .data-table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 0.855rem; }
 .data-table th {
