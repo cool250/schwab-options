@@ -98,6 +98,18 @@ version exists) — not a number to round past.
   the actual reason to reach for a ratio spread instead of a flat CSP in
   the first place — treat every strike this pushes toward 0.30 as a cost,
   not a free upgrade in premium.
+
+  **Before concluding no strike satisfies these constraints, make sure
+  you actually looked far enough.** `get_option_chain`'s default
+  strike_count (20) is not guaranteed to reach far enough below the long
+  strike to find a qualifying one — it returns the strikes closest to spot
+  in total, which can be lopsided, and a short-DTE contract's delta can
+  stay well above 0.30 for many strikes past what a default fetch
+  returns. If the strikes you got back don't include one that's both below
+  the long strike and at/under the delta ceiling, call `get_option_chain`
+  again with a larger strike_count before telling the user no valid
+  configuration exists on this expiration — that conclusion needs to
+  survive a genuinely wide search, not just the first, default-sized one.
 - **Ratio: default to 1:2 (1 long, 2 short) — only use a different ratio if
   the user specifically asks for one.** Don't widen to 3:1, 4:1, etc. on
   your own initiative to fix a net debit or to reach for more credit; that's
@@ -118,11 +130,18 @@ profit is realized *and* where the uncapped downside begins, so its
 placement does double duty. Pull `get_price_history` for the underlying to
 check the support levels it returns (recent swing lows) before finalizing
 which strike from the start-low procedure above to use:
-- **Short strike at/near a support level, at or below 0.30 delta:** the
-  ideal combination — the max-profit outcome coincides with both a level
-  the stock has actually held before and a lower statistical assignment
-  probability, and the uncapped-risk zone only opens up if that support
-  genuinely breaks, not on an ordinary pullback.
+- **A short strike is good enough to suggest as long as it sits below the
+  long strike and collects a net credit — that credit doesn't need to
+  exceed roughly $200.** Landing at/near a support level is a bonus on top
+  of that, not an added requirement: once the structural constraint (short
+  strike below the long strike) and a real net credit (per the sign check
+  above) are both satisfied, don't hold out for a bigger credit or a
+  closer support match at the cost of giving up the distance the start-low
+  procedure above already found. When it *does* land at/near a support
+  level, that's the strongest version — the max-profit outcome then
+  coincides with a level the stock has actually held before, and the
+  uncapped-risk zone only opens up if that support genuinely breaks, not
+  on an ordinary pullback — but it's not the bar for a valid suggestion.
 - **Avoid placing the short strike well above a nearby support** in an
   attempt to collect more credit — that leaves the max-profit point sitting
   in a range the stock could easily blow through on its way down to the

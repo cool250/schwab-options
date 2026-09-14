@@ -54,6 +54,15 @@ point — delta is a rough proxy for assignment odds, so a lower delta trades
 some premium for a meaningfully higher chance of the put simply expiring
 worthless.
 
+**Before concluding no strike meets that bar, make sure you looked far
+enough.** `get_option_chain`'s default strike_count (20) is not guaranteed
+to reach far enough from spot to find a qualifying strike — it returns the
+strikes closest to spot in total, which can be lopsided, and a short-DTE
+contract's delta can stay well above 0.30 for many strikes past what a
+default fetch returns. If nothing in the returned chain is at/under the
+delta ceiling, call `get_option_chain` again with a larger strike_count
+before telling the user no suitable strike exists on this expiration.
+
 **Premium/risk tradeoff:** frame the return relative to the margin actually
 tied up, not a hypothetical full-notional basis. Compare candidates by
 premium collected per day (annualized) rather than raw premium alone, since

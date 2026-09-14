@@ -320,7 +320,15 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "get_option_chain",
             "description": "Get a normalized options chain (calls and puts merged by strike, "
-            "with bid/ask/delta) for the expiration closest to dte days out.",
+            "with bid/ask/delta) for the expiration closest to dte days out. The default "
+            "strike_count (20) can fail to reach a strike with the delta you're actually looking "
+            "for — the broker returns the N strikes closest to spot in total, not a guaranteed "
+            "count on each side, so the window can be lopsided, and a short-DTE contract's delta "
+            "can still be well above your target many strikes out. If you don't find a strike "
+            "matching what you need (a delta ceiling, a strike below/above another leg, etc.) in "
+            "the returned chain, call again with a larger strike_count (e.g. double it) before "
+            "concluding no such strike exists — don't declare 'no valid configuration is "
+            "available' off a single default-sized fetch.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -332,7 +340,9 @@ TOOL_SCHEMAS = [
                     },
                     "strike_count": {
                         "type": "integer",
-                        "description": "Number of strikes above/below the current price to include.",
+                        "description": "Number of strikes above/below the current price to request — not a "
+                        "guaranteed count on each side (see the tool description). Increase this and call "
+                        "again if the first response doesn't include a strike matching what you need.",
                         "default": 20,
                     },
                 },
