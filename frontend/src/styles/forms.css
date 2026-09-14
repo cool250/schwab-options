@@ -28,6 +28,15 @@
   border-bottom-color: var(--primary);
 }
 
+/* The native date-input calendar icon (WebKit/Blink) renders as a dark
+   glyph regardless of the page's own colors, so it's invisible against
+   this app's dark theme — invert it to white there. Scoped to
+   [data-theme="dark"] like every other dark-mode rule in this app (see
+   tokens.css), not prefers-color-scheme. */
+:root[data-theme="dark"] .input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
 /* ─── Form helpers ────────────────────────────────────── */
 .form-group--sm  { max-width: 280px; }
 .form-group--end { justify-content: flex-end; }

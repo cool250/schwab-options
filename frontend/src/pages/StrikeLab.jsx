@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import {
   ResponsiveContainer,
@@ -358,6 +358,22 @@ export default function StrikeLab() {
     };
   }, [symbol]);
 
+  // Holds the live WebSocket and the strike_count it was last subscribed
+  // with — read/written outside React state since requestMoreStrikes below
+  // needs to send follow-up messages on the same open socket without
+  // triggering a reconnect (which the [symbol, dte] effect below would do).
+  const socketRef = useRef(null);
+  const liveStrikeCountRef = useRef(20);
+
+  // Tracks which symbol the Range ±% slider's smart default (see the
+  // snapshot handler below) has already been applied for, so it only fires
+  // once per newly-searched ticker rather than fighting a range the user
+  // has since adjusted by hand, or a switch between this symbol's own
+  // expiration pills. Starts already "done" when resuming a cached session
+  // for the same symbol (same pattern as skipInitialExpirationsFetch above)
+  // so a remembered range isn't clobbered on remount.
+  const rangeInitializedSymbolRef = useRef(strikeLabCache.symbol === symbol ? symbol : null);
+
   // Live chain feed: opens one WebSocket per symbol/dte, gets a full snapshot
   // back immediately (same shape the old one-shot REST call returned), then
   // keeps receiving individual bid/ask ticks as the market moves — no more
@@ -378,9 +394,11 @@ export default function StrikeLab() {
       socket = new WebSocket(
         `${proto}://${window.location.host}/api/market/ws/chain?token=${encodeURIComponent(token ?? "")}`
       );
+      socketRef.current = socket;
 
       socket.onopen = () => {
         retryDelayMs = 1000;
+        liveStrikeCountRef.current = 20;
         socket.send(JSON.stringify({ action: "subscribe", symbol, dte, strike_count: 20 }));
       };
 
@@ -394,6 +412,30 @@ export default function StrikeLab() {
           if (msg.chain.iv != null) setIvPct(msg.chain.iv * 100);
           setLoadingChain(false);
           setChainError(null);
+
+          // Default the Range ±% slider so a newly-searched ticker starts
+          // out showing about 20 strikes, regardless of how far apart this
+          // underlying's own strikes actually are (e.g. $1 for many
+          // stocks, $5+ for pricier ones) — a fixed percentage would show
+          // a wildly different strike count from one ticker to the next.
+          // Spacing is inferred from this snapshot's own strikes (median
+          // gap) since neither this app nor the broker exposes it directly.
+          if (rangeInitializedSymbolRef.current !== symbol) {
+            rangeInitializedSymbolRef.current = symbol;
+            const strikes = (msg.chain.chain ?? []).map((r) => r.strikePrice).sort((a, b) => a - b);
+            const gaps = [];
+            for (let i = 1; i < strikes.length; i++) {
+              const gap = strikes[i] - strikes[i - 1];
+              if (gap > 0) gaps.push(gap);
+            }
+            if (gaps.length > 0 && msg.chain.spot) {
+              gaps.sort((a, b) => a - b);
+              const spacing = gaps[Math.floor(gaps.length / 2)];
+              const halfWidth = 10 * spacing; // ~20 strikes total, 10 each side of ATM
+              const pct = Math.min(15, Math.max(0.5, +((halfWidth / msg.chain.spot) * 100).toFixed(1)));
+              setRangePct(pct);
+            }
+          }
         } else if (msg.type === "quote") {
           setChain((prev) => patchChainQuote(prev, msg));
         } else if (msg.type === "error") {
@@ -432,8 +474,69 @@ export default function StrikeLab() {
       cancelled = true;
       clearTimeout(reconnectTimer);
       socket?.close();
+      if (socketRef.current === socket) socketRef.current = null;
     };
   }, [symbol, dte]);
+
+  // The Range ±% slider below only ever *widens* what's already on screen —
+  // it resubscribes on the same open socket (api/market_stream.py's
+  // subscribe handler supports repeat "subscribe" messages, tearing down and
+  // rebuilding just the DXLink quote stream) with a bigger strike_count
+  // rather than reconnecting, and only when the desired count actually grows
+  // past what's already been fetched — never on every slider drag tick,
+  // since each one re-fetches the whole chain (a few hundred ms to a few
+  // seconds, per api/market_stream.py's own timing log).
+  // useCallback so this stays referentially stable across renders that
+  // don't actually change symbol/dte — otherwise every live quote tick
+  // (which updates `chain` state, re-rendering this component) would hand
+  // OptionChainTable a new function identity and reset ITS OWN debounce
+  // timer below, potentially never letting it fire while quotes keep
+  // streaming in.
+  const requestMoreStrikes = useCallback(
+    (desiredCount) => {
+      const capped = Math.min(Math.max(Math.round(desiredCount), 20), 100);
+      if (capped <= liveStrikeCountRef.current) return;
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN || dte == null) return;
+      liveStrikeCountRef.current = capped;
+      setLoadingChain(true);
+      socket.send(JSON.stringify({ action: "subscribe", symbol, dte, strike_count: capped }));
+    },
+    [symbol, dte]
+  );
+
+  // Debounced: the Range ±% slider drives the Graph/Table price window
+  // ([lo, hi] below), and needs enough real strikes fetched to cover it —
+  // otherwise Table view silently falls back to a synthetic, non-real price
+  // grid once the window outgrows the initial 20-per-side fetch (see
+  // buildPLTable's fallback branch). Spacing is inferred from the currently
+  // loaded chain's own strikes (median gap, robust to a few irregular ones)
+  // since neither this app nor the broker exposes it directly.
+  //
+  // Deliberately depends on chain?.chain?.length, not `chain` itself: every
+  // live quote tick replaces `chain` with a new object (see
+  // patchChainQuote's immutable update) without changing how many strikes
+  // are in it, and depending on the object reference would reset this
+  // effect's debounce timer on every tick — for an actively-quoting symbol,
+  // possibly never letting it fire at all.
+  useEffect(() => {
+    const strikes = chain?.chain?.map((r) => r.strikePrice) ?? [];
+    if (strikes.length < 2 || !spot) return;
+    const sorted = [...strikes].sort((a, b) => a - b);
+    const gaps = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const gap = sorted[i] - sorted[i - 1];
+      if (gap > 0) gaps.push(gap);
+    }
+    if (gaps.length === 0) return;
+    gaps.sort((a, b) => a - b);
+    const spacing = gaps[Math.floor(gaps.length / 2)];
+    const halfWidth = spot * (rangePct / 100);
+    const neededPerSide = Math.ceil(halfWidth / spacing) + 2; // small buffer past the exact edge
+    const timer = setTimeout(() => requestMoreStrikes(Math.ceil(neededPerSide / 5) * 5), 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangePct, spot, dte, chain?.chain?.length]);
 
   // Keep the cache in sync with every field it tracks, so a later
   // unmount/remount of this page picks up right where things were left.
@@ -822,6 +925,8 @@ export default function StrikeLab() {
           <OptionChainTable
             chain={chain}
             spot={spot}
+            lo={lo}
+            hi={hi}
             loading={loadingChain}
             onAddLeg={addLegFromChain}
             onRemoveLeg={removeLeg}
@@ -1069,10 +1174,7 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss, chain }) {
 /* ============================================================================
    Option chain view — standard Calls | Strike | Puts table around ATM
 ============================================================================ */
-const DEFAULT_CHAIN_RADIUS = 10; // strikes shown on each side of ATM
-
-function OptionChainTable({ chain, spot, loading, onAddLeg, onRemoveLeg, legs }) {
-  const [radius, setRadius] = useState(DEFAULT_CHAIN_RADIUS);
+function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg, legs }) {
   const rows = chain?.chain;
 
   if (!rows || rows.length === 0) {
@@ -1084,35 +1186,28 @@ function OptionChainTable({ chain, spot, loading, onAddLeg, onRemoveLeg, legs })
   }
 
   const sorted = [...rows].sort((a, b) => a.strikePrice - b.strikePrice);
+  // Driven by the same Range ±% slider as Graph/Table (lo/hi, passed down
+  // from StrikeLab) rather than this view's own separate "strikes each
+  // side" count — one control for how wide a window every view shows, and
+  // StrikeLab's own range-driven effect is what fetches more real strikes
+  // as that window widens (see requestMoreStrikes).
+  const visible = sorted.filter((row) => row.strikePrice >= lo && row.strikePrice <= hi);
   const atmIdx = sorted.reduce(
     (best, row, i) =>
       Math.abs(row.strikePrice - spot) < Math.abs(sorted[best].strikePrice - spot) ? i : best,
     0
   );
-  const start = Math.max(0, atmIdx - radius);
-  const end = Math.min(sorted.length, atmIdx + radius + 1);
-  const visible = sorted.slice(start, end);
   const atmStrike = sorted[atmIdx].strikePrice;
 
   return (
     <>
-      <div className="slider-row">
-        {chain?.expirationDate && (
+      {chain?.expirationDate && (
+        <div className="slider-row">
           <span className="chain-week-badge">
             {formatExpLabel(chain.expirationDate)} · {chain.dte}d
           </span>
-        )}
-        <span className="slider-label" style={{ marginLeft: "auto" }}>Strikes each side</span>
-        <input
-          className="input"
-          type="number"
-          min="1"
-          max={Math.ceil(sorted.length / 2)}
-          value={radius}
-          onChange={(e) => setRadius(Math.max(1, +e.target.value || 1))}
-          style={{ maxWidth: 70 }}
-        />
-      </div>
+        </div>
+      )}
       <div className="table-scroll">
         <div className="chain-table">
           <div className="chain-row chain-head">
