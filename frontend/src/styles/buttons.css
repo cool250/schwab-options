@@ -91,7 +91,7 @@
   margin-bottom: -1px;
   padding: 8px 2px 10px;
   font-family: inherit;
-  font-size: 0.875rem;
+  font-size: 1.006rem; /* 0.875rem + 15% */
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;

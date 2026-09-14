@@ -1,4 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* Self-hosted via @fontsource/geist-sans (bundled by Vite from
+   node_modules) rather than a runtime Google Fonts call — one @import per
+   weight actually used across the app's stylesheets (see tokens.css). */
+@import '@fontsource/geist-sans/400.css';
+@import '@fontsource/geist-sans/500.css';
+@import '@fontsource/geist-sans/600.css';
+@import '@fontsource/geist-sans/700.css';
+@import '@fontsource/geist-sans/800.css';
 
 /* Base: design tokens, reset, typography */
 @import './styles/tokens.css';
