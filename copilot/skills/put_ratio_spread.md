@@ -38,23 +38,66 @@ don't ask the user which expiration they want, since it's already right in
 front of them. Only fall back to asking or picking one yourself when no
 page context is present.
 
+**HARD STRUCTURAL CONSTRAINT, checked before anything else: the short
+strike(s) must be strictly below the long strike.** This is what makes it a
+put ratio spread at all — not a preference, not something delta or credit
+math can override. A candidate where the short strike is equal to or above
+the long strike is not a valid put ratio spread, full stop, even if its
+delta and net-credit numbers look fine in isolation — reject it and pick a
+different short strike, don't present it. Concretely: after picking a
+long strike (ATM or user-specified) and finding candidate short strikes,
+throw out every candidate whose strike >= the long strike before applying
+the delta/credit/distance reasoning below — the earlier general
+description ("buy higher, sell lower") is a real invariant on the actual
+strikes chosen from live chain data, not just a description of the typical
+case.
+
 **Strike selection — the rule, not just a preference: long leg at ATM,
 short leg(s) at ≤0.30 delta, and the combination must price as a net
 credit.** This is a firmer version of the general tradeoff (a
 closer-to-ATM long strike protects better but costs more; a lower-delta
 short strike has better odds of expiring worthless but collects less) —
 resolved as a fixed starting point rather than something to balance case by
-case:
-- **Long strike: ATM.** The long put is the only thing capping the
-  position's risk above the naked short strikes, and that protection is
-  strongest when it has real delta from the very first dollar the stock
-  drops, not just once it's fallen most of the way toward the strike. ATM
-  also maximizes the strike width to the short leg, which is what sets the
-  size of the max-profit zone.
-- **Short strike(s): ≤0.30 delta.** Same reasoning as a CSP — a lower delta
-  trades some credit for a meaningfully higher chance of the short leg(s)
-  simply expiring worthless, which matters here more than on a plain CSP
-  since the downside past that strike is uncapped, not bounded at zero.
+case. Compute it as `(short_qty × short_bid) − (long_qty × long_ask)` and
+check the sign before presenting anything: a positive result is a real
+credit; zero is break-even; **a negative result is a net debit, full stop —
+never describe a negative number as "a small credit" or "net credit: -X",
+and never present that configuration as the recommendation.** If it comes
+out negative, that's the signal to work the delta/distance/ratio levers
+below (or, per the hard constraint above, say plainly that no credit
+version exists) — not a number to round past.
+- **Long strike: ATM — unless the user explicitly specifies a different
+  strike for the long leg, in which case use theirs instead, the same way
+  an explicit ratio (below) overrides the 1:2 default.** The long put is
+  the only thing capping the position's risk above the naked short strikes,
+  and that protection is strongest when it has real delta from the very
+  first dollar the stock drops, not just once it's fallen most of the way
+  toward the strike. ATM also maximizes the strike width to the short leg,
+  which is what sets the size of the max-profit zone. Don't substitute ATM
+  when the user names their own long strike (e.g. "use the 190 put") —
+  explain the ATM reasoning if it seems relevant, but an explicit
+  instruction always wins over the default.
+- **Short strike(s): 0.30 delta is a ceiling, not a default — start lower
+  and only move up toward 0.30 if you need to.** Defaulting to exactly 0.30
+  every time defeats the point of this rule: it's the *most* delta ever
+  acceptable, not the target delta. Work the selection in this order:
+  1. Start from a strike noticeably further OTM than 0.30 delta (e.g. 0.20,
+     0.15, or lower) — further from the long strike, which widens the
+     max-profit zone.
+  2. Check whether that strike (at the chosen ratio) still prices as a net
+     credit. If yes, that's your answer — don't creep it back up toward
+     0.30 just because a higher-delta strike would also have worked; more
+     distance with a smaller-but-still-real credit beats less distance with
+     a bigger one, per the reasoning below.
+  3. Only move to a higher delta (closer to the long strike, up to the
+     0.30 ceiling) if a lower-delta strike can't clear the net-credit
+     constraint at the chosen ratio. Widening the ratio (if the user
+     allows it) is also a lever here — see below — before giving up
+     distance by climbing toward 0.30.
+  Strike distance is what sets the size of the max-profit zone, which is
+  the actual reason to reach for a ratio spread instead of a flat CSP in
+  the first place — treat every strike this pushes toward 0.30 as a cost,
+  not a free upgrade in premium.
 - **Ratio: default to 1:2 (1 long, 2 short) — only use a different ratio if
   the user specifically asks for one.** Don't widen to 3:1, 4:1, etc. on
   your own initiative to fix a net debit or to reach for more credit; that's
@@ -74,10 +117,10 @@ matters more here than on a plain CSP.** The short strike is both where max
 profit is realized *and* where the uncapped downside begins, so its
 placement does double duty. Pull `get_price_history` for the underlying to
 check the support levels it returns (recent swing lows) before finalizing
-which ≤0.30-delta strike to use:
-- **Short strike at/near a support level, at ≤0.30 delta:** the ideal
-  combination — the max-profit outcome coincides with both a level the
-  stock has actually held before and a lower statistical assignment
+which strike from the start-low procedure above to use:
+- **Short strike at/near a support level, at or below 0.30 delta:** the
+  ideal combination — the max-profit outcome coincides with both a level
+  the stock has actually held before and a lower statistical assignment
   probability, and the uncapped-risk zone only opens up if that support
   genuinely breaks, not on an ordinary pullback.
 - **Avoid placing the short strike well above a nearby support** in an

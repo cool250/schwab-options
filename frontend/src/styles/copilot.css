@@ -125,6 +125,7 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   padding: 0 2px;
 }
 .copilot-panel-close:hover { opacity: 1; }
+.copilot-panel-close:disabled { opacity: 0.35; cursor: default; }
 
 /* ─── Full-page mode (maximize the docked panel) ───────── */
 .copilot-backdrop {

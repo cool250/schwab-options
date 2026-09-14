@@ -131,6 +131,17 @@ export default function CopilotWidget() {
     }
   };
 
+  // Drops the whole conversation so the next message starts with no prior
+  // context — disabled while a request is in flight rather than aborting
+  // it, since there's no AbortController wired up here and clearing
+  // mid-request would otherwise let that response reappear afterward and
+  // silently repopulate the "cleared" conversation.
+  const handleNewChat = () => {
+    setMessages([]);
+    setError(null);
+    setInput("");
+  };
+
   // Hands the recommended legs to StrikeLab (see copilotProposedLegs.js)
   // and navigates there — works whether the user is already on StrikeLab
   // (the module's event listener picks it up directly) or somewhere else
@@ -156,6 +167,16 @@ export default function CopilotWidget() {
           <div className="copilot-panel-header">
             <span className="copilot-panel-title"><CopilotIcon /> Copilot</span>
             <div className="copilot-panel-header-actions">
+              <button
+                type="button"
+                className="copilot-panel-close"
+                onClick={handleNewChat}
+                disabled={loading || messages.length === 0}
+                aria-label="Start new chat"
+                title="Start new chat (clears this conversation)"
+              >
+                ＋
+              </button>
               <button
                 type="button"
                 className="copilot-panel-close"

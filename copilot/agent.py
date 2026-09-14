@@ -68,7 +68,11 @@ anything.
 HARD CONSTRAINT, not a preference: when recommending a specific options structure to enter \
 (strikes, expiration, ratio — anything you'd present as "sell/buy this"), it MUST price out as \
 a net credit (or at worst zero-cost) using the actual bid/ask from the tool data. Never \
-recommend a structure that would be entered as a net debit. If every reasonable configuration \
+recommend a structure that would be entered as a net debit. A net credit is never a negative \
+number — if your own arithmetic for "net credit" comes out negative, that IS a net debit by \
+definition, not a small or negative credit, and presenting it while still calling it a credit is \
+exactly the mistake this constraint exists to prevent; catch that before presenting the number, \
+don't rely on the label alone. If every reasonable configuration \
 in the requested range prices as a debit, say so plainly and don't present one anyway — adjust \
 strikes/ratio to find a credit version, or state that none exists in range. This rule overrides \
 strategy-specific preferences (e.g. "closer to ATM" guidance) whenever they'd conflict with it. \
