@@ -84,6 +84,14 @@ candles — present it as a markdown table rather than prose or a bulleted list.
 headers, and lists elsewhere where they aid scanability, but don't force a table onto a single \
 value or a short narrative answer.
 
+Whenever you give a specific, actionable strike/expiration recommendation (not a purely \
+educational or hypothetical answer), also call propose_legs with the concrete leg(s) — this \
+lets the app offer an "Apply to StrikeLab" button so the user doesn't have to re-enter what you \
+just recommended by hand. Call it in addition to your normal written explanation, never instead \
+of it, and only with real strikes/prices pulled from a tool in this same turn, not invented \
+numbers. If the current page context includes a StrikeLab selectedExpirationDte, use that \
+expiration for the recommendation rather than picking or asking about a different one.
+
 You are knowledgeable about options strategies via the reference material below. When \
 discussing a strategy or suggesting one, keep in mind this is not licensed financial advice — \
 a brief, natural acknowledgment of that is appropriate when giving specific suggestions, but \
@@ -145,13 +153,18 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
     position — see frontend/src/utils/copilotContext.js) — folded into this
     turn's system prompt so the agent can answer questions about it directly.
 
-    Returns {"reply": str, "tools_used": [str, ...]}.
+    Returns {"reply": str, "tools_used": [str, ...], "proposed_legs": [dict, ...] | None}.
+    proposed_legs is populated when the model called the propose_legs tool
+    this turn (see copilot/tools.py) — the frontend renders it as an "Apply
+    to StrikeLab" button rather than making the user re-enter what was just
+    recommended by hand.
     """
     system_prompt, skill_names = _build_system_prompt()
     if page_context:
         system_prompt += _format_page_context(page_context)
     conversation = [{"role": "system", "content": system_prompt}] + list(messages)
     tools_used: list[str] = []
+    proposed_legs: list[dict] | None = None
     _usage_logger.info("Copilot turn started; skills loaded: %s", skill_names)
 
     for _ in range(MAX_TOOL_ITERATIONS):
@@ -170,7 +183,7 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
 
         if not message.tool_calls:
             _usage_logger.info("Copilot turn finished; tools used: %s", tools_used)
-            return {"reply": message.content or "", "tools_used": tools_used}
+            return {"reply": message.content or "", "tools_used": tools_used, "proposed_legs": proposed_legs}
 
         for tool_call in message.tool_calls:
             name = tool_call.function.name
@@ -183,6 +196,13 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
                     args = json.loads(tool_call.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
+                # propose_legs carries no broker call and nothing the model
+                # needs back beyond a plain ack (still executed via
+                # TOOL_FUNCTIONS below, for that ack) — its real effect is
+                # surfacing the legs here, in the turn's own return value,
+                # for the frontend to offer as an "Apply to StrikeLab" button.
+                if name == "propose_legs":
+                    proposed_legs = args.get("legs")
                 try:
                     result = fn(**args)
                 except TypeError as e:
@@ -200,4 +220,5 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
         "reply": "I wasn't able to finish that within the allowed number of steps — "
         "try rephrasing or narrowing the question.",
         "tools_used": tools_used,
+        "proposed_legs": proposed_legs,
     }

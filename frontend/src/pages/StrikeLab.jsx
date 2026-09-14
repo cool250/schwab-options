@@ -14,6 +14,7 @@ import { getExpirationList, friendlyErrorMessage } from "../api/client";
 import { MULTIPLIER, getMultiplier } from "../utils/contractMultiplier";
 import { symbolStore } from "../utils/symbolStore";
 import { setCopilotContext, clearCopilotContext } from "../utils/copilotContext";
+import { consumePendingLegs, onLegsApplied } from "../utils/copilotProposedLegs";
 
 /** Patches a live bid/ask tick into whichever leg (call or put, on whichever
  *  strike row) carries that streamer-symbol, leaving everything else as-is. */
@@ -97,34 +98,20 @@ function totalTheoPL(legs, price, dte, iv) {
 }
 
 /** Builds the strike x date P&L grid used by the Table view. */
-function buildPLTable(legs, spot, lo, hi, maxDte, iv, chainStrikes, rows = 16, cols = 8) {
-  // Row prices are the option chain's own real strikes within [lo, hi]
-  // (highest first, same order the synthetic grid used) rather than an
-  // arbitrary evenly-spaced price grid — so each row lines up with a
-  // contract that actually exists. Falls back to the old evenly-spaced grid
-  // if the chain hasn't loaded yet (or has nothing in range), same "sample
-  // down to at most `rows`, keep both ends" approach as the date columns.
+function buildPLTable(legs, spot, lo, hi, maxDte, iv, chainStrikes, fallbackRows = 16, cols = 8) {
+  // Row prices are every real strike within [lo, hi] (highest first) — not
+  // sampled down to a fixed count, so the row count actually tracks the
+  // Range ±% slider the same way Chain view's row count does. A fixed
+  // sample cap here used to mean widening the range past ~16 in-range
+  // strikes (the common case) had no visible effect at all, unlike Chain
+  // (uncapped) or Graph (whose axis domain directly follows [lo, hi]).
+  // Falls back to an evenly-spaced synthetic grid only while the chain
+  // hasn't loaded yet (or genuinely has nothing in range).
   const strikesInRange = (chainStrikes ?? []).filter((s) => s >= lo && s <= hi).sort((a, b) => b - a);
-  let prices;
-  if (strikesInRange.length > 0) {
-    if (strikesInRange.length > rows) {
-      const idxStep = (strikesInRange.length - 1) / (rows - 1);
-      const seenIdx = new Set();
-      prices = [];
-      for (let i = 0; i < rows; i++) {
-        const idx = Math.round(i * idxStep);
-        if (!seenIdx.has(idx)) {
-          seenIdx.add(idx);
-          prices.push(strikesInRange[idx]);
-        }
-      }
-    } else {
-      prices = strikesInRange;
-    }
-  } else {
-    const step = (hi - lo) / (rows - 1);
-    prices = Array.from({ length: rows }, (_, i) => +(hi - i * step).toFixed(2));
-  }
+  const prices =
+    strikesInRange.length > 0
+      ? strikesInRange
+      : Array.from({ length: fallbackRows }, (_, i) => +(hi - (i * (hi - lo)) / (fallbackRows - 1)).toFixed(2));
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -323,6 +310,37 @@ export default function StrikeLab() {
     );
     pendingPositions.current = [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Legs the copilot recommended and the user clicked "Apply" on (see
+  // copilotProposedLegs.js) — replaces whatever's currently built, same as
+  // arriving via "Analyze Selected" from Positions above, since applying a
+  // recommendation is itself a new search. Also switches to the
+  // recommendation's own symbol if it differs from whatever's currently
+  // loaded, so the right chain/quotes load for it.
+  useEffect(() => {
+    function apply(incomingLegs) {
+      if (!incomingLegs || incomingLegs.length === 0) return;
+      const legSymbol = incomingLegs[0].symbol;
+      if (legSymbol) {
+        setSymbol(legSymbol);
+        setSymbolInput(legSymbol);
+      }
+      setLegs(
+        incomingLegs.map((l, i) => ({
+          id: `l${Date.now()}-${i}`,
+          side: l.side,
+          qty: Math.abs(l.quantity) || 1,
+          type: l.optionType,
+          strike: l.strike,
+          premium: l.premium,
+          dte: l.dte,
+          multiplier: getMultiplier(l.symbol),
+        }))
+      );
+    }
+    apply(consumePendingLegs());
+    return onLegsApplied(apply);
   }, []);
 
   useEffect(() => {
@@ -583,19 +601,30 @@ export default function StrikeLab() {
     [legs, spot]
   );
 
-  // Lets the copilot answer questions about "this position"/"this spread"
-  // without the user restating every strike — see copilotContext.js. Only
-  // meaningful once there's an actual position being built; an empty legs
-  // list clears it instead (a page revisit with nothing added yet shouldn't
-  // have the agent talk about a stale position from last time).
+  // Lets the copilot answer questions about "this position"/"this spread",
+  // or find a strike for a *new* one on the expiration already selected
+  // here, without the user restating it — see copilotContext.js. Cleared
+  // only when there's no symbol at all; an empty legs list still shares the
+  // symbol/expiration pill (e.g. picking a naked-put strike before any leg
+  // exists), just without position-specific fields that wouldn't mean
+  // anything yet (credit, max profit/loss, breakevens).
   useEffect(() => {
-    if (!symbol || legs.length === 0) {
+    if (!symbol) {
       clearCopilotContext("StrikeLab");
       return;
+    }
+    if (legs.length === 0) {
+      setCopilotContext("StrikeLab", {
+        symbol,
+        spot,
+        selectedExpirationDte: dte,
+      });
+      return () => clearCopilotContext("StrikeLab");
     }
     setCopilotContext("StrikeLab", {
       symbol,
       spot,
+      selectedExpirationDte: dte,
       daysToExpiration: positionDte,
       impliedVolatilityPct: ivPct,
       netCreditOrDebit: credit,
@@ -612,7 +641,7 @@ export default function StrikeLab() {
       })),
     });
     return () => clearCopilotContext("StrikeLab");
-  }, [symbol, spot, positionDte, ivPct, credit, maxProfit, maxLoss, breakevens, legs]);
+  }, [symbol, spot, dte, positionDte, ivPct, credit, maxProfit, maxLoss, breakevens, legs]);
 
   const updateLeg = (id, patch) =>
     setLegs((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));

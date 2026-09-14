@@ -118,6 +118,17 @@ def get_expirations(symbol: str, days_ahead: int = 60) -> str:
     return _safe(MarketService().get_expirations, symbol, days_ahead)
 
 
+def propose_legs(legs: list[dict]) -> str:
+    """Not a data fetch like every other tool here — this one has no broker
+    call at all. Calling it is how the model hands a concrete, actionable
+    recommendation to the frontend: agent.chat() intercepts this call by
+    name and returns `legs` to the caller as `proposed_legs`, which
+    CopilotWidget renders as an "Apply to StrikeLab" button. The return
+    value here only goes back into the model's own conversation (so the
+    tool-calling loop has something to continue on), not to the user."""
+    return json.dumps({"status": "proposed", "count": len(legs)})
+
+
 TOOL_FUNCTIONS = {
     "get_account_balances": get_account_balances,
     "get_stock_positions": get_stock_positions,
@@ -130,6 +141,7 @@ TOOL_FUNCTIONS = {
     "get_price_history": get_price_history,
     "get_option_chain": get_option_chain,
     "get_expirations": get_expirations,
+    "propose_legs": propose_legs,
 }
 
 # OpenAI chat-completions "tools" format: one {"type": "function", "function": {...}}
@@ -345,6 +357,61 @@ TOOL_SCHEMAS = [
                     },
                 },
                 "required": ["symbol"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_legs",
+            "description": "Record one or more concrete option legs you're recommending, so the "
+            "user can apply them to the StrikeLab chart with one click instead of re-entering "
+            "them by hand. Call this whenever you give a specific, actionable strike/expiration "
+            "recommendation — in addition to explaining your reasoning in your normal reply, not "
+            "instead of it. Don't call it for purely educational or hypothetical discussion (e.g. "
+            "\"what is a put ratio spread\") where no real strikes were actually chosen. This "
+            "does not place, modify, or preview any real order — it only stages a position in "
+            "the app's own analysis tool, and the user still has to click Apply.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "legs": {
+                        "type": "array",
+                        "description": "One or more legs forming the recommended position, same "
+                        "underlying and expiration unless the strategy genuinely spans more than one.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "symbol": {
+                                    "type": "string",
+                                    "description": 'Underlying ticker, e.g. "AAPL" or "/ES" for a futures root.',
+                                },
+                                "side": {"type": "string", "enum": ["BUY", "SELL"]},
+                                "optionType": {"type": "string", "enum": ["CALL", "PUT"]},
+                                "strike": {"type": "number"},
+                                "quantity": {
+                                    "type": "integer",
+                                    "description": "Number of contracts, always positive — side conveys direction.",
+                                    "minimum": 1,
+                                },
+                                "premium": {
+                                    "type": "number",
+                                    "description": "Estimated entry price per contract (e.g. the chain's mid price).",
+                                },
+                                "dte": {
+                                    "type": "integer",
+                                    "description": "Days to expiration, matching the chosen expiration.",
+                                },
+                                "expirationDate": {
+                                    "type": "string",
+                                    "description": "Expiration date as YYYY-MM-DD.",
+                                },
+                            },
+                            "required": ["symbol", "side", "optionType", "strike", "quantity", "premium", "dte", "expirationDate"],
+                        },
+                    },
+                },
+                "required": ["legs"],
             },
         },
     },

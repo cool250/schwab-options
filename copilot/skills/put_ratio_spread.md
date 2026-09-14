@@ -30,50 +30,51 @@ needs to be sized and margined accordingly. Above the long strike, if
 entered as a net debit, the whole premium paid is at risk if the stock
 just runs up and neither put ever goes ITM.
 
-The mechanics above describe the general strategy, which can land as a net
-debit if the long strike isn't sufficiently offset by the extra short
-premium — but per the net-credit hard constraint, that's not an acceptable
-recommendation here. If a candidate long/short combination prices as a net
-debit, adjust it — move the long strike further OTM, move the short
-strike, or widen the ratio — until it's net credit.
+**Expiration: use the one already selected on StrikeLab, don't pick your
+own.** If the current-page context includes `selectedExpirationDte` (the
+expiration pill the user already has open on StrikeLab), search that
+expiration — don't call `get_expirations` and choose a different one, and
+don't ask the user which expiration they want, since it's already right in
+front of them. Only fall back to asking or picking one yourself when no
+page context is present.
 
-**Strike/ratio selection:** the ratio (2:1 is standard; wider ratios like
-3:1 increase the credit/leverage and the downside risk proportionally),
-and how far below the long strike the short strikes sit, both trade off how
-much of the long put's cost gets offset against how much naked short
-exposure is being taken on below that level.
+**Strike selection — the rule, not just a preference: long leg at ATM,
+short leg(s) at ≤0.30 delta, and the combination must price as a net
+credit.** This is a firmer version of the general tradeoff (a
+closer-to-ATM long strike protects better but costs more; a lower-delta
+short strike has better odds of expiring worthless but collects less) —
+resolved as a fixed starting point rather than something to balance case by
+case:
+- **Long strike: ATM.** The long put is the only thing capping the
+  position's risk above the naked short strikes, and that protection is
+  strongest when it has real delta from the very first dollar the stock
+  drops, not just once it's fallen most of the way toward the strike. ATM
+  also maximizes the strike width to the short leg, which is what sets the
+  size of the max-profit zone.
+- **Short strike(s): ≤0.30 delta.** Same reasoning as a CSP — a lower delta
+  trades some credit for a meaningfully higher chance of the short leg(s)
+  simply expiring worthless, which matters here more than on a plain CSP
+  since the downside past that strike is uncapped, not bounded at zero.
+- **Ratio: default to 1:2 (1 long, 2 short) — only use a different ratio if
+  the user specifically asks for one.** Don't widen to 3:1, 4:1, etc. on
+  your own initiative to fix a net debit or to reach for more credit; that's
+  a real change to the position's risk (more uncovered short exposure below
+  the short strike) and needs to be the user's call, not a silent
+  adjustment. If ATM-long + ≤0.30-delta-short doesn't clear a net credit at
+  1:2, say so plainly — note that a wider ratio would bring in more premium
+  and ask whether they want to see that version, rather than just widening
+  it and presenting the result as *the* recommendation. Likewise, don't
+  narrow the long strike off ATM to force a credit at 1:2 — per the net-
+  credit hard constraint, if neither the ratio nor the long strike is free
+  to move, state clearly that no credit version exists at 1:2 for this
+  underlying/expiration.
 
-**Within the net-credit constraint above, favor a long strike closer to
-ATM rather than pushing it OTM too — but the credit requirement wins if the
-two conflict.** The long put is the only thing capping the position's risk
-above the naked short strikes, and that protection is strongest when it
-actually has meaningful delta from the start:
-- **Long strike near ATM:** more expensive up front (higher premium than a
-  further-OTM long put), but it starts gaining value as soon as the stock
-  dips at all, rather than needing a large move first to have any delta —
-  meaningfully better protection against a fast, sharp drop right after
-  entry, and it widens the strike-width between long and short, which
-  widens the max-profit zone too. Only usable up to the point where the
-  short premium still fully offsets it, per the constraint above.
-- **Long strike pushed OTM:** cheaper, so it's what keeps the trade net
-  credit when a closer-to-ATM long strike wouldn't be fully offset — but a
-  deep-OTM long put has little delta near entry, so it isn't doing much
-  protective work until the stock has already fallen most of the way
-  toward it, which narrows the strike width (and thus the profit zone) and
-  leaves more of the trade's real protection resting on the short
-  strike/support-level placement above rather than the long leg itself.
-So the actual rule is: pick the closest-to-ATM long strike that still
-keeps the trade net credit at the chosen ratio and short strike — not the
-closest-to-ATM strike outright, and not the cheapest outright either.
-
-**Use support levels — and delta — to place the short strike; this matters
-more here than on a plain CSP.** The short strike is both where max profit
-is realized *and* where the uncapped downside begins, so its placement does
-double duty. Favor **0.30 delta or lower** on the short strike when the
-priority is a higher probability of it simply expiring worthless rather
-than maximizing the credit collected, same reasoning as a CSP — and pull
-`get_price_history` for the underlying to check the support levels it
-returns (recent swing lows) before picking it:
+**Use support levels alongside delta to place the short strike; this
+matters more here than on a plain CSP.** The short strike is both where max
+profit is realized *and* where the uncapped downside begins, so its
+placement does double duty. Pull `get_price_history` for the underlying to
+check the support levels it returns (recent swing lows) before finalizing
+which ≤0.30-delta strike to use:
 - **Short strike at/near a support level, at ≤0.30 delta:** the ideal
   combination — the max-profit outcome coincides with both a level the
   stock has actually held before and a lower statistical assignment

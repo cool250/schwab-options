@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sendCopilotMessage, friendlyErrorMessage } from "../api/client";
 import { copilotContext } from "../utils/copilotContext";
+import { applyProposedLegs } from "../utils/copilotProposedLegs";
 
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 1200;
@@ -24,6 +26,7 @@ function CopilotIcon() {
 // page reload, matching the "in-memory only" chat-history decision —
 // nothing is persisted server-side.
 export default function CopilotWidget() {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [fullPage, setFullPage] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -105,7 +108,15 @@ export default function CopilotWidget() {
       // whatever the user is looking at right now, even if they navigated
       // or edited the page since the widget was opened.
       const result = await sendCopilotMessage(nextMessages, copilotContext);
-      setMessages([...nextMessages, { role: "assistant", content: result.reply, toolsUsed: result.tools_used }]);
+      setMessages([
+        ...nextMessages,
+        {
+          role: "assistant",
+          content: result.reply,
+          toolsUsed: result.tools_used,
+          proposedLegs: result.proposed_legs,
+        },
+      ]);
     } catch (err) {
       console.error("Copilot request failed:", err);
       setError(friendlyErrorMessage(err, err.message || "Copilot request failed."));
@@ -118,6 +129,15 @@ export default function CopilotWidget() {
     if (e.key === "Enter" && !e.shiftKey) {
       send(e);
     }
+  };
+
+  // Hands the recommended legs to StrikeLab (see copilotProposedLegs.js)
+  // and navigates there — works whether the user is already on StrikeLab
+  // (the module's event listener picks it up directly) or somewhere else
+  // (StrikeLab consumes the pending value once it mounts).
+  const handleApplyLegs = (legs) => {
+    applyProposedLegs(legs);
+    navigate("/analyze");
   };
 
   return (
@@ -183,6 +203,15 @@ export default function CopilotWidget() {
                         <span key={j} className="copilot-tool-chip">{t}</span>
                       ))}
                     </div>
+                  )}
+                  {m.proposedLegs?.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-primary copilot-apply-legs"
+                      onClick={() => handleApplyLegs(m.proposedLegs)}
+                    >
+                      Apply Trade
+                    </button>
                   )}
                 </div>
               ))
