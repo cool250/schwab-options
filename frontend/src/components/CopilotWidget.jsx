@@ -20,6 +20,15 @@ function CopilotIcon() {
   )
 }
 
+function UserIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" />
+    </svg>
+  )
+}
+
 // Mounted once at the App level (see App.jsx), outside the routed <main> —
 // it never unmounts on navigation, so conversation state just lives in this
 // component's own state for as long as the tab is open. Resets on a full
@@ -211,11 +220,19 @@ export default function CopilotWidget() {
             ) : (
               messages.map((m, i) => (
                 <div key={i} className={`copilot-msg ${m.role}`}>
-                  <div className="copilot-bubble">
-                    {m.role === "assistant" ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                    ) : (
-                      m.content
+                  <div className="copilot-msg-row">
+                    {m.role === "assistant" && (
+                      <span className="copilot-msg-icon" aria-hidden="true"><CopilotIcon /></span>
+                    )}
+                    <div className="copilot-bubble">
+                      {m.role === "assistant" ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                      ) : (
+                        m.content
+                      )}
+                    </div>
+                    {m.role === "user" && (
+                      <span className="copilot-msg-icon" aria-hidden="true"><UserIcon /></span>
                     )}
                   </div>
                   {m.toolsUsed?.length > 0 && (
@@ -239,12 +256,15 @@ export default function CopilotWidget() {
             )}
             {loading && (
               <div className="copilot-msg assistant">
-                <div className="copilot-bubble">
-                  <span className="copilot-typing" title="Thinking…">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
+                <div className="copilot-msg-row">
+                  <span className="copilot-msg-icon" aria-hidden="true"><CopilotIcon /></span>
+                  <div className="copilot-bubble">
+                    <span className="copilot-typing" title="Thinking…">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  </div>
                 </div>
               </div>
             )}

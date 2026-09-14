@@ -179,6 +179,27 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 }
 .copilot-msg.user { align-self: flex-end; align-items: flex-end; }
 .copilot-msg.assistant { align-self: flex-start; align-items: flex-start; max-width: 100%; }
+/* Icon + bubble side by side — order in the JSX already puts the icon
+   before the bubble for assistant and after it for user, so a plain row
+   (no row-reverse) lands it on the outer edge of each side's bubble. */
+.copilot-msg-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+.copilot-msg-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.copilot-msg.assistant .copilot-msg-icon { background: var(--primary); }
+.copilot-msg.user .copilot-msg-icon { background: var(--text-muted); }
 .copilot-bubble {
   padding: 8px 12px;
   border-radius: var(--radius);
@@ -189,6 +210,14 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 .copilot-msg.user .copilot-bubble {
   background: var(--primary);
   color: #fff;
+}
+/* Dark theme only — same green surface as the assistant's bubble (see
+   above), so both sides of the conversation get the same treatment there
+   instead of just the assistant. */
+:root[data-theme="dark"] .copilot-msg.user .copilot-bubble {
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  color: var(--text);
 }
 
 /* ─── Typing indicator (three bouncing dots) ────────────── */
@@ -218,6 +247,15 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   /* Rendered markdown block elements (p, table, ul, ...) handle their own
      spacing — pre-wrap here would double up blank lines between them. */
   white-space: normal;
+}
+/* Dark theme only (see tokens.css's data-theme convention) — a subtle green
+   surface for the assistant's own replies, distinct from the neutral
+   --bg/--border used everywhere else. Reuses the existing --success tokens
+   rather than inventing a new green, and keeps body text on --text (not
+   green) so a full paragraph of markdown stays readable. */
+:root[data-theme="dark"] .copilot-msg.assistant .copilot-bubble {
+  background: var(--success-bg);
+  border-color: var(--success-border);
 }
 
 /* ─── Markdown rendered inside an assistant bubble ──────── */
