@@ -87,7 +87,7 @@ function optionColumns(optionType) {
 const FUTURES_COLUMNS = [
   { key: 'symbol',      label: 'Symbol' },
   { key: 'quantity',    label: 'Quantity',   align: 'right' },
-  { key: 'open_price',  label: 'Open Price', align: 'right' },
+  { key: 'trade_price', label: 'Trade Price', align: 'right' },
 ]
 
 // Same column set, order, and labels as optionColumns() above minus

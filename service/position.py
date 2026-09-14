@@ -151,7 +151,7 @@ class PositionService:
         rendered, same pattern as get_futures_option_position/_quotes.
 
         Returns:
-            list: [{"symbol", "quantity", "open_price"}, ...]
+            list: [{"symbol", "quantity", "trade_price"}, ...]
         """
         from service.transactions import TransactionService  # local: avoid import cost when unused
 
@@ -193,7 +193,7 @@ class PositionService:
             futures.append({
                 "symbol": symbol,
                 "quantity": f"{entry['quantity']:,.0f}",
-                "open_price": f"${avg_price:,.2f}",
+                "trade_price": f"${avg_price:,.2f}",
             })
         return futures
 
