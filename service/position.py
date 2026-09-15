@@ -2,41 +2,23 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 import logging
 
-from broker.schwab import Client
 from broker.schwab.exceptions import BrokerAuthError, BrokerError
-from broker.schwab.data.account_data import SecuritiesAccount
+from service.account_data_providers import PositionProvider, get_position_provider
 
 logger = logging.getLogger(__name__)
 
 
-def parse_option_symbol(symbol):
-    """Parse an OCC equity option symbol into (ticker, strike_price, expiration_date).
-
-    expiration_date is full 4-digit-year ISO ("2026-09-18"), matching the
-    convention used everywhere else in the app (futures options, Transactions'
-    expirationDate) — the OCC symbol itself only carries a 2-digit year.
-    """
-    try:
-        strike_price = float(symbol[13:21]) / 1000
-        ticker = symbol[:6].strip()
-        expiration_date = f"20{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"
-        return ticker, strike_price, expiration_date
-    except ValueError as e:
-        logger.error(f"Error parsing option symbol {symbol}: {e}")
-        return None, None, None
-
-
 class PositionService:
 
-    def __init__(self):
-        self.client = Client()
-        self.position: Optional[SecuritiesAccount] = None
+    def __init__(self, provider: Optional[PositionProvider] = None):
+        self.provider = provider or get_position_provider()
+        self._snapshot: Optional[dict] = None
         self._init_error: Optional[BrokerError] = None
         self._initialize()
 
     def _initialize(self):
         try:
-            self.position = self.client.fetch_positions()
+            self._snapshot = self.provider.get_account_snapshot()
         except BrokerAuthError:
             # Unlike a transient/API-shaped BrokerError, a dead broker session
             # can't be degraded around — every getter below would just return
@@ -46,18 +28,18 @@ class PositionService:
             raise
         except BrokerError as e:
             logger.error("Failed to fetch positions: %s", e)
-            self.position = None
+            self._snapshot = None
             self._init_error = e
 
-    def _require_position(self) -> SecuritiesAccount:
+    def _require_snapshot(self) -> dict:
         """Raise the error that broke initial position fetch instead of
         letting a caller silently treat "not fetched" the same as "genuinely
-        no positions" — a Schwab outage should surface to the user as a
+        no positions" — a broker outage should surface to the user as a
         system error (app.py's BrokerError handler -> 502), not as an empty
         portfolio."""
-        if self.position is None:
+        if self._snapshot is None:
             raise self._init_error or BrokerError("Position data is unavailable.")
-        return self.position
+        return self._snapshot
 
     # --- Top-level aggregator ---
 
@@ -80,17 +62,17 @@ class PositionService:
 
     def get_balances(self) -> dict:
         """Fetch and log the account balances."""
-        securities_account = self._require_position()
-        current = securities_account.currentBalances
+        snapshot = self._require_snapshot()
+        current = snapshot["balances"]
         if current is None:
             logger.warning("Current balances are not available.")
             return {"error": "Current balances are not available."}
 
-        margin = current.marginBalance
-        cash = current.cashBalance
+        margin = current["margin_balance"]
+        cash = current["cash_balance"]
         balances = {
-            "mutualFundValue": current.mutualFundValue,
-            "account": current.liquidationValue,
+            "mutualFundValue": current["mutual_fund_value"],
+            "account": current["liquidation_value"],
             "cash_balance": cash if (margin is None or margin >= 0) else margin,
         }
         logger.debug(f"Account Balances: {balances}")
@@ -98,35 +80,29 @@ class PositionService:
 
     def get_stock_position(self):
         """Fetch and log the account stocks."""
-        securities_account = self._require_position()
+        snapshot = self._require_snapshot()
 
         stocks = []
-
-        if not securities_account.positions:
-            logger.warning("No positions found in the securities account.")
-            return []
-
-        for position in securities_account.positions:
-            if position.instrument and position.instrument.assetType in ("EQUITY", "COLLECTIVE_INVESTMENT"):
-                symbol = position.instrument.symbol
-                if symbol:
-                    is_long = position.longQuantity > 0
-                    quantity = position.longQuantity if is_long else -position.shortQuantity
-                    # Schwab's own tax-lot-aware cost basis and unrealized P&L
-                    # for this position — computed broker-side, so it can
-                    # already reflect things this app's own FIFO reconstruction
-                    # doesn't (wash-sale adjustments, a non-FIFO cost-basis
-                    # method). Shown alongside our own figures for comparison,
-                    # not as a replacement — see averagePrice/trade_price above.
-                    broker_cost_basis = position.taxLotAverageLongPrice if is_long else position.taxLotAverageShortPrice
-                    broker_pl = position.longOpenProfitLoss if is_long else position.shortOpenProfitLoss
-                    stocks.append({
-                        "symbol": symbol,
-                        "quantity": f"{quantity:,.0f}",
-                        "trade_price": f"${position.averagePrice:,.2f}",
-                        "broker_cost_basis": f"${broker_cost_basis:,.2f}" if broker_cost_basis is not None else None,
-                        "broker_pl": broker_pl,
-                    })
+        for position in snapshot["positions"]:
+            if position["asset_type"] not in ("EQUITY", "COLLECTIVE_INVESTMENT"):
+                continue
+            is_long = position["long_quantity"] > 0
+            quantity = position["long_quantity"] if is_long else -position["short_quantity"]
+            # The broker's own tax-lot-aware cost basis and unrealized P&L
+            # for this position — computed broker-side, so it can already
+            # reflect things this app's own FIFO reconstruction doesn't
+            # (wash-sale adjustments, a non-FIFO cost-basis method). Shown
+            # alongside our own figures for comparison, not as a replacement
+            # — see average_price/trade_price above.
+            broker_cost_basis = position["tax_lot_long_price"] if is_long else position["tax_lot_short_price"]
+            broker_pl = position["long_open_pl"] if is_long else position["short_open_pl"]
+            stocks.append({
+                "symbol": position["symbol"],
+                "quantity": f"{quantity:,.0f}",
+                "trade_price": f"${position['average_price']:,.2f}",
+                "broker_cost_basis": f"${broker_cost_basis:,.2f}" if broker_cost_basis is not None else None,
+                "broker_pl": broker_pl,
+            })
         stocks = self.get_current_price(stocks)
         return stocks
 
@@ -464,50 +440,48 @@ class PositionService:
 
     def get_option_details(self, option_type: str):
         """Extract details for each option position based on the option type."""
-        securities_account = self._require_position()
+        snapshot = self._require_snapshot()
         option_positions_details = []
 
-        if not securities_account.positions:
-            logger.warning("No positions found in the securities account.")
-            return []
+        for position in snapshot["positions"]:
+            if position["asset_type"] != "OPTION" or position["option_type"] != option_type:
+                continue
 
-        for position in securities_account.positions:
-            if position.instrument and position.instrument.assetType == "OPTION":
-                symbol = position.instrument.symbol
-                if symbol and len(symbol) > 15 and symbol[-9] == option_type:
-                    ticker, strike_price, expiration_date = parse_option_symbol(symbol)
-                else:
-                    continue
+            symbol = position["symbol"]
+            ticker = position["underlying_symbol"]
+            strike_price = position["strike_price"]
+            expiration_date = position["expiration_date"]
 
-                if ticker:
-                    if position.longQuantity and position.longQuantity > 0:
-                        quantity = position.longQuantity
-                    elif position.shortQuantity and position.shortQuantity > 0:
-                        quantity = -position.shortQuantity
-                    else:
-                        logger.warning(f"Position {symbol} has no long or short quantity, skipping.")
-                        continue
-                    exposure = PositionService._calculate_exposure(position, strike_price)
-                    if expiration_date:
-                        exp = datetime.strptime(expiration_date, "%Y-%m-%d").date()
-                        days_to_expiry = (exp - date.today()).days
-                    else:
-                        days_to_expiry = None
-                    option_details = {
-                        "ticker": ticker,
-                        "symbol": symbol,
-                        "strike_price": f"${strike_price:,.0f}",
-                        "expiration_date": expiration_date,
-                        "days_to_expiry": days_to_expiry,
-                        "quantity": f"{quantity:,.0f}",
-                        "exposure": exposure,
-                        "trade_price": f"${position.averagePrice:,.2f}",
-                        # Cost basis for now — get_current_price() (called by
-                        # every caller of this method) turns this into
-                        # unrealized P&L once the live quote is known.
-                        "total_value": (position.averagePrice or 0) * -quantity * 100
-                    }
-                    option_positions_details.append(option_details)
+            long_quantity = position["long_quantity"]
+            short_quantity = position["short_quantity"]
+            if long_quantity and long_quantity > 0:
+                quantity = long_quantity
+            elif short_quantity and short_quantity > 0:
+                quantity = -short_quantity
+            else:
+                logger.warning(f"Position {symbol} has no long or short quantity, skipping.")
+                continue
+            exposure = PositionService._calculate_exposure(position, strike_price)
+            if expiration_date:
+                exp = datetime.strptime(expiration_date, "%Y-%m-%d").date()
+                days_to_expiry = (exp - date.today()).days
+            else:
+                days_to_expiry = None
+            option_details = {
+                "ticker": ticker,
+                "symbol": symbol,
+                "strike_price": f"${strike_price:,.0f}",
+                "expiration_date": expiration_date,
+                "days_to_expiry": days_to_expiry,
+                "quantity": f"{quantity:,.0f}",
+                "exposure": exposure,
+                "trade_price": f"${position['average_price']:,.2f}",
+                # Cost basis for now — get_current_price() (called by
+                # every caller of this method) turns this into
+                # unrealized P&L once the live quote is known.
+                "total_value": (position["average_price"] or 0) * -quantity * 100
+            }
+            option_positions_details.append(option_details)
         return option_positions_details
 
     def get_current_price(self, tickers):
@@ -525,12 +499,7 @@ class PositionService:
             return tickers
 
         try:
-            quotes = self.client.get_price(",".join(ticker_list))
-            quote_data = {
-                symbol: asset.quote.mark
-                for symbol, asset in getattr(quotes, "root", {}).items()
-                if asset.quote and asset.quote.mark is not None
-            }
+            quote_data = self.provider.get_quotes(ticker_list)
         except BrokerError as e:
             logger.error("Failed to fetch current prices: %s", e)
             quote_data = {}
@@ -546,13 +515,15 @@ class PositionService:
         return tickers
 
     @classmethod
-    def _calculate_exposure(cls, position, strike_price):
+    def _calculate_exposure(cls, position: dict, strike_price):
         """Calculate exposure for PUT options."""
         exposure = 0
+        short_quantity = position["short_quantity"]
+        long_quantity = position["long_quantity"]
 
-        if position.shortQuantity and position.shortQuantity > 0:
-            exposure += strike_price * position.shortQuantity * 100
-        if position.longQuantity and position.longQuantity > 0:
-            exposure -= strike_price * position.longQuantity * 100
+        if short_quantity and short_quantity > 0:
+            exposure += strike_price * short_quantity * 100
+        if long_quantity and long_quantity > 0:
+            exposure -= strike_price * long_quantity * 100
 
         return exposure

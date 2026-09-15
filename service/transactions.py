@@ -10,8 +10,13 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
 import math
-from broker.schwab import Client
 from broker.schwab.exceptions import BrokerAuthError, BrokerError
+from service.account_data_providers import (
+    CONTRACT_MULTIPLIER,
+    TransactionProvider,
+    get_contract_multiplier,
+    get_transaction_provider,
+)
 from utils.utils import get_date_object, get_date_string
 from pydantic import BaseModel
 
@@ -32,89 +37,36 @@ class OptionTransaction(BaseModel):
     position_effect: Optional[str] = None
     option_type: str
     type: str
-    description: Optional[str] = None
+    # "EXPIRATION" | "ASSIGNMENT" | None — computed once by the provider at
+    # parse time; replaces the old raw Schwab type/description field this
+    # model used to carry (see _identify_trade_type below).
+    close_event: Optional[str] = None
     total_amount: Optional[float] = 0.0
     open_type: Optional[str] = None
 
 class TransactionService:
     """
     Service for retrieving and analyzing transaction history.
-    
+
     This class provides methods to fetch transaction history and process
     option transactions, including matching opening and closing trades.
     """
 
-
-    # Contract multipliers (points per contract) for non-standard underlyings
-    _CONTRACT_MULTIPLIER = {
-        "ES": 50,
-        "NQ": 20,
-    }
+    # Canonical source of truth now lives in service/account_data_providers.py
+    # (shared with SchwabTransactionProvider, which needs it at parse time) —
+    # kept as a class attribute here too since callers reference
+    # TransactionService._CONTRACT_MULTIPLIER / self._CONTRACT_MULTIPLIER
+    # directly (see get_open_futures_options, get_option_quotes below, and
+    # PositionService.get_futures_option_position).
+    _CONTRACT_MULTIPLIER = CONTRACT_MULTIPLIER
 
     @classmethod
     def _get_multiplier(cls, underlying_symbol: str) -> int:
-        return cls._CONTRACT_MULTIPLIER.get(underlying_symbol, 100)
+        return get_contract_multiplier(underlying_symbol)
 
-    # Futures prefix rules: first letter after stripping '/' → root symbol
-    _FUTURES_PREFIX_MAP = {
-        "E": "ES",
-        "Q": "NQ",
-    }
-
-    @staticmethod
-    def _format_option_symbol(underlying_symbol: str, expiration_date: str, option_type: str, strike_price: float) -> str:
-        """Build a standard OCC-style option symbol, e.g. 'SPY   260828P00758000'.
-
-        Schwab returns futures options as broker-specific symbols (e.g.
-        '/QN3N26_P28500:XCME') instead of OCC format, so this reconstructs the
-        familiar '<root><YYMMDD><C/P><strike*1000, 8 digits>' layout from the
-        parsed contract fields.
-        """
-        try:
-            yymmdd = datetime.strptime(expiration_date, "%Y-%m-%d").strftime("%y%m%d")
-        except (ValueError, TypeError):
-            return underlying_symbol
-        cp = "C" if option_type == "CALL" else "P"
-        strike_str = f"{round(strike_price * 1000):08d}"
-        return f"{underlying_symbol:<6}{yymmdd}{cp}{strike_str}"
-
-    @classmethod
-    def _normalize_futures_symbol(cls, symbol: str) -> str:
-        """Return the CME root symbol for a Schwab futures contract symbol.
-
-        Handles two distinct notations that need different parsing:
-        - A futures option's underlying, prefixed with '.' and starting with a
-          single-letter product code that doesn't spell the root itself
-          ('.QN4M26:XCME' → 'NQ', '.E3DM26_P7050:XCME' → 'ES') — looked up via
-          _FUTURES_PREFIX_MAP.
-        - An outright futures contract's own symbol, prefixed with '/', where
-          the root IS spelled out in full before the 1-letter month code +
-          2-digit year ('/ESU26:XCME' → 'ES', '/NQU26:XCME' → 'NQ') — taking
-          just the first letter here would wrongly reduce 'NQU26' to 'N'.
-
-        Non-futures symbols (no leading '.' or '/') are returned unchanged.
-        """
-        if not symbol:
-            return symbol
-
-        if symbol.startswith("/"):
-            base = symbol.split(":")[0][1:]
-            return base[:-3] if len(base) > 3 else base
-
-        if symbol.startswith("."):
-            base = symbol.split(":")[0][1:]
-            first_letter = base[0] if base else ""
-            root = cls._FUTURES_PREFIX_MAP.get(first_letter)
-            if not root:
-                logger.warning("Could not resolve futures root for symbol %r", symbol)
-                return symbol
-            return root
-
-        return symbol
-
-    def __init__(self):
-        """Initialize the TransactionService with broker API clients."""
-        self.client = Client()
+    def __init__(self, provider: Optional[TransactionProvider] = None):
+        """Initialize the TransactionService with an account-data provider."""
+        self.provider = provider or get_transaction_provider()
 
     def get_open_futures_options(self, lookback_days: int = 30) -> List[Dict]:
         """Currently-open futures-option positions (options on /ES, /NQ, etc.),
@@ -135,22 +87,21 @@ class TransactionService:
         start_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
         try:
-            transactions = self.client.fetch_transactions(start_date=start_date, end_date=end_date)
+            parsed = self.provider.fetch_option_legs(start_date, end_date)
         except BrokerAuthError:
             raise
         except BrokerError as e:
             # Unlike a genuinely empty transaction history, a fetch failure
             # shouldn't be reported as "nothing open" — let it propagate so
             # app.py's BrokerError handler turns it into a 502 the frontend
-            # can show as a system error (see PositionService._require_position
+            # can show as a system error (see PositionService._require_snapshot
             # for the equivalent fix on the Positions page).
             logger.error("Failed to fetch transactions: %s", e)
             raise
 
-        if not transactions:
+        if not parsed:
             return []
 
-        parsed = self._populate_options("", "ALL", transactions)
         matched = self._match_trades(parsed)
 
         return [
@@ -171,7 +122,7 @@ class TransactionService:
             list: Raw transaction records from the broker
         """
         try:
-            return self.client.fetch_transactions(start_date=start_date, end_date=end_date)
+            return self.provider.fetch_raw_transactions(start_date, end_date)
         except BrokerAuthError:
             raise
         except BrokerError as e:
@@ -202,11 +153,10 @@ class TransactionService:
                                                      lookback_days=30, 
                                                      lookforward_days=5)
         
-        # Fetch transactions with expanded date range
+        # Fetch every option leg in the expanded window
         try:
-            transactions = self.client.fetch_transactions(
-                start_date=expanded_date_range["start_date"],
-                end_date=expanded_date_range["end_date"],
+            option_transactions = self.provider.fetch_option_legs(
+                expanded_date_range["start_date"], expanded_date_range["end_date"],
             )
         except BrokerAuthError:
             raise
@@ -214,13 +164,21 @@ class TransactionService:
             logger.error("Failed to fetch transactions: %s", e)
             raise
 
-        if not transactions:
+        if not option_transactions:
             return []
 
-        # Extract and process option transactions
-        option_transactions = self._populate_options(stock_ticker, contract_type, transactions)
-        
-        # Filter out assignments close trade for realized gains only 
+        # The provider doesn't filter by ticker/contract type — narrow to
+        # what was actually requested here. Ticker matching is deliberately
+        # case-sensitive (no .upper()), same as this method's existing
+        # convention; underlying_symbol is already the bare futures root
+        # (e.g. "ES", not "/ES") courtesy of the provider's own normalization.
+        if contract_type != "ALL":
+            option_transactions = [t for t in option_transactions if t["option_type"] == contract_type]
+        if stock_ticker:
+            stock_ticker = stock_ticker.lstrip("/")
+            option_transactions = [t for t in option_transactions if t["underlying_symbol"] == stock_ticker]
+
+        # Filter out assignments close trade for realized gains only
         # before matching trades to avoid confusion when a few are rolled over
         filtered_transactions = [
             transaction for transaction in option_transactions
@@ -723,8 +681,8 @@ class TransactionService:
         expanded = self._expand_date_range(start_date, end_date, lookback_days=180, lookforward_days=5)
 
         try:
-            transactions = self.client.fetch_transactions(
-                start_date=expanded["start_date"], end_date=expanded["end_date"]
+            raw_trades = self.provider.fetch_equity_future_legs(
+                expanded["start_date"], expanded["end_date"]
             )
         except BrokerAuthError:
             raise
@@ -732,10 +690,24 @@ class TransactionService:
             logger.error("Failed to fetch transactions: %s", e)
             raise
 
-        if not transactions:
+        if not raw_trades:
             return []
 
-        raw_trades = self._populate_equity_futures(stock_ticker, asset_type, transactions)
+        # The provider doesn't filter by ticker/asset type — narrow to what
+        # was actually requested here. Ticker matching is case-insensitive
+        # (unlike get_option_transactions' — this mirrors _populate_equity_futures'
+        # prior convention), and compares against each leg's *normalized*
+        # futures root so a caller-supplied "ES" matches a raw '/ESU26:XCME'
+        # symbol the same way it always has.
+        if asset_type != "ALL":
+            raw_trades = [t for t in raw_trades if t["asset_type"] == asset_type]
+        if stock_ticker:
+            stock_ticker_norm = stock_ticker.upper().lstrip("/")
+            raw_trades = [
+                t for t in raw_trades
+                if stock_ticker_norm == self.provider.normalize_futures_symbol(t["symbol"])
+            ]
+
         combined = self._combine_equity_lots(raw_trades)
         matched = self._match_equity_open_close(combined)
 
@@ -760,57 +732,10 @@ class TransactionService:
             # FIFO matching above stays keyed on the exact contract symbol (each
             # expiration is a distinct instrument); only the displayed symbol is
             # rolled up to its root here, e.g. '/ESU26:XCME' -> 'ES'.
-            trade["symbol"] = self._normalize_futures_symbol(trade["symbol"])
+            trade["symbol"] = self.provider.normalize_futures_symbol(trade["symbol"])
             results.append(trade)
 
         results.sort(key=lambda r: r.get("close_date") or r["date"])
-        return results
-
-    def _populate_equity_futures(self, stock_ticker: str, asset_type: str, transactions: List[Any]) -> List[Dict]:
-        # See _populate_options for why the leading "/" is stripped: futures
-        # symbols are normalized to their bare root below, but "/NQ" is the
-        # convention used everywhere else in this app (chains, price history).
-        stock_ticker = stock_ticker.upper().lstrip("/")
-        results = []
-        for transaction in transactions:
-            try:
-                transfer_items = getattr(transaction, "transferItems", []) or []
-                trade_date = getattr(transaction, "tradeDate", None)
-                trade_date_str = get_date_string(trade_date) if trade_date else ""
-
-                for item in transfer_items:
-                    instrument = getattr(item, "instrument", None)
-                    if instrument is None:
-                        continue
-
-                    asset = getattr(instrument, "assetType", None)
-                    if asset not in ("EQUITY", "FUTURE"):
-                        continue
-                    if asset_type != "ALL" and asset != asset_type:
-                        continue
-
-                    symbol = getattr(instrument, "symbol", "") or ""
-                    if stock_ticker and stock_ticker != self._normalize_futures_symbol(symbol):
-                        continue
-
-                    amount = float(getattr(item, "amount", 0) or 0)
-                    if amount == 0:
-                        continue
-
-                    results.append({
-                        "date": trade_date_str,
-                        "symbol": symbol,
-                        "asset_type": asset,
-                        "amount": amount,
-                        "price": float(getattr(item, "price", 0) or 0),
-                        # Schwab's own `cost` already nets in the contract multiplier
-                        # (e.g. $50/point for ES) and is credit-positive / debit-negative.
-                        "cost": float(getattr(item, "cost", 0) or 0),
-                    })
-            except Exception as e:
-                logger.error(f"Error processing equity/future transaction: {e}")
-                continue
-
         return results
 
     def _combine_equity_lots(self, trades: List[Dict]) -> List[Dict]:
@@ -974,120 +899,6 @@ class TransactionService:
             "start_date": expanded_start_date,
             "end_date": expanded_end_date
         }
-
-    def _populate_options(self, stock_ticker: str, contract_type: str, transactions: List[Any]) -> List[Dict]:
-        """
-        Extract option transactions from the raw transaction data.
-        
-        Args:
-            stock_ticker (str): The ticker symbol to filter by
-            contract_type (str): Filter by option type - "PUT", "CALL", or "ALL"
-            transactions (list): Raw transaction records
-            
-        Returns:
-            list: Extracted and parsed option transactions
-        """
-        # Futures underlyings are normalized to their bare root below (e.g.
-        # "NQ", never "/NQ") — accept a caller-supplied "/NQ" here too rather
-        # than silently matching nothing, since "/NQ" is the convention every
-        # other tool in this app (chains, price history) actually uses.
-        if stock_ticker:
-            stock_ticker = stock_ticker.lstrip("/")
-
-        parsed_transactions = []
-        # Safely process each transaction
-        for transaction in transactions:
-            try:
-                # Safely extract transaction properties
-                transfer_items = getattr(transaction, "transferItems", [])
-                if transfer_items is None:
-                    continue
-                type_of_transaction = getattr(transaction, "type", "UNKNOWN")
-                description = getattr(transaction, "description", "Trade")
-                trade_date = getattr(transaction, "tradeDate", None)
-                # Process each transfer item (line item) in the transaction
-                for item in transfer_items:
-                    # Skip if not an option instrument
-                    if not hasattr(item, "instrument") or item.instrument is None:
-                        continue
-                        
-                    if getattr(item.instrument, "assetType") != "OPTION":
-                        continue
-                    
-                    # Extract option details
-                    underlying_symbol = self._normalize_futures_symbol(
-                        getattr(item.instrument, "underlyingSymbol")
-                    )
-                    option_type = getattr(item.instrument, "putCall")
-                    
-                    # Filter for selected option type
-                    if contract_type != "ALL" and option_type != contract_type:
-                        continue
-
-                    # Filter for selected stock ticker   
-                    if stock_ticker and stock_ticker != underlying_symbol:
-                        continue
-                    
-                    # Get additional option details
-                    symbol = getattr(item.instrument, "symbol", "") or ""
-                    price = float(getattr(item, "price", 0))
-                    strike_price = getattr(item.instrument, "strikePrice")
-                    amount = float(getattr(item, "amount", 0))
-                    position_effect = getattr(item, "positionEffect", None)
-
-                    # Safely handle date conversion
-                    try:
-                        expiration_date_obj = getattr(item.instrument, "expirationDate", None)
-                        expiration_date = get_date_string(expiration_date_obj) if expiration_date_obj else ""
-
-                        trade_date_str = ""
-                        if trade_date:
-                            trade_date_str = get_date_string(trade_date)
-                    except Exception as e:
-                        logger.error(f"Error processing dates: {e}")
-                        expiration_date = ""
-                        trade_date_str = ""
-
-                    # Futures options come back as broker-specific symbols (e.g.
-                    # '/QN3N26_P28500:XCME') instead of Schwab's usual OCC-style
-                    # equity option symbols — reformat to match. Schwab also
-                    # sometimes omits the symbol entirely (returns null) on
-                    # legitimate legs (seen on TRADE and RECEIVE_AND_DELIVER
-                    # records), so synthesize one from the parsed fields rather
-                    # than dropping the transaction.
-                    if (not symbol or symbol.startswith("/")) and expiration_date:
-                        symbol = self._format_option_symbol(
-                            underlying_symbol, expiration_date, option_type, strike_price
-                        )
-
-                    # Create the option transaction record
-                    open_type = None
-                    if position_effect == "OPENING":
-                        open_type = "BTO" if amount > 0 else "STO"
-
-                    parsed_transactions.append(OptionTransaction(
-                        date=trade_date_str,
-                        close_date=expiration_date,
-                        underlying_symbol=underlying_symbol,
-                        expirationDate=expiration_date,
-                        strike_price=strike_price,
-                        symbol=symbol,
-                        price=price,
-                        amount=amount,
-                        position_effect=position_effect,
-                        option_type=option_type,
-                        type=type_of_transaction,
-                        description=description,
-                        total_amount=price * -amount * self._get_multiplier(underlying_symbol),
-                        open_price=price if position_effect == "OPENING" else 0.0,
-                        close_price=price if position_effect == "CLOSING" else 0.0,
-                        open_type=open_type,
-                    ).model_dump())
-            except Exception as e:
-                logger.error(f"Error processing transaction: {e}")
-                continue
-
-        return parsed_transactions
 
     def _match_trades(self, trades: List[Dict]) -> List[Dict]:
         """
@@ -1260,37 +1071,30 @@ class TransactionService:
         all_trades = matched_trades + unmatched_trades
         all_trades.sort(key=lambda x: x.get("close_date", ""))
         
-        # Remove description field which is no longer needed
+        # Remove fields that are now implicit/internal
         for trade in all_trades:
-            trade.pop("description", None)
-            trade.pop("position_effect", None)  # Remove position_effect as it's now implicit
-        
+            trade.pop("position_effect", None)
+            trade.pop("close_event", None)
+
         return all_trades
 
     def _identify_trade_type(self, close_trade: Dict) -> str:
         """
-        Identify the type of trade (expiration, assignment, or regular close).
-        
+        Identify the type of trade (expiration, assignment, or regular close),
+        from the close_event the provider already computed at parse time (see
+        SchwabTransactionProvider._identify_close_event) — the old raw Schwab
+        RECEIVE_AND_DELIVER-type + English-description sniffing now lives
+        there, broker-specific, instead of here.
+
         Args:
             close_trade (dict): The trade record to analyze
-            
-        Returns:
-            str: The identified trade type - "EXPIRATION", "ASSIGNMENT", or "CLOSED"
-        """
-        # For RECEIVE_AND_DELIVER transaction types, check the description for specific keywords
-        if close_trade.get("type") == "RECEIVE_AND_DELIVER":
-            description = close_trade.get("description", "")
 
-            if "Expiration" in description:
-                return "EXPIRED"
-            elif "Assignment" in description:
-                return "ASSIGNED"
-            else:
-                logger.warning(
-                    "Unrecognized RECEIVE_AND_DELIVER description for %s: %r — treating as CLOSED",
-                    close_trade.get("symbol"), description
-                )
-                return "CLOSED"
-        
-        # If not a special case, it's a normal close
+        Returns:
+            str: The identified trade type - "EXPIRED", "ASSIGNED", or "CLOSED"
+        """
+        close_event = close_trade.get("close_event")
+        if close_event == "EXPIRATION":
+            return "EXPIRED"
+        if close_event == "ASSIGNMENT":
+            return "ASSIGNED"
         return "CLOSED"
