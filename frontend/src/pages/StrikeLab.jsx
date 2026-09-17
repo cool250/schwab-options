@@ -1269,7 +1269,7 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
             return (
               <div
                 key={row.strikePrice}
-                className={`chain-row ${isAtm ? "chain-atm" : ""} ${isSelected ? "chain-row-selected" : ""}`}
+                className={`chain-row ${isAtm ? "chain-atm" : ""}`}
                 onDoubleClick={isSelected ? deselect : undefined}
                 title={isSelected ? "Double-click to remove this strike" : undefined}
               >
@@ -1280,37 +1280,41 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
                     </span>
                   )}
                 </span>
-                <span className="chain-delta">{isNum(row.call?.delta) ? row.call.delta.toFixed(2) : "—"}</span>
-                <span
-                  className={`chain-bid ${isNum(row.call?.bid) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.call?.bid) && onAddLeg("CALL", "SELL", row.strikePrice, midPrice(row.call))}
-                  title={isNum(row.call?.bid) ? "Sell a call at mid" : undefined}
-                >
-                  {isNum(row.call?.bid) ? row.call.bid.toFixed(2) : "—"}
-                </span>
-                <span
-                  className={`chain-ask ${isNum(row.call?.ask) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.call?.ask) && onAddLeg("CALL", "BUY", row.strikePrice, midPrice(row.call))}
-                  title={isNum(row.call?.ask) ? "Buy a call at mid" : undefined}
-                >
-                  {isNum(row.call?.ask) ? row.call.ask.toFixed(2) : "—"}
+                <span className={`chain-side-group ${callLeg ? "chain-side-selected" : ""}`}>
+                  <span className="chain-delta">{isNum(row.call?.delta) ? row.call.delta.toFixed(2) : "—"}</span>
+                  <span
+                    className={`chain-bid ${isNum(row.call?.bid) ? "" : "chain-disabled"}`}
+                    onClick={() => isNum(row.call?.bid) && onAddLeg("CALL", "SELL", row.strikePrice, midPrice(row.call))}
+                    title={isNum(row.call?.bid) ? "Sell a call at mid" : undefined}
+                  >
+                    {isNum(row.call?.bid) ? row.call.bid.toFixed(2) : "—"}
+                  </span>
+                  <span
+                    className={`chain-ask ${isNum(row.call?.ask) ? "" : "chain-disabled"}`}
+                    onClick={() => isNum(row.call?.ask) && onAddLeg("CALL", "BUY", row.strikePrice, midPrice(row.call))}
+                    title={isNum(row.call?.ask) ? "Buy a call at mid" : undefined}
+                  >
+                    {isNum(row.call?.ask) ? row.call.ask.toFixed(2) : "—"}
+                  </span>
                 </span>
                 <span className="chain-strike">{row.strikePrice}</span>
-                <span
-                  className={`chain-bid ${isNum(row.put?.bid) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.put?.bid) && onAddLeg("PUT", "SELL", row.strikePrice, midPrice(row.put))}
-                  title={isNum(row.put?.bid) ? "Sell a put at mid" : undefined}
-                >
-                  {isNum(row.put?.bid) ? row.put.bid.toFixed(2) : "—"}
+                <span className={`chain-side-group ${putLeg ? "chain-side-selected" : ""}`}>
+                  <span
+                    className={`chain-bid ${isNum(row.put?.bid) ? "" : "chain-disabled"}`}
+                    onClick={() => isNum(row.put?.bid) && onAddLeg("PUT", "SELL", row.strikePrice, midPrice(row.put))}
+                    title={isNum(row.put?.bid) ? "Sell a put at mid" : undefined}
+                  >
+                    {isNum(row.put?.bid) ? row.put.bid.toFixed(2) : "—"}
+                  </span>
+                  <span
+                    className={`chain-ask ${isNum(row.put?.ask) ? "" : "chain-disabled"}`}
+                    onClick={() => isNum(row.put?.ask) && onAddLeg("PUT", "BUY", row.strikePrice, midPrice(row.put))}
+                    title={isNum(row.put?.ask) ? "Buy a put at mid" : undefined}
+                  >
+                    {isNum(row.put?.ask) ? row.put.ask.toFixed(2) : "—"}
+                  </span>
+                  <span className="chain-delta">{isNum(row.put?.delta) ? row.put.delta.toFixed(2) : "—"}</span>
                 </span>
-                <span
-                  className={`chain-ask ${isNum(row.put?.ask) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.put?.ask) && onAddLeg("PUT", "BUY", row.strikePrice, midPrice(row.put))}
-                  title={isNum(row.put?.ask) ? "Buy a put at mid" : undefined}
-                >
-                  {isNum(row.put?.ask) ? row.put.ask.toFixed(2) : "—"}
-                </span>
-                <span className="chain-delta">{isNum(row.put?.delta) ? row.put.delta.toFixed(2) : "—"}</span>
                 <span className="chain-leg-col">
                   {putLeg && (
                     <span className={`chain-leg-badge ${putLeg.side === "SELL" ? "tag-sell" : "tag-buy"}`}>

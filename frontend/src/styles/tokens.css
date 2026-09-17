@@ -6,6 +6,11 @@
   --primary-light: #eff6ff;
   --primary-ring:  rgba(37, 99, 235, 0.15);
 
+  /* Claude's brand orange (Crail), used for selection-style highlights that
+     should read as distinct from the primary blue used for actions/links. */
+  --accent:       #d97757;
+  --accent-light: #fdf1ec;
+
   /* Surface */
   --bg:      #f8fafc;
   --card-bg: #ffffff;
@@ -60,6 +65,9 @@
   --primary-hover: #60a5fa;
   --primary-light: rgba(59, 130, 246, 0.15);
   --primary-ring:  rgba(59, 130, 246, 0.25);
+
+  --accent:       #e08a6c;
+  --accent-light: rgba(224, 138, 108, 0.15);
 
   /* True neutral gray (R=G=B, Tailwind's "neutral" scale) rather than a
      blue-gray like "slate" — this used to be #0f172a/#1e293b/#334155/#475569,
