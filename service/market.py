@@ -48,7 +48,7 @@ class MarketService:
         """
         Daily OHLC candles for `symbol` over the last `days` calendar days,
         plus support/resistance levels derived from swing highs/lows in that
-        series. Backed by Schwab regardless of BROKER_PROVIDER (same as
+        series. Backed by Schwab regardless of CHAIN_PROVIDER (same as
         Positions/Transactions) — Tastytrade has no REST daily-bar endpoint,
         only live DXLink ticks, so it can't serve a historical chart. Best
         suited to equities; Schwab's price-history endpoint may not resolve
@@ -98,7 +98,7 @@ class MarketService:
         List every expiration date actually listed for `symbol` within the next
         `days_ahead` days — weekly, monthly, and daily where the underlying
         offers them — rather than guessing at weekly Fridays client-side.
-        Backed by whichever broker BROKER_PROVIDER selects (see
+        Backed by whichever broker CHAIN_PROVIDER selects (see
         service/option_chain_providers.py).
 
         Returns:
@@ -110,7 +110,7 @@ class MarketService:
         """
         Fetch a normalized option chain (calls + puts merged by strike) for
         the expiration closest to `dte` days out. Backed by whichever broker
-        BROKER_PROVIDER selects (see service/option_chain_providers.py).
+        CHAIN_PROVIDER selects (see service/option_chain_providers.py).
 
         Parameters:
             symbol (str): The ticker symbol for the underlying asset.

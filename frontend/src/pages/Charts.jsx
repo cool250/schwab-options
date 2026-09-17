@@ -125,7 +125,7 @@ function Candle({ x, y, width, height, payload }) {
 
 /** Last-30-days daily candlesticks with swing support/resistance levels
  *  (see service/market.py's _swing_levels) drawn as horizontal reference
- *  lines. Backed by Schwab regardless of BROKER_PROVIDER — Tastytrade has
+ *  lines. Backed by Schwab regardless of CHAIN_PROVIDER — Tastytrade has
  *  no REST daily-bar endpoint — so this may come back empty for a futures
  *  root like "/NQ" even when the option chain elsewhere is working fine. */
 function PriceHistoryChart({ history, loading, error, noSymbol }) {

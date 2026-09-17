@@ -12,7 +12,7 @@ service/transactions.py, untouched by this module.
 This is the "switchable" model, not "aggregating": get_position_provider()/
 get_transaction_provider() each return exactly one active provider,
 selected by ACCOUNT_BROKER_PROVIDER — same shape as
-get_option_chain_provider()'s BROKER_PROVIDER, kept as a separate env var
+get_option_chain_provider()'s CHAIN_PROVIDER, kept as a separate env var
 since account data has always defaulted to Schwab unconditionally,
 independent of whichever broker market data is currently using.
 """
@@ -196,7 +196,7 @@ def get_position_provider() -> PositionProvider:
     """Select the account-data provider based on the ACCOUNT_BROKER_PROVIDER
     env var (set in .env). Defaults to Schwab, matching this app's behavior
     before providers existed at all. Deliberately a separate knob from
-    market data's BROKER_PROVIDER (which defaults to tastytrade) — account
+    market data's CHAIN_PROVIDER (which defaults to tastytrade) — account
     data has always been unconditionally Schwab, independent of whichever
     broker is serving option chains."""
     provider = os.environ.get("ACCOUNT_BROKER_PROVIDER", "schwab").strip().lower()

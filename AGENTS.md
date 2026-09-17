@@ -19,7 +19,7 @@ account. In production, FastAPI serves the built React SPA directly from
 |---|---|
 | `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, price history, option chains, positions, transactions. No order-placement code exists here at all. |
 | `broker/tastytrade/` | Tastytrade REST + DXLink WebSocket client — chains, live quotes/greeks via streaming. Has `place_order`/`cancel_order`/`get_orders` methods that exist in the SDK but are **never called anywhere in the app** — see Guardrails below. |
-| `service/` | Business logic: `PositionService`, `TransactionService`, `MarketService`, `option_chain_providers.py` (Schwab vs Tastytrade chain provider, selected by `BROKER_PROVIDER` env var). This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
+| `service/` | Business logic: `PositionService`, `TransactionService`, `MarketService`, `option_chain_providers.py` (Schwab vs Tastytrade chain provider, selected by `CHAIN_PROVIDER` env var). This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
 | `api/` | FastAPI routers: `auth.py`, `market.py`, `market_stream.py` (WebSocket), `position.py`, `transactions.py`, `copilot.py`. Registered in `api/app.py`. |
 | `copilot/` | The read-only financial-copilot agent — see its own section below. |
 | `frontend/src/pages/` | `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Login`. |
@@ -44,10 +44,10 @@ account. In production, FastAPI serves the built React SPA directly from
   bare-root symbols — if you add a new ticker-filtering code path, make sure
   it accepts both forms, or it'll silently return zero results for a
   perfectly valid futures query (this exact bug shipped once already).
-- **`BROKER_PROVIDER`** env var (`"schwab"` or `"tastytrade"`, default
+- **`CHAIN_PROVIDER`** env var (`"schwab"` or `"tastytrade"`, default
   `tastytrade`) selects which broker serves *option chains*. Positions,
   transactions, and price history always go through Schwab regardless —
-  don't assume `BROKER_PROVIDER` gates those too.
+  don't assume `CHAIN_PROVIDER` gates those too.
 
 ## Auth
 
@@ -153,7 +153,7 @@ cd frontend && npm run dev
 ## Key env vars
 
 See the README's env var table for the full deployment list. The ones most
-relevant to day-to-day agent work: `BROKER_PROVIDER`, `SCHWAB_APP_KEY` /
+relevant to day-to-day agent work: `CHAIN_PROVIDER`, `SCHWAB_APP_KEY` /
 `SCHWAB_APP_SECRET` / `SCHWAB_APP_CALLBACK_URL`, `TASTY_CLIENT_ID` /
 `TASTY_CLIENT_SECRET` / `TASTY_REFRESH_TOKEN`, `OPENAI_API_KEY` /
 `OPENAI_MODEL`, `SECRET_KEY`, `ADMIN_USERNAME` / `ADMIN_PASSWORD`.

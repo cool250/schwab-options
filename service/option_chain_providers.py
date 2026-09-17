@@ -291,11 +291,11 @@ def symbol_from_contracts(contracts: list[dict]) -> Optional[str]:
 
 
 def get_option_chain_provider() -> OptionChainProvider:
-    """Select the option-chain provider based on the BROKER_PROVIDER env var
+    """Select the option-chain provider based on the CHAIN_PROVIDER env var
     (set in .env). Defaults to Tastytrade."""
-    provider = os.environ.get("BROKER_PROVIDER", "tastytrade").strip().lower()
+    provider = os.environ.get("CHAIN_PROVIDER", "tastytrade").strip().lower()
     if provider == "tastytrade":
         return TastytradeOptionChainProvider()
     if provider == "schwab":
         return SchwabOptionChainProvider()
-    raise ValueError(f"Unknown BROKER_PROVIDER {provider!r}; expected 'schwab' or 'tastytrade'")
+    raise ValueError(f"Unknown CHAIN_PROVIDER {provider!r}; expected 'schwab' or 'tastytrade'")

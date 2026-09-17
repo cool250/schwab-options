@@ -99,7 +99,7 @@ ADMIN_USERNAME=pick-a-username
 ADMIN_PASSWORD=pick-a-password
 
 # --- Optional ---
-BROKER_PROVIDER=tastytrade     # 'schwab' or 'tastytrade' — which broker serves option chains
+CHAIN_PROVIDER=tastytrade     # 'schwab' or 'tastytrade' — which broker serves option chains
                                 # (positions/transactions/price history always use Schwab regardless)
 OPENAI_API_KEY=sk-...           # only needed for the Copilot chat feature
 OPENAI_MODEL=gpt-4o             # defaults to gpt-4o if unset
@@ -204,7 +204,7 @@ Same variables as the local `.env` above, plus `TOKEN_JSON` (Heroku has no local
 | `USE_DB` | **Effectively yes, on Heroku** | See warning below — without this, the Schwab token doesn't survive a dyno restart. |
 | `REDIS_URL` | If `USE_DB=true` | Redis connection URL (set automatically by the Heroku Redis addon) |
 | `TOKEN_JSON` | If `USE_DB=true` | Full Schwab OAuth token as a single-line JSON string — used **only** to re-seed Redis if the stored token there ever expires/is missing. Has no effect at all when `USE_DB` isn't `true` (see warning below). |
-| `BROKER_PROVIDER` | No | `schwab` or `tastytrade` — which broker serves option chains. Defaults to `tastytrade` |
+| `CHAIN_PROVIDER` | No | `schwab` or `tastytrade` — which broker serves option chains. Defaults to `tastytrade` |
 | `OPENAI_API_KEY` | For the Copilot feature | OpenAI API key powering the read-only financial copilot chat |
 | `OPENAI_MODEL` | No | Model used by the Copilot chat — defaults to `gpt-4o` |
 
