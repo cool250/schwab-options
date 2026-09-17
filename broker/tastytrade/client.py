@@ -265,6 +265,41 @@ class TastytradeClient:
     def get_orders(self, account_number: str, **filters: Any) -> list[dict]:
         return self.get(f"/accounts/{account_number}/orders", params=filters)["data"]["items"]
 
+    def get_transactions(
+        self,
+        account_number: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        **filters: Any,
+    ) -> list[dict]:
+        """List every transaction on `account_number` in [start_date,
+        end_date] (each 'YYYY-MM-DD', optional), transparently paginating
+        through every page — the endpoint caps at 250 items/page and a wide
+        date range can easily exceed that."""
+        params = dict(filters)
+        if start_date:
+            params["start-date"] = start_date
+        if end_date:
+            params["end-date"] = end_date
+
+        items: list[dict] = []
+        page_offset = 0
+        while True:
+            response = self.get(
+                f"/accounts/{account_number}/transactions",
+                params={**params, "page-offset": page_offset},
+            )
+            page_items = response["data"]["items"]
+            items.extend(page_items)
+            if not page_items:
+                break
+            pagination = response.get("pagination") or {}
+            total_pages = pagination.get("total-pages", 1)
+            if page_offset + 1 >= total_pages:
+                break
+            page_offset += 1
+        return items
+
     def place_order(self, account_number: str, order: dict, dry_run: bool = False) -> dict:
         path = f"/accounts/{account_number}/orders"
         if dry_run:

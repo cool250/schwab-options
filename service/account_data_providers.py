@@ -19,14 +19,23 @@ independent of whichever broker market data is currently using.
 
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Optional, Protocol
 
 from broker.schwab import Client
 from broker.schwab.data.account_data import Position, SecuritiesAccount
+from broker.tastytrade import TastytradeClient
 from utils.utils import get_date_string
 
 logger = logging.getLogger(__name__)
+
+
+def _to_float(value) -> Optional[float]:
+    """Tastytrade's JSON responses carry numeric fields as strings (for
+    precision) — Schwab's pydantic models already hand back floats, so only
+    the Tastytrade providers below need this."""
+    return float(value) if value is not None else None
 
 # Contract multipliers (points per contract) for non-standard underlyings —
 # broker-neutral domain data (CME contract specs), not a Schwab-shape
@@ -58,6 +67,34 @@ def parse_option_symbol(symbol: str):
     except ValueError as e:
         logger.error(f"Error parsing option symbol {symbol}: {e}")
         return None, None, None
+
+
+_TASTYTRADE_FUTURE_OPTION_RE = re.compile(r"(\d{6})([PC])([\d.]+)$")
+
+
+def parse_tastytrade_future_option_symbol(symbol: str):
+    """Parse a Tastytrade-native futures-option symbol into
+    (strike_price, expiration_date, option_type) — e.g.
+    "./ESU6 E3DU6 260917P7480" -> (7480.0, "2026-09-17", "PUT").
+
+    Unlike an equity OCC symbol, strike isn't *1000-scaled (confirmed
+    against a live option-chain contract: symbol "...260917P6845" matches
+    that same contract's strike-price "6845.0" exactly) — the only place
+    strike/expiration/type live on a Tastytrade *position* row (as opposed
+    to a chain contract, which has them as separate fields); needed here too
+    since transaction records carry the same bare `symbol` field.
+
+    Returns (None, None, None) if the trailing "<YYMMDD><P|C><strike>"
+    segment isn't found.
+    """
+    match = _TASTYTRADE_FUTURE_OPTION_RE.search(symbol or "")
+    if not match:
+        logger.warning("Could not parse Tastytrade futures-option symbol %r", symbol)
+        return None, None, None
+    date_code, option_code, strike_str = match.groups()
+    expiration_date = f"20{date_code[0:2]}-{date_code[2:4]}-{date_code[4:6]}"
+    option_type = "PUT" if option_code == "P" else "CALL"
+    return float(strike_str), expiration_date, option_type
 
 
 class PositionProvider(Protocol):
@@ -192,6 +229,145 @@ class SchwabPositionProvider:
         }
 
 
+def resolve_tastytrade_account_number(client: TastytradeClient) -> str:
+    """TASTY_ACCOUNT_NUMBER pins a specific account; otherwise the first
+    account on these credentials is used, logging a warning if there's more
+    than one so a multi-account customer notices the ambiguity instead of
+    silently trading against the wrong account.
+
+    Module-level (not just a TastytradePositionProvider method) since
+    service/position.py's futures methods need this too — Tastytrade's
+    positions endpoint is the only source of real futures/futures-option
+    positions (Schwab's doesn't return them at all), so those methods fetch
+    from Tastytrade directly regardless of which broker ACCOUNT_BROKER_PROVIDER
+    currently has equity/option positions pointed at."""
+    env_number = os.environ.get("TASTY_ACCOUNT_NUMBER", "").strip()
+    if env_number:
+        return env_number
+
+    accounts = client.get_accounts()
+    if not accounts:
+        raise ValueError("No Tastytrade accounts found for these credentials")
+    if len(accounts) > 1:
+        logger.warning(
+            "Multiple Tastytrade accounts found (%d); using the first one (%s). "
+            "Set TASTY_ACCOUNT_NUMBER to pin a specific account.",
+            len(accounts), accounts[0]["account"]["account-number"],
+        )
+    return accounts[0]["account"]["account-number"]
+
+
+class TastytradePositionProvider:
+    """Account-data fetching backed by TastytradeClient for balances/positions,
+    but Schwab's Client for get_quotes() — Tastytrade's snapshot REST quote
+    endpoints are unverified/broken (see TastytradeClient.get_quote's
+    docstring), while Schwab's get_price() is already proven here via
+    SchwabPositionProvider.get_quotes(). Both brokers accept the same OCC-style
+    option symbols, so no symbol translation is needed between them."""
+
+    def __init__(
+        self,
+        tasty_client: Optional[TastytradeClient] = None,
+        schwab_client: Optional[Client] = None,
+    ):
+        self.client = tasty_client or TastytradeClient.from_config()
+        self.schwab_client = schwab_client or Client()
+        self._account_number: Optional[str] = None
+
+    def _resolve_account_number(self) -> str:
+        if not self._account_number:
+            self._account_number = resolve_tastytrade_account_number(self.client)
+        return self._account_number
+
+    def get_account_snapshot(self) -> dict:
+        account_number = self._resolve_account_number()
+        balances = self.client.get_balances(account_number)
+        positions = self.client.get_positions(account_number)
+        return {
+            "balances": self._normalize_balances(balances),
+            "positions": self._normalize_positions(positions),
+        }
+
+    def _normalize_balances(self, balances: dict) -> Optional[dict]:
+        if not balances:
+            return None
+        return {
+            "margin_balance": _to_float(balances.get("margin-equity")),
+            "cash_balance": _to_float(balances.get("cash-balance")),
+            # Tastytrade has no mutual-fund concept — always None, matching
+            # the Optional shape the PositionProvider Protocol declares.
+            "mutual_fund_value": None,
+            "liquidation_value": _to_float(balances.get("net-liquidating-value")),
+        }
+
+    def _normalize_positions(self, positions: list[dict]) -> list[dict]:
+        if not positions:
+            return []
+
+        normalized = []
+        for position in positions:
+            instrument_type = position.get("instrument-type")
+            symbol = position.get("symbol")
+
+            if instrument_type == "Equity":
+                if not symbol:
+                    continue
+                normalized.append(self._base_fields("EQUITY", symbol, position))
+            elif instrument_type == "Equity Option":
+                # Same validity check SchwabPositionProvider uses: a
+                # malformed/too-short OCC symbol is silently skipped.
+                if not symbol or len(symbol) <= 15:
+                    continue
+                ticker, strike_price, expiration_date = parse_option_symbol(symbol)
+                if not ticker:
+                    continue
+                fields = self._base_fields("OPTION", symbol, position)
+                fields.update({
+                    "underlying_symbol": ticker,
+                    "strike_price": strike_price,
+                    "expiration_date": expiration_date,
+                    "option_type": symbol[-9],
+                })
+                normalized.append(fields)
+            # Future/Future Option/Cryptocurrency/etc. are out of scope for
+            # this app today — see module docstring; silently excluded.
+        return normalized
+
+    @staticmethod
+    def _base_fields(asset_type: str, symbol: str, position: dict) -> dict:
+        quantity = _to_float(position.get("quantity")) or 0
+        direction = (position.get("quantity-direction") or "").strip().lower()
+        return {
+            "asset_type": asset_type,
+            "symbol": symbol,
+            "long_quantity": quantity if direction == "long" else 0,
+            "short_quantity": quantity if direction == "short" else 0,
+            "average_price": _to_float(position.get("average-open-price")),
+            # Tastytrade's positions endpoint doesn't return per-tax-lot cost
+            # basis or live unrealized P&L the way Schwab's does — callers
+            # already handle these as optional (service/position.py formats
+            # tax-lot price conditionally and passes P&L through as-is).
+            "tax_lot_long_price": None,
+            "tax_lot_short_price": None,
+            "long_open_pl": None,
+            "short_open_pl": None,
+            "underlying_symbol": None,
+            "strike_price": None,
+            "expiration_date": None,
+            "option_type": None,
+        }
+
+    def get_quotes(self, symbols: list[str]) -> dict[str, float]:
+        if not symbols:
+            return {}
+        quotes = self.schwab_client.get_price(",".join(symbols))
+        return {
+            symbol: asset.quote.mark
+            for symbol, asset in getattr(quotes, "root", {}).items()
+            if asset.quote and asset.quote.mark is not None
+        }
+
+
 def get_position_provider() -> PositionProvider:
     """Select the account-data provider based on the ACCOUNT_BROKER_PROVIDER
     env var (set in .env). Defaults to Schwab, matching this app's behavior
@@ -202,7 +378,9 @@ def get_position_provider() -> PositionProvider:
     provider = os.environ.get("ACCOUNT_BROKER_PROVIDER", "schwab").strip().lower()
     if provider == "schwab":
         return SchwabPositionProvider()
-    raise ValueError(f"Unknown ACCOUNT_BROKER_PROVIDER {provider!r}; expected 'schwab'")
+    if provider == "tastytrade":
+        return TastytradePositionProvider()
+    raise ValueError(f"Unknown ACCOUNT_BROKER_PROVIDER {provider!r}; expected 'schwab' or 'tastytrade'")
 
 
 class TransactionProvider(Protocol):
@@ -457,6 +635,166 @@ class SchwabTransactionProvider:
         return results
 
 
+class TastytradeTransactionProvider:
+    """Transaction-history fetching backed by TastytradeClient."""
+
+    # Tastytrade's transaction-sub-type vocabulary for actual position-
+    # changing trades (options, equities, and outright futures alike) —
+    # excludes Dividend/Deposit/Withdrawal/Interest/Balance Adjustment and
+    # the option-only removal sub-types (Assignment/Expiration), handled
+    # separately in fetch_option_legs.
+    _TRADE_SUBTYPES = {"Buy to Open", "Buy to Close", "Sell to Open", "Sell to Close"}
+
+    def __init__(self, client: Optional[TastytradeClient] = None):
+        self.client = client or TastytradeClient.from_config()
+        self._account_number: Optional[str] = None
+        # get_future() is a real HTTP call and the same contract symbol
+        # recurs across many transactions in one fetch window — cache it
+        # per provider instance rather than re-resolving every leg.
+        self._future_root_cache: dict[str, str] = {}
+
+    def _resolve_account_number(self) -> str:
+        if not self._account_number:
+            self._account_number = resolve_tastytrade_account_number(self.client)
+        return self._account_number
+
+    def fetch_raw_transactions(self, start_date: str, end_date: str) -> list:
+        account_number = self._resolve_account_number()
+        return self.client.get_transactions(account_number, start_date=start_date, end_date=end_date)
+
+    def normalize_futures_symbol(self, symbol: str) -> str:
+        """Resolve a Tastytrade futures/futures-option underlying symbol
+        (e.g. '/ESU6') to its bare CME root ('ES') via the instruments API —
+        confirmed live: TastytradeClient.get_future('/ESZ6')['product-code']
+        == 'ES'. Non-futures symbols (no leading '/') pass through
+        unchanged."""
+        if not symbol or not symbol.startswith("/"):
+            return symbol
+        if symbol in self._future_root_cache:
+            return self._future_root_cache[symbol]
+        try:
+            root = self.client.get_future(symbol)["product-code"]
+        except (TastytradeAPIError, KeyError) as e:
+            logger.error("Failed to resolve root symbol for %s: %s", symbol, e)
+            root = symbol.lstrip("/")
+        self._future_root_cache[symbol] = root
+        return root
+
+    def fetch_option_legs(self, start_date: str, end_date: str) -> list[dict]:
+        transactions = self.fetch_raw_transactions(start_date, end_date)
+
+        legs = []
+        for item in transactions:
+            instrument_type = item.get("instrument-type")
+            if instrument_type not in ("Equity Option", "Future Option"):
+                continue
+
+            symbol = item.get("symbol") or ""
+            sub_type = item.get("transaction-sub-type")
+            underlying_symbol = self.normalize_futures_symbol(item.get("underlying-symbol") or "")
+
+            if instrument_type == "Equity Option":
+                _, strike_price, expiration_date = parse_option_symbol(symbol)
+                option_type = None
+                if strike_price is not None:
+                    option_type = "CALL" if symbol[-9] == "C" else "PUT"
+            else:
+                strike_price, expiration_date, option_type = parse_tastytrade_future_option_symbol(symbol)
+            if strike_price is None or not option_type:
+                continue
+
+            close_event = None
+            if sub_type == "Assignment":
+                close_event = "ASSIGNMENT"
+            elif sub_type == "Expiration":
+                close_event = "EXPIRATION"
+
+            if close_event:
+                # Assignment/Expiration "removal" transactions carry no
+                # price/action at all — they always CLOSE whatever was
+                # open, but don't say which direction. That barely matters
+                # downstream: TransactionService._match_open_close derives
+                # the matched leg's final signed amount from the *opening*
+                # leg regardless, falling back to a quantity-mismatch
+                # warning (not a wrong result) when this guess doesn't
+                # match the open side. Assumed direction here: closing a
+                # short — the dominant case for this app's covered-call/
+                # cash-secured-put wheel strategy, where both assignment
+                # and expiration are overwhelmingly what happens to a
+                # position you sold (STO), not one you bought.
+                position_effect = "CLOSING"
+                amount = float(item.get("quantity") or 0)
+                price = 0.0
+                open_type = None
+            elif sub_type in self._TRADE_SUBTYPES:
+                position_effect = "OPENING" if "Open" in sub_type else "CLOSING"
+                quantity = float(item.get("quantity") or 0)
+                amount = quantity if "Buy" in sub_type else -quantity
+                price = float(item.get("price") or 0)
+                open_type = ("BTO" if "Buy" in sub_type else "STO") if position_effect == "OPENING" else None
+            else:
+                continue
+
+            multiplier = get_contract_multiplier(underlying_symbol)
+            legs.append({
+                "date": item.get("transaction-date"),
+                "close_date": expiration_date,
+                "underlying_symbol": underlying_symbol,
+                "expirationDate": expiration_date,
+                "strike_price": strike_price,
+                "symbol": symbol,
+                "price": price,
+                "amount": amount,
+                "position_effect": position_effect,
+                "option_type": option_type,
+                "type": "TRADE",
+                "close_event": close_event,
+                "total_amount": price * -amount * multiplier,
+                "open_price": price if position_effect == "OPENING" else 0.0,
+                "close_price": price if position_effect == "CLOSING" else 0.0,
+                "open_type": open_type,
+            })
+        return legs
+
+    def fetch_equity_future_legs(self, start_date: str, end_date: str) -> list[dict]:
+        transactions = self.fetch_raw_transactions(start_date, end_date)
+
+        results = []
+        for item in transactions:
+            instrument_type = item.get("instrument-type")
+            if instrument_type not in ("Equity", "Future"):
+                continue
+            sub_type = item.get("transaction-sub-type")
+            if sub_type not in self._TRADE_SUBTYPES:
+                # Excludes Dividend and other non-trade Equity money
+                # movements — same as Schwab's `if amount == 0: continue`
+                # served there, just keyed on sub-type instead since
+                # Tastytrade's Dividend entries do carry a nonzero value.
+                continue
+
+            quantity = float(item.get("quantity") or 0)
+            if quantity == 0:
+                continue
+            amount = quantity if "Buy" in sub_type else -quantity
+
+            value = float(item.get("value") or 0)
+            results.append({
+                "date": item.get("transaction-date"),
+                "symbol": item.get("symbol") or "",
+                "asset_type": "EQUITY" if instrument_type == "Equity" else "FUTURE",
+                "amount": amount,
+                "price": float(item.get("price") or 0),
+                # Tastytrade's `value` is already the total dollar value of
+                # the fill including any contract multiplier (confirmed
+                # live: a 2-lot /ES option fill at price 7.4 had value
+                # "740.0" == 2 * 7.4 * 50) — credit-positive/debit-negative
+                # via `value-effect`, matching what Schwab's own `cost`
+                # field already gave us.
+                "cost": value if item.get("value-effect") == "Credit" else -value,
+            })
+        return results
+
+
 def get_transaction_provider() -> TransactionProvider:
     """Select the transaction-history provider based on the
     ACCOUNT_BROKER_PROVIDER env var — same knob get_position_provider()
@@ -464,4 +802,6 @@ def get_transaction_provider() -> TransactionProvider:
     provider = os.environ.get("ACCOUNT_BROKER_PROVIDER", "schwab").strip().lower()
     if provider == "schwab":
         return SchwabTransactionProvider()
-    raise ValueError(f"Unknown ACCOUNT_BROKER_PROVIDER {provider!r}; expected 'schwab'")
+    if provider == "tastytrade":
+        return TastytradeTransactionProvider()
+    raise ValueError(f"Unknown ACCOUNT_BROKER_PROVIDER {provider!r}; expected 'schwab' or 'tastytrade'")
