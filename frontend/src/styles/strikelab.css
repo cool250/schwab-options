@@ -91,7 +91,7 @@
 .chain-subhead span { color: var(--text-inverse); font-size: var(--header-font-size); font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }
 .chain-strike { font-weight: 700; background: var(--primary-light); color: var(--text); }
 .chain-leg-col { display: flex; align-items: center; justify-content: center; }
-.chain-leg-badge { font-size: 0.62rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; line-height: 1.4; white-space: nowrap; }
+.chain-leg-badge { font-size: 0.74rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; line-height: 1.4; white-space: nowrap; }
 .chain-leg-badge.tag-sell { background: var(--error-bg); color: var(--error); }
 .chain-leg-badge.tag-buy { background: var(--success-bg); color: var(--success); }
 .chain-delta { color: var(--text-muted); }
