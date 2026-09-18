@@ -368,6 +368,15 @@ class TastytradePositionProvider:
         }
 
 
+def get_account_broker_provider() -> str:
+    """The raw ACCOUNT_BROKER_PROVIDER env var, normalized ('schwab' by
+    default) — shared by get_position_provider()/get_transaction_provider()
+    below and by service/position.py's futures methods, which branch between
+    a native Tastytrade fetch and the Schwab-transaction-reconstruction
+    fallback based on this same knob."""
+    return os.environ.get("ACCOUNT_BROKER_PROVIDER", "schwab").strip().lower()
+
+
 def get_position_provider() -> PositionProvider:
     """Select the account-data provider based on the ACCOUNT_BROKER_PROVIDER
     env var (set in .env). Defaults to Schwab, matching this app's behavior
@@ -375,7 +384,7 @@ def get_position_provider() -> PositionProvider:
     market data's CHAIN_PROVIDER (which defaults to tastytrade) — account
     data has always been unconditionally Schwab, independent of whichever
     broker is serving option chains."""
-    provider = os.environ.get("ACCOUNT_BROKER_PROVIDER", "schwab").strip().lower()
+    provider = get_account_broker_provider()
     if provider == "schwab":
         return SchwabPositionProvider()
     if provider == "tastytrade":
@@ -799,7 +808,7 @@ def get_transaction_provider() -> TransactionProvider:
     """Select the transaction-history provider based on the
     ACCOUNT_BROKER_PROVIDER env var — same knob get_position_provider()
     reads, since both are "account data" for the same broker account."""
-    provider = os.environ.get("ACCOUNT_BROKER_PROVIDER", "schwab").strip().lower()
+    provider = get_account_broker_provider()
     if provider == "schwab":
         return SchwabTransactionProvider()
     if provider == "tastytrade":
