@@ -38,7 +38,7 @@
 }
 
 /* ─── Section titles ─────────────────────────────────── */
-.section-title { font-size: 0.95rem; font-weight: 700; color: var(--text); letter-spacing: -0.1px; }
+.section-title { font-size: 1rem; font-weight: 700; color: var(--text); letter-spacing: 0.3px; text-transform: uppercase; }
 .summary-line  { font-size: 0.85rem; color: var(--text-muted); }
 .section-header {
   display: flex;

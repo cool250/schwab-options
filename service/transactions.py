@@ -565,7 +565,7 @@ class TransactionService:
         result = {}
         if futures_legs:
             from service.position import PositionService  # local: avoid circular import
-            result.update(PositionService._get_futures_option_quotes(futures_legs))
+            result.update(PositionService._quote_futures_option_legs(futures_legs))
         if equity_legs:
             result.update(cls._get_equity_option_quotes(equity_legs))
         return result

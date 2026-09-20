@@ -2,6 +2,13 @@
 .symbol-exp-row { display: flex; align-items: flex-start; gap: 28px; flex-wrap: wrap; }
 .exp-group { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin-left: auto; min-width: 220px; }
 
+/* Wider than the plain form-group--sm used elsewhere (e.g. Charts' symbol
+   input) — this one also fits the Current price badge on the same row. */
+.symbol-group { max-width: 420px; }
+.symbol-input-row { display: flex; align-items: center; gap: 16px; }
+.symbol-input-row form { flex: 1; min-width: 120px; }
+.symbol-input-row .price-badge { margin-top: 0; white-space: nowrap; }
+
 /* ─── StrikeLab: expiration pills ─────────────────────── */
 .exp-pills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
 .exp-pill {
@@ -27,10 +34,14 @@
 
 /* ─── StrikeLab: strike ruler ──────────────────────────── */
 .strike-ruler { display: flex; flex-direction: column; gap: 2px; }
-/* Top/bottom margin has room for one stacked duplicate per side beyond the
-   base tag position (see StrikeRuler's stackIndexById) — e.g. a short
-   straddle's SELL call + SELL put at the same strike. */
-.ruler-track { position: relative; height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; margin: 76px 8px 86px; }
+/* Top/bottom margin is sized for a single (unstacked) leg tag per side —
+   trimmed from the old height that reserved room for a second stacked
+   duplicate too (see StrikeRuler's stackIndexById), which made the panel
+   taller than the common case needs. Two legs at the exact same
+   strike+side (e.g. a straddle's SELL call + SELL put) will overlap the
+   card content above/below by about a tag's height — a rare case,
+   accepted for a more compact panel. */
+.ruler-track { position: relative; height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; margin: 50px 8px 66px; }
 .ruler-line { position: absolute; inset: 0; border-radius: 3px; background: linear-gradient(90deg, var(--border), var(--border-strong)); }
 .ruler-tick { position: absolute; top: 12px; transform: translateX(-50%); font-size: 0.7rem; color: var(--text-faint); }
 .ruler-spot { position: absolute; top: -24px; transform: translateX(-50%); text-align: center; }

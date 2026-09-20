@@ -705,22 +705,24 @@ export default function StrikeLab() {
       {/* ---------------- Symbol / strategy / expirations / ruler ---------------- */}
       <div className="card">
         <div className="symbol-exp-row">
-          <div className="form-group form-group--sm">
-            <label>Symbol</label>
-            <form onSubmit={submitSymbol}>
-              <input
-                className="input"
-                placeholder="e.g. AAPL"
-                value={symbolInput}
-                onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
-              />
-            </form>
-            {symbol && (
-              <span className="price-badge ok">
-                Current price: ${spot.toFixed(2)}
-                {loadingChain && <span className="spinner spinner-sm" title="Syncing chain…" />}
-              </span>
-            )}
+          <div className="form-group symbol-group">
+             <h3 className="section-title">Symbol</h3>
+            <div className="symbol-input-row">
+              <form onSubmit={submitSymbol}>
+                <input
+                  className="input"
+                  placeholder="e.g. AAPL"
+                  value={symbolInput}
+                  onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
+                />
+              </form>
+              {symbol && (
+                <span className="price-badge ok">
+                  Price: ${spot.toFixed(2)}
+                  {loadingChain && <span className="spinner spinner-sm" title="Syncing chain…" />}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="exp-group">
@@ -752,7 +754,7 @@ export default function StrikeLab() {
       {/* ---------------- Legs editor ---------------- */}
       <div className="card">
         <div className="section-header" style={{ justifyContent: "space-between" }}>
-          <h3 className="section-title">Strikes</h3>
+          <h3 className="section-title">Strike</h3>
           <button className="btn btn-secondary" onClick={addLeg}>
             + Add Leg
           </button>
@@ -1087,7 +1089,6 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
 
   return (
     <div className="strike-ruler">
-      <span className="metric-label">Strikes</span>
       <div className="ruler-track" ref={trackRef}>
         <div className="ruler-line" />
         {ticks.map((t, i) => (

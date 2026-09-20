@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -6,6 +7,15 @@ from broker.schwab import Client as SchwabClient
 from service.option_chain_providers import get_option_chain_provider
 
 logger = logging.getLogger(__name__)
+
+# Schwab's /pricehistory endpoint intermittently comes back with
+# {"empty": true, "candles": []} for a perfectly valid symbol/params —
+# reproduced locally as streaks of up to 3 consecutive empty responses
+# among 8 identical back-to-back calls — so a single empty result is
+# treated as transient and retried rather than surfaced as "no history
+# for this symbol".
+_PRICE_HISTORY_RETRIES = 3
+_PRICE_HISTORY_RETRY_DELAY = 0.5
 
 
 def _swing_levels(
@@ -57,14 +67,23 @@ class MarketService:
         Returns None if no history is available (bad symbol, broker error,
         or a market that hasn't printed inside the requested window).
         """
-        try:
-            # 2 months of buffer so filtering down to `days` calendar days
-            # below still has enough trading days even after weekends/holidays.
-            history = self._get_schwab_client().get_price_history(
-                symbol, period_type="month", period=2, frequency_type="daily"
-            )
-        except Exception as e:
-            logger.error("Failed to fetch price history for %s: %s", symbol, e)
+        history = None
+        for attempt in range(_PRICE_HISTORY_RETRIES):
+            try:
+                # 2 months of buffer so filtering down to `days` calendar days
+                # below still has enough trading days even after weekends/holidays.
+                history = self._get_schwab_client().get_price_history(
+                    symbol, period_type="month", period=2, frequency_type="daily"
+                )
+            except Exception as e:
+                logger.error("Failed to fetch price history for %s: %s", symbol, e)
+                return None
+            if history.candles:
+                break
+            if attempt < _PRICE_HISTORY_RETRIES - 1:
+                time.sleep(_PRICE_HISTORY_RETRY_DELAY)
+
+        if not history.candles:
             return None
 
         cutoff = datetime.now() - timedelta(days=days)

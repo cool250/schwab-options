@@ -26,6 +26,7 @@ function optionSymbolCell(row) {
 
 const OPTION_COLUMNS = [
   { key: 'symbol', label: 'Symbol', render: optionSymbolCell },
+  { key: 'strike_price', label: 'Strike', align: 'right' },
   dateColumn('date', 'Opened Date'),
   dateColumn('close_date', 'Closed Date'),
   { key: 'open_type',     label: 'Opened As' },
@@ -234,18 +235,42 @@ export default function Transactions() {
   // unrealized figures for open rows) so it isn't diluted by unrealized P&L.
   const totalAmount = (transactions ?? []).reduce((s, t) => s + (t.type === 'TRADE' ? 0 : (t.total_amount ?? 0)), 0)
 
-  // Live current price isn't a field on the row — it depends on the quote
-  // fetched separately above — so it's added as a render-only column (like
-  // the futures tab's current_price) rather than merged into the row data.
-  function currentPriceColumn() {
+  // Still-open rows' total_amount is null until optionQuotes loads (see
+  // optionRows above) — a render column so it can show "Loading..." instead
+  // of DataTable's default "—" for null, matching the Positions page pattern
+  // (futuresPnLColumn). getCellClass's automatic coloring is skipped for
+  // render columns, so it's reapplied manually here.
+  function totalAmountColumn() {
     return {
-      key: 'current_price',
-      label: 'Current Price',
+      key: 'total_amount',
+      label: 'Total Gain/Loss ($)',
       align: 'right',
       render: (row) => {
+        const val = row.total_amount
+        if (val == null) return row.type === 'TRADE' && optionQuotesLoading ? 'Loading...' : '—'
+        const text = val.toLocaleString('en-US', { maximumFractionDigits: 2 })
+        return <span className={val > 0 ? 'cell-positive' : val < 0 ? 'cell-negative' : ''}>{text}</span>
+      },
+    }
+  }
+
+  // A still-open row has no close_price yet — reuses the same Closing Price
+  // column to show its live current price instead of a separate column, the
+  // same one-column-covers-both approach as totalAmountColumn above. Live
+  // current price isn't a field on the row itself; it depends on the quote
+  // fetched separately (see optionQuotes above).
+  function closePriceColumn() {
+    return {
+      key: 'close_price',
+      label: 'Closing Price',
+      align: 'right',
+      render: (row) => {
+        if (row.type !== 'TRADE') {
+          return row.close_price != null ? row.close_price.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'
+        }
         const price = optionQuotes[row.symbol]
         if (price != null) return `$${price.toFixed(2)}`
-        return optionQuotesLoading ? '…' : '—'
+        return optionQuotesLoading ? 'Loading...' : '—'
       },
     }
   }
@@ -253,11 +278,14 @@ export default function Transactions() {
   // Live pricing is relevant whenever open rows can appear: the
   // unrealized-only view (every row is open), or the unfiltered "show
   // everything" view (open and closed rows mixed). Realized-only never has
-  // open rows. Close Price is only dropped in the pure-unrealized view — in
-  // the mixed view, closed rows still have a real close price to show.
+  // open rows, so its plain close_price/total_amount columns are left as-is.
   const showLivePricing = !realizedOnly
   const optionColumns = showLivePricing
-    ? [...(unrealizedOnly ? OPTION_COLUMNS.filter((c) => c.key !== 'close_price') : OPTION_COLUMNS), currentPriceColumn()]
+    ? OPTION_COLUMNS.map((c) => {
+        if (c.key === 'close_price') return closePriceColumn()
+        if (c.key === 'total_amount') return totalAmountColumn()
+        return c
+      })
     : OPTION_COLUMNS
 
   const totalUnrealizedGain = showLivePricing

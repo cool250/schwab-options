@@ -76,7 +76,7 @@ export default function Charts() {
 
       <div className="card">
         <div className="form-group form-group--sm">
-          <label>Symbol</label>
+          <h3 className="section-title">Symbol</h3>
           <form onSubmit={submitSymbol}>
             <input
               className="input"
