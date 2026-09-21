@@ -35,12 +35,33 @@ function patchChainQuote(chain, msg) {
   return anyChanged ? { ...chain, chain: rows } : chain;
 }
 
-function blackScholesApprox(spot, strike, dte, iv, isCall) {
+// Abramowitz-Stegun 7.1.26 — accurate to ~1.5e-7, plenty for pricing here.
+function erf(x) {
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x);
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const t = 1 / (1 + p * x);
+  const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return sign * y;
+}
+function normCdf(x) {
+  return 0.5 * (1 + erf(x / Math.SQRT2));
+}
+
+// Real Black-Scholes (no dividend yield, r=0 — same no-rate assumption the
+// old heuristic made, and matches OptionStrat closely enough over a
+// days-to-expiration window that carry cost is negligible either way).
+function blackScholes(spot, strike, dte, iv, isCall) {
   const t = Math.max(dte / 365, 1 / 365);
-  const moneyness = (spot - strike) / (spot * iv * Math.sqrt(t));
   const intrinsic = isCall ? Math.max(0, spot - strike) : Math.max(0, strike - spot);
-  const timeValue = spot * iv * Math.sqrt(t) * 0.4 * Math.exp(-0.5 * moneyness * moneyness);
-  return Math.max(0.01, intrinsic + timeValue);
+  if (iv <= 0) return Math.max(0.01, intrinsic);
+  const sqrtT = Math.sqrt(t);
+  const d1 = (Math.log(spot / strike) + (iv * iv / 2) * t) / (iv * sqrtT);
+  const d2 = d1 - iv * sqrtT;
+  const value = isCall
+    ? spot * normCdf(d1) - strike * normCdf(d2)
+    : strike * normCdf(-d2) - spot * normCdf(-d1);
+  return Math.max(0.01, value);
 }
 
 /* ============================================================================
@@ -88,7 +109,7 @@ function findBreakevens(legs, lo, hi) {
  *  collapses to pure intrinsic value, matching the at-expiration payoff. */
 function legTheoPL(leg, price, dte, iv) {
   if (dte <= 0) return legPL(leg, price);
-  const value = blackScholesApprox(price, leg.strike, dte, iv, leg.type === "CALL");
+  const value = blackScholes(price, leg.strike, dte, iv, leg.type === "CALL");
   const perShare = leg.side === "BUY" ? value - leg.premium : leg.premium - value;
   return perShare * leg.qty * (leg.multiplier ?? MULTIPLIER);
 }
@@ -193,6 +214,14 @@ const fmtMoney = (n) => {
   const abs = Math.abs(n);
   const s = abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${n < 0 ? "-" : ""}$${s}`;
+};
+
+// Paints the filled portion of a range input up to its thumb (native
+// sliders have no cross-browser "progress" concept) — the track itself is
+// transparent in CSS (see .range-slider) so this background shows through.
+const sliderFillStyle = (value, min, max) => {
+  const pct = ((value - min) / (max - min)) * 100;
+  return { background: `linear-gradient(to right, var(--primary) ${pct}%, var(--border) ${pct}%)` };
 };
 
 const formatExpLabel = (dateStr) =>
@@ -849,7 +878,7 @@ export default function StrikeLab() {
                 : "None in range"}
               {breakevens.length > 0 && (
                 <span className="text-muted metric-subtext">
-                  {" "}({(((breakevens[0] - spot) / spot) * 100).toFixed(1)}% from spot)
+                  {" "}({(((breakevens[0] - spot) / spot) * 100).toFixed(1)}%)
                 </span>
               )}
             </span>
@@ -948,8 +977,6 @@ export default function StrikeLab() {
             hi={hi}
             dte={positionDte}
             iv={ivPct / 100}
-            maxProfit={maxProfit}
-            maxLoss={maxLoss}
             chain={chain}
           />
         ) : (
@@ -979,6 +1006,7 @@ export default function StrikeLab() {
               value={rangePct}
               onChange={(e) => setRangePct(+e.target.value)}
               className="range-slider"
+              style={sliderFillStyle(rangePct, 0.5, 15)}
             />
           </div>
           <div className="slider-row">
@@ -991,6 +1019,7 @@ export default function StrikeLab() {
               value={ivPct}
               onChange={(e) => setIvPct(+e.target.value)}
               className="range-slider"
+              style={sliderFillStyle(ivPct, 2, 60)}
             />
           </div>
         </div>
@@ -1133,18 +1162,22 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
 // than set here — that token is already dark in light mode / light in dark
 // mode, which is exactly "black in normal mode, white in dark mode" without
 // hardcoding a theme check in JS.
+// var(--success-rgb)/var(--error-rgb) (tokens.css) instead of hardcoded RGB
+// literals — those were baked to the light-mode hex values, so in dark mode
+// the low-alpha cells blended into a muddy, desaturated tone instead of
+// reading as an actual red/green.
 function cellColor(value, maxProfit, maxLoss) {
   if (value >= 0) {
     const t = maxProfit > 0 ? Math.min(1, value / maxProfit) : 0;
     const alpha = 0.08 + t * 0.55;
-    return { background: `rgba(5, 150, 105, ${alpha})` };
+    return { background: `rgba(var(--success-rgb), ${alpha})` };
   }
   const t = maxLoss < 0 ? Math.min(1, value / maxLoss) : 0;
   const alpha = 0.08 + t * 0.55;
-  return { background: `rgba(220, 38, 38, ${alpha})` };
+  return { background: `rgba(var(--error-rgb), ${alpha})` };
 }
 
-function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss, chain }) {
+function PLTable({ legs, spot, lo, hi, dte, iv, chain }) {
   const chainStrikes = useMemo(() => (chain?.chain ?? []).map((r) => r.strikePrice), [chain]);
   const { dateCols, grid } = useMemo(
     () => buildPLTable(legs, spot, lo, hi, dte, iv, chainStrikes, 16, 8),
@@ -1156,11 +1189,15 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss, chain }) {
     0
   );
 
-  // maxLoss can be -Infinity for a genuinely unbounded strategy — fall back to the
-  // grid's own worst theoretical value so the heatmap coloring stays meaningful.
-  const colorMaxLoss = Number.isFinite(maxLoss)
-    ? maxLoss
-    : grid.reduce((min, row) => Math.min(min, ...row.values), 0);
+  // Color intensity is scaled to the grid's own visible best/worst values,
+  // not the strategy's theoretical maxProfit/maxLoss — e.g. a naked short
+  // put's max loss assumes the stock goes to zero, a number so much bigger
+  // than any realistic loss in a sane strike range that every red cell was
+  // getting crushed to the same near-invisible near-floor alpha, reading as
+  // a muddy brown instead of red. (maxLoss can also be -Infinity for a
+  // genuinely unbounded strategy, which this local scaling sidesteps too.)
+  const colorMaxProfit = grid.reduce((max, row) => Math.max(max, ...row.values), 0);
+  const colorMaxLoss = grid.reduce((min, row) => Math.min(min, ...row.values), 0);
 
   return (
     <>
@@ -1178,7 +1215,7 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss, chain }) {
                 ${row.price.toFixed(0)}
               </div>
               {row.values.map((v, ci) => {
-                const style = cellColor(v, maxProfit, colorMaxLoss);
+                const style = cellColor(v, colorMaxProfit, colorMaxLoss);
                 return (
                   <div
                     key={ci}

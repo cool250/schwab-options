@@ -29,9 +29,11 @@
 
   /* Semantic */
   --success:       #059669;
+  --success-rgb:   5, 150, 105;
   --success-bg:    #f0fdf4;
   --success-border:#bbf7d0;
   --error:         #dc2626;
+  --error-rgb:     220, 38, 38;
   --error-bg:      #fef2f2;
   --error-border:  #fecaca;
   --warning:       #b45309;
@@ -87,9 +89,11 @@
   --header-bg: #404040;
 
   --success:       #34d399;
+  --success-rgb:   52, 211, 153;
   --success-bg:    rgba(52, 211, 153, 0.12);
   --success-border:rgba(52, 211, 153, 0.35);
   --error:         #f87171;
+  --error-rgb:     248, 113, 113;
   --error-bg:      rgba(248, 113, 113, 0.12);
   --error-border:  rgba(248, 113, 113, 0.35);
   --warning:       #fbbf24;

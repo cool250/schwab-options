@@ -138,7 +138,65 @@
 .slider-row + .slider-row { margin-top: 14px; }
 .chain-week-badge { font-size: 0.78rem; font-weight: 700; color: var(--primary); background: var(--primary-light); border: 1px solid var(--primary-ring); border-radius: var(--radius-sm); padding: 4px 10px; white-space: nowrap; }
 .slider-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; width: 160px; flex-shrink: 0; }
-.range-slider { flex: 1; accent-color: var(--primary); }
+
+/* Custom track + thumb (OptionStrat-style: a slim pill track with a filled
+   segment up to the thumb, and a larger round thumb with a visible ring)
+   instead of the browser's plain default. The filled segment itself comes
+   from the element's own `background` (see sliderFillStyle in StrikeLab.jsx)
+   — the track pseudo-elements below stay transparent so that shows through;
+   Firefox's native `::-moz-range-progress` is skipped since the JS gradient
+   already covers it there too. */
+.range-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  outline: none;
+  transition: box-shadow 0.15s;
+}
+.range-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
+}
+.range-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
+}
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid var(--card-bg);
+  box-shadow: 0 0 0 1px var(--border-strong), var(--shadow-xs);
+  cursor: grab;
+  transition: transform 0.1s, box-shadow 0.15s;
+}
+.range-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid var(--card-bg);
+  box-shadow: 0 0 0 1px var(--border-strong), var(--shadow-xs);
+  cursor: grab;
+  transition: transform 0.1s, box-shadow 0.15s;
+}
+.range-slider:hover::-webkit-slider-thumb,
+.range-slider:focus-visible::-webkit-slider-thumb { transform: scale(1.15); }
+.range-slider:hover::-moz-range-thumb,
+.range-slider:focus-visible::-moz-range-thumb { transform: scale(1.15); }
+.range-slider:active::-webkit-slider-thumb { cursor: grabbing; }
+.range-slider:active::-moz-range-thumb { cursor: grabbing; }
+.range-slider:focus-visible { box-shadow: 0 0 0 4px var(--primary-ring); border-radius: 999px; }
 
 /* ─── StrikeLab: Strikes (legs) editor ─────────────────── */
 .legs-table { display: flex; flex-direction: column; gap: 8px; }
