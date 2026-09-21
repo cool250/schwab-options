@@ -677,27 +677,6 @@ export default function StrikeLab() {
 
   const removeLeg = (id) => setLegs((prev) => prev.filter((l) => l.id !== id));
 
-  const addLeg = () => {
-    const nearestStrike = chain
-      ? chain.chain.reduce((a, b) =>
-          Math.abs(b.strikePrice - spot) < Math.abs(a.strikePrice - spot) ? b : a
-        ).strikePrice
-      : Math.round(spot);
-    setLegs((prev) => [
-      ...prev,
-      {
-        id: `l${Date.now()}`,
-        side: "SELL",
-        qty: 1,
-        type: "PUT",
-        strike: nearestStrike,
-        premium: 1.0,
-        dte,
-        multiplier: getMultiplier(symbol),
-      },
-    ]);
-  };
-
   const addLegFromChain = (type, side, strike, premium) => {
     setLegs((prev) => {
       // Idempotent: a bid/ask click for a strike/side already in the position is a
@@ -778,12 +757,7 @@ export default function StrikeLab() {
 
       {/* ---------------- Legs editor ---------------- */}
       <div className="card">
-        <div className="section-header" style={{ justifyContent: "space-between" }}>
-          <h3 className="section-title">Strike</h3>
-          <button className="btn btn-secondary" onClick={addLeg}>
-            + Add Leg
-          </button>
-        </div>
+        <h3 className="section-title">Strike</h3>
         <StrikeRuler
           legs={legs}
           spot={spot}
@@ -796,7 +770,7 @@ export default function StrikeLab() {
         />
         <span className="summary-line">
           {legs.length === 0
-            ? "No legs yet — click + Add Leg, or click a bid/ask in the chain below."
+            ? "No legs yet — click a bid/ask in the chain below to add one."
             : `${legs.length} leg${legs.length !== 1 ? "s" : ""} — click a tag above to edit.`}
         </span>
       </div>
@@ -1011,9 +985,10 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symb
   const [openLegId, setOpenLegId] = useState(null);
   const popoverRef = useRef(null);
 
-  // A freshly added leg (from "+ Add Leg", always appended last) opens its
-  // own popover automatically, since there's no other row-based UI now to
-  // set its strike/premium — the ruler tag + popover is the only editor.
+  // A freshly added leg (from a chain bid/ask click, always appended last)
+  // opens its own popover automatically, confirming what was just added
+  // since there's no other row-based UI — the ruler tag + popover is the
+  // only editor.
   const prevLenRef = useRef(legs.length);
   useEffect(() => {
     if (legs.length > prevLenRef.current) setOpenLegId(legs[legs.length - 1].id);
@@ -1245,7 +1220,7 @@ const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, quo
           </div>
         )}
       <button type="button" className="btn btn-secondary leg-popover-remove" onClick={onRemove}>
-        Remove Leg
+        Remove
       </button>
     </div>
   );
