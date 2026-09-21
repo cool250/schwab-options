@@ -70,7 +70,7 @@
 
 /* ─── StrikeLab: P&L heatmap (Table view) ─────────────── */
 .pl-heatmap { display: grid; gap: 2px; min-width: 560px; }
-.pl-cell { font-size: 0.78rem; text-align: center; padding: 8px 4px; border-radius: 4px; }
+.pl-cell { font-size: 0.78rem; text-align: center; padding: 8px 4px; }
 .pl-corner { color: var(--text-faint); font-size: 0.7rem; }
 .pl-colhead { color: var(--text-muted); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.3px; }
 .pl-strike { color: var(--text); font-weight: 700; background: var(--bg); }
@@ -81,7 +81,7 @@
 /* ─── StrikeLab: option chain ──────────────────────────── */
 .chain-table { display: flex; flex-direction: column; gap: 2px; min-width: 560px; }
 .chain-row { display: grid; grid-template-columns: 56px 1fr 1fr 1fr 100px 1fr 1fr 1fr 56px; gap: 2px; align-items: center; }
-.chain-row > span, .chain-side-group > span { font-size: 0.8rem; text-align: center; padding: 7px 4px; border-radius: 4px; }
+.chain-row > span, .chain-side-group > span { font-size: 0.8rem; text-align: center; padding: 7px 4px; }
 
 /* The head/subhead rows keep the flat 9-column grid above. Data rows collapse
    their delta/bid/ask trio per side into one flex group (below) so a selected
@@ -120,11 +120,9 @@
 .chain-side-selected {
   background: var(--accent-light) !important;
   box-shadow: inset 0 0 0 1.5px var(--accent);
-  border-radius: 4px;
   font-weight: 600;
   cursor: pointer;
 }
-.chain-side-selected > span { border-radius: 0; }
 
 .chain-empty { color: var(--text-muted); font-size: 0.85rem; padding: 24px 0; text-align: center; }
 
