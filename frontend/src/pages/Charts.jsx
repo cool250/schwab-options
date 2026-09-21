@@ -70,10 +70,6 @@ export default function Charts() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h2 className="page-title">Charts</h2>
-      </div>
-
       <div className="card">
         <div className="form-group form-group--sm">
           <h3 className="section-title">Symbol</h3>

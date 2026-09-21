@@ -39,7 +39,6 @@
 
 /* ─── Form helpers ────────────────────────────────────── */
 .form-group--sm  { max-width: 280px; }
-.form-group--end { justify-content: flex-end; }
 
 /* ─── Form action row ─────────────────────────────────── */
 .form-actions {

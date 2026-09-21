@@ -376,8 +376,6 @@ export default function Transactions() {
 
   return (
     <div className="page">
-      <h2 className="page-title">Transactions</h2>
-
       <div className="tab-row">
         <button
           type="button"

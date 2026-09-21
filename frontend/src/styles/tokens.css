@@ -38,13 +38,6 @@
   --error-border:  #fecaca;
   --warning:       #b45309;
   --warning-bg:    #fffbeb;
-  --warning-border:#fde68a;
-
-  /* Spacing */
-  --space-xs: 8px;
-  --space-sm: 16px;
-  --space-md: 24px;
-  --space-lg: 36px;
 
   /* Shape */
   --radius-sm: 6px;
@@ -98,7 +91,6 @@
   --error-border:  rgba(248, 113, 113, 0.35);
   --warning:       #fbbf24;
   --warning-bg:    rgba(251, 191, 36, 0.12);
-  --warning-border:rgba(251, 191, 36, 0.35);
 
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25);

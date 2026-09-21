@@ -725,10 +725,6 @@ export default function StrikeLab() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h2 className="page-title">StrikeLab</h2>
-      </div>
-
       {chainError && <div className="alert error">{chainError}</div>}
 
       {/* ---------------- Symbol / strategy / expirations / ruler ---------------- */}

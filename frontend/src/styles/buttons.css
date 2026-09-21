@@ -1,5 +1,4 @@
 /* ─── Buttons ────────────────────────────────────────── */
-.button-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .btn {
   padding: 9px 20px;
   border-radius: var(--radius-sm);
