@@ -1098,7 +1098,7 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symb
           </div>
         ))}
         <div className="ruler-spot" style={{ left: `${pct(spot)}%` }}>
-          <span className="ruler-spot-label">SPOT</span>
+          <span className="ruler-spot-label">{symbol || "SPOT"}</span>
           <span className="ruler-spot-arrow">▾</span>
         </div>
         {legs.map((leg) => {
