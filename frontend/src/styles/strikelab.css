@@ -197,9 +197,6 @@
 .range-slider:focus-visible { box-shadow: 0 0 0 4px var(--primary-ring); border-radius: 999px; }
 
 /* ─── StrikeLab: Strikes (legs) editor ─────────────────── */
-.legs-table { display: flex; flex-direction: column; gap: 8px; }
-.leg-row { display: grid; grid-template-columns: 84px 64px 96px 1fr 1fr 32px; gap: 8px; align-items: center; }
-.leg-row-head span { font-size: 0.72rem; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; }
 .leg-cell {
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -215,13 +212,84 @@
 .leg-cell:focus-visible { outline: none; border-color: var(--primary); }
 .leg-side-sell { color: var(--error); font-weight: 700; }
 .leg-side-buy { color: var(--success); font-weight: 700; }
-.leg-remove { background: none; border: none; color: var(--text-faint); font-size: 20px; cursor: pointer; line-height: 1; }
-.leg-remove:hover { color: var(--error); }
-.legs-empty { color: var(--text-muted); font-size: 0.85rem; padding: 16px 0; }
+
+/* A leg tag's editable popover — replaces the old always-visible rows table,
+   growing into the space that freed up below the ruler instead. Anchored
+   below the track (clear of both tag-above and tag-below, and of any
+   stacked duplicates — see STACK_STEP_PX in StrikeRuler) rather than above
+   it, since above has only .ruler-track's own margin to work with before
+   running into the Symbol card above. */
+.leg-popover {
+  position: absolute;
+  top: calc(100% + 70px);
+  transform: translateX(-50%);
+  z-index: 3;
+  width: 260px;
+  /* Light mode: the same neutral grey Copilot's assistant bubble uses
+     (--bg/--border) — matches the light color used for copilot's own text.
+     Dark mode below switches to Copilot's green instead (--success-bg/
+     -border there is a dark green rather than grey), same reasoning as
+     Copilot itself using different treatments per theme. Both use the
+     opaque -solid token where one exists, since this floats over the chain
+     table below it and a translucent surface let those rows show through. */
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: default;
+}
+:root[data-theme="dark"] .leg-popover {
+  background: var(--success-bg-solid);
+  border-color: var(--success-border-solid);
+}
+.leg-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.leg-popover-close { background: none; border: none; color: var(--text-faint); font-size: 18px; cursor: pointer; line-height: 1; padding: 0; }
+.leg-popover-close:hover { color: var(--error); }
+.leg-popover-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+}
+.leg-popover-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.leg-popover-premium { grid-column: 1 / -1; }
+.leg-popover-quote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+:root[data-theme="dark"] .leg-popover-quote { border-top-color: var(--success-border); }
+.leg-popover-remove { width: 100%; justify-content: center; }
+/* Keeps the clicked tag visually distinct while its popover is open, same
+   idea as .ruler-tag-dragging. */
+.ruler-tag-open { box-shadow: 0 0 0 2px var(--primary); z-index: 2; }
 
 /* ─── Responsive ─────────────────────────────────────── */
 @media (max-width: 640px) {
-  .leg-row { grid-template-columns: 62px 46px 68px 1fr 1fr 24px; }
   .slider-label { width: 120px; }
   /* Back to stacked — side by side gets too cramped below this width. */
   .slider-row-pair { flex-direction: column; gap: 0; }

@@ -784,67 +784,21 @@ export default function StrikeLab() {
             + Add Leg
           </button>
         </div>
-        <StrikeRuler legs={legs} spot={spot} lo={lo} hi={hi} chain={chain} onUpdateLeg={updateLeg} />
+        <StrikeRuler
+          legs={legs}
+          spot={spot}
+          lo={lo}
+          hi={hi}
+          chain={chain}
+          onUpdateLeg={updateLeg}
+          onRemoveLeg={removeLeg}
+          symbol={symbol}
+        />
         <span className="summary-line">
-          {legs.length} leg{legs.length !== 1 ? "s" : ""}
+          {legs.length === 0
+            ? "No legs yet — click + Add Leg, or click a bid/ask in the chain below."
+            : `${legs.length} leg${legs.length !== 1 ? "s" : ""} — click a tag above to edit.`}
         </span>
-        <div className="legs-table">
-          <div className="leg-row leg-row-head">
-            <span>Side</span>
-            <span>Qty</span>
-            <span>Type</span>
-            <span>Strike</span>
-            <span>Premium</span>
-            <span></span>
-          </div>
-          {legs.map((leg) => (
-            <div className="leg-row" key={leg.id}>
-              <select
-                className={`leg-cell leg-side-${leg.side.toLowerCase()}`}
-                value={leg.side}
-                onChange={(e) => updateLeg(leg.id, { side: e.target.value })}
-              >
-                <option value="BUY">BUY</option>
-                <option value="SELL">SELL</option>
-              </select>
-              <input
-                className="leg-cell"
-                type="number"
-                min="1"
-                value={leg.qty}
-                onChange={(e) => updateLeg(leg.id, { qty: Math.max(1, +e.target.value) })}
-              />
-              <select
-                className="leg-cell"
-                value={leg.type}
-                onChange={(e) => updateLeg(leg.id, { type: e.target.value })}
-              >
-                <option value="CALL">CALL</option>
-                <option value="PUT">PUT</option>
-              </select>
-              <input
-                className="leg-cell"
-                type="number"
-                step="0.5"
-                value={leg.strike}
-                onChange={(e) => updateLeg(leg.id, { strike: +e.target.value })}
-              />
-              <input
-                className="leg-cell"
-                type="number"
-                step="0.01"
-                value={leg.premium}
-                onChange={(e) => updateLeg(leg.id, { premium: Math.max(0, +e.target.value) })}
-              />
-              <button className="leg-remove" onClick={() => removeLeg(leg.id)} title="Remove leg">
-                ×
-              </button>
-            </div>
-          ))}
-          {legs.length === 0 && (
-            <div className="legs-empty">No legs yet — add one to start building a payoff.</div>
-          )}
-        </div>
       </div>
 
       {/* ---------------- Metrics ---------------- */}
@@ -1032,7 +986,7 @@ export default function StrikeLab() {
    SELL=bid convention as clicking a cell directly in the chain table
    (see addLegFromChain/OptionChainTable's onAddLeg calls).
 ============================================================================ */
-function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
+function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symbol }) {
   const width = 100;
   const strikes = legs.map((l) => l.strike);
   const effLo = Math.min(lo, ...strikes);
@@ -1045,6 +999,39 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
 
   const trackRef = useRef(null);
   const [draggingId, setDraggingId] = useState(null);
+  // A plain click (mousedown+mouseup with no snap-worthy movement in between)
+  // opens this leg's popover instead of starting a drag — set by handleMove
+  // below whenever it actually repositions the leg, so handleUp can tell the
+  // two apart.
+  const draggedRef = useRef(false);
+
+  // A leg tag's popover (editable fields + remove, replacing the old always-
+  // visible rows table below the ruler — see leg-popover CSS) — click a tag
+  // to open/close it, click elsewhere to dismiss.
+  const [openLegId, setOpenLegId] = useState(null);
+  const popoverRef = useRef(null);
+
+  // A freshly added leg (from "+ Add Leg", always appended last) opens its
+  // own popover automatically, since there's no other row-based UI now to
+  // set its strike/premium — the ruler tag + popover is the only editor.
+  const prevLenRef = useRef(legs.length);
+  useEffect(() => {
+    if (legs.length > prevLenRef.current) setOpenLegId(legs[legs.length - 1].id);
+    prevLenRef.current = legs.length;
+  }, [legs]);
+
+  useEffect(() => {
+    if (openLegId == null) return;
+    function handleOutside(e) {
+      // A ruler-tag's own mousedown/mouseup already owns opening/closing its
+      // popover (see handleUp below) — this only dismisses on a click that
+      // lands outside both the popover and every tag.
+      if (e.target.closest(".ruler-tag")) return;
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) setOpenLegId(null);
+    }
+    window.addEventListener("mousedown", handleOutside);
+    return () => window.removeEventListener("mousedown", handleOutside);
+  }, [openLegId]);
 
   const availableStrikes = useMemo(
     () => [...new Set((chain?.chain ?? []).map((r) => r.strikePrice))].sort((a, b) => a - b),
@@ -1066,6 +1053,14 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
     return midPrice(sideData);
   }
 
+  // Live bid/ask/delta for a leg's current strike, shown read-only in its
+  // popover — same chain lookup premiumForStrike uses, just without
+  // collapsing bid/ask down to one mid price.
+  function quoteForLeg(leg) {
+    const row = (chain?.chain ?? []).find((r) => r.strikePrice === leg.strike);
+    return leg.type === "PUT" ? row?.put : row?.call;
+  }
+
   useEffect(() => {
     if (draggingId == null || !onUpdateLeg) return;
 
@@ -1078,10 +1073,14 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
       const snapped = nearestStrike(priceFromPct(pctPos));
       const leg = legs.find((l) => l.id === draggingId);
       if (!leg || leg.strike === snapped) return;
+      draggedRef.current = true;
       const newPremium = premiumForStrike(snapped, leg.type);
       onUpdateLeg(draggingId, { strike: snapped, ...(newPremium != null ? { premium: newPremium } : {}) });
     }
     function handleUp() {
+      if (!draggedRef.current) {
+        setOpenLegId((prev) => (prev === draggingId ? null : draggingId));
+      }
       setDraggingId(null);
     }
 
@@ -1112,6 +1111,8 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
   });
   const STACK_STEP_PX = 26;
 
+  const openLeg = legs.find((l) => l.id === openLegId);
+
   return (
     <div className="strike-ruler">
       <div className="ruler-track" ref={trackRef}>
@@ -1131,25 +1132,124 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
           return (
             <div
               key={leg.id}
-              className={`ruler-tag ${leg.side === "SELL" ? "tag-sell tag-below" : "tag-buy tag-above"} tag-${leg.type.toLowerCase()} ${draggingId === leg.id ? "ruler-tag-dragging" : ""}`}
+              className={`ruler-tag ${leg.side === "SELL" ? "tag-sell tag-below" : "tag-buy tag-above"} tag-${leg.type.toLowerCase()} ${draggingId === leg.id ? "ruler-tag-dragging" : ""} ${openLegId === leg.id ? "ruler-tag-open" : ""}`}
               style={{
                 left: `${pct(leg.strike)}%`,
                 top: leg.side === "SELL" ? `calc(34px + ${stackOffset}px)` : `calc(-44px - ${stackOffset}px)`,
-                cursor: onUpdateLeg ? "ew-resize" : undefined,
+                cursor: onUpdateLeg ? "ew-resize" : "pointer",
               }}
-              onMouseDown={onUpdateLeg ? (e) => { e.preventDefault(); setDraggingId(leg.id); } : undefined}
-              onTouchStart={onUpdateLeg ? () => setDraggingId(leg.id) : undefined}
-              title={onUpdateLeg ? "Drag to change strike" : undefined}
+              onMouseDown={onUpdateLeg ? (e) => { e.preventDefault(); draggedRef.current = false; setDraggingId(leg.id); } : undefined}
+              onTouchStart={onUpdateLeg ? () => { draggedRef.current = false; setDraggingId(leg.id); } : undefined}
+              title={onUpdateLeg ? "Click to edit, drag to change strike" : undefined}
             >
               {leg.strike}
               {leg.type[0]}
             </div>
           );
         })}
+        {openLeg && (
+          <LegPopover
+            ref={popoverRef}
+            leg={openLeg}
+            left={Math.min(88, Math.max(12, pct(openLeg.strike)))}
+            symbol={symbol}
+            quote={quoteForLeg(openLeg)}
+            onUpdate={(patch) => onUpdateLeg(openLeg.id, patch)}
+            onRemove={() => {
+              onRemoveLeg(openLeg.id);
+              setOpenLegId(null);
+            }}
+            onClose={() => setOpenLegId(null)}
+          />
+        )}
       </div>
     </div>
   );
 }
+
+// Editable leg details, positioned above the ruler over its tag's strike —
+// replaces the old always-visible rows table (see StrikeRuler) so building a
+// multi-leg strategy doesn't need a full table's worth of vertical space for
+// legs that aren't being edited right now.
+const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, quote, onUpdate, onRemove, onClose }, ref) {
+  return (
+    <div className="leg-popover" style={{ left: `${left}%` }} ref={ref}>
+      <div className="leg-popover-header">
+        <span>
+          {symbol} {leg.strike}
+          {leg.type[0]} · {leg.dte}d to exp
+        </span>
+        <button type="button" className="leg-popover-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+      <div className="leg-popover-grid">
+        <label>
+          Side
+          <select
+            className={`leg-cell leg-side-${leg.side.toLowerCase()}`}
+            value={leg.side}
+            onChange={(e) => onUpdate({ side: e.target.value })}
+          >
+            <option value="BUY">BUY</option>
+            <option value="SELL">SELL</option>
+          </select>
+        </label>
+        <label>
+          Qty
+          <input
+            className="leg-cell"
+            type="number"
+            min="1"
+            value={leg.qty}
+            onChange={(e) => onUpdate({ qty: Math.max(1, +e.target.value) })}
+          />
+        </label>
+        <label>
+          Type
+          <select className="leg-cell" value={leg.type} onChange={(e) => onUpdate({ type: e.target.value })}>
+            <option value="CALL">CALL</option>
+            <option value="PUT">PUT</option>
+          </select>
+        </label>
+        <label>
+          Strike
+          <input
+            className="leg-cell"
+            type="number"
+            step="0.5"
+            value={leg.strike}
+            onChange={(e) => onUpdate({ strike: +e.target.value })}
+          />
+        </label>
+        <label className="leg-popover-premium">
+          Premium
+          <input
+            className="leg-cell"
+            type="number"
+            step="0.01"
+            value={leg.premium}
+            onChange={(e) => onUpdate({ premium: Math.max(0, +e.target.value) })}
+          />
+        </label>
+      </div>
+      {quote &&
+        (isNum(quote.bid) || isNum(quote.ask) || isNum(quote.delta) || isNum(quote.iv) || isNum(quote.volume) || isNum(quote.openInterest)) && (
+          <div className="leg-popover-quote">
+            {isNum(quote.bid) && <span>Bid ${quote.bid.toFixed(2)}</span>}
+            {isNum(quote.ask) && <span>Ask ${quote.ask.toFixed(2)}</span>}
+            {isNum(quote.delta) && <span>Δ {quote.delta.toFixed(2)}</span>}
+            {isNum(quote.iv) && <span>IV {(quote.iv * 100).toFixed(1)}%</span>}
+            {isNum(quote.volume) && <span>Vol {Math.round(quote.volume).toLocaleString()}</span>}
+            {isNum(quote.openInterest) && <span>OI {Math.round(quote.openInterest).toLocaleString()}</span>}
+          </div>
+        )}
+      <button type="button" className="btn btn-secondary leg-popover-remove" onClick={onRemove}>
+        Remove Leg
+      </button>
+    </div>
+  );
+});
 
 /* ============================================================================
    Table view — strike x date theta-decay heatmap

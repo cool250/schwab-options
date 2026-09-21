@@ -22,9 +22,13 @@ class OptionChainProvider(Protocol):
                 "symbol": str, "spot": float, "dte": int, "expirationDate": str,
                 "iv": float,
                 "chain": [{"strikePrice": float,
-                           "call": {"symbol", "bid", "ask", "delta"} | None,
-                           "put": {"symbol", "bid", "ask", "delta"} | None}, ...],
-            }, or None if unavailable.
+                           "call": {"symbol", "bid", "ask", "delta", "iv",
+                                     "volume", "openInterest"} | None,
+                           "put": {...} | None}, ...],
+            }, or None if unavailable. Per-contract "iv"/"volume"/
+            "openInterest" and the chain-level "iv" above are different
+            things — chain-level is one ATM-derived figure for the whole
+            chain, per-contract is that specific strike's own value.
         """
         ...
 
@@ -82,7 +86,15 @@ class SchwabOptionChainProvider:
             option = options[0] if options else None
             if option is None:
                 return None
-            return {"symbol": option.symbol, "bid": option.bid, "ask": option.ask, "delta": option.delta}
+            return {
+                "symbol": option.symbol,
+                "bid": option.bid,
+                "ask": option.ask,
+                "delta": option.delta,
+                "iv": option.volatility,
+                "volume": option.totalVolume,
+                "openInterest": option.openInterest,
+            }
 
         call_key, call_strikes = pick_expiration(option_chain.callExpDateMap)
         put_key, put_strikes = pick_expiration(option_chain.putExpDateMap)
@@ -187,17 +199,26 @@ class TastytradeOptionChainProvider:
         try:
             snapshot = self.client.get_chain_snapshot(symbol, contracts, known_spot=spot)
             quotes, greeks = snapshot["quotes"], snapshot["greeks"]
+            volume, open_interest = snapshot["volume"], snapshot["open_interest"]
         except TastytradeAPIError as e:
             logger.error("Failed to fetch chain quotes/greeks for %s: %s", symbol, e)
-            quotes, greeks = {}, {}
+            quotes, greeks, volume, open_interest = {}, {}, {}, {}
 
-        return self._normalize_chain(contracts, quotes, greeks, spot)
+        return self._normalize_chain(contracts, quotes, greeks, spot, volume, open_interest)
 
     def _normalize_chain(
-        self, contracts: list[dict], quotes: dict[str, dict], greeks: dict[str, dict], spot: float
+        self,
+        contracts: list[dict],
+        quotes: dict[str, dict],
+        greeks: dict[str, dict],
+        spot: float,
+        volume: Optional[dict[str, float]] = None,
+        open_interest: Optional[dict[str, float]] = None,
     ) -> Optional[dict]:
         """Merge Tastytrade's flat contract list into the same strike-indexed
         shape SchwabOptionChainProvider produces."""
+        volume = volume or {}
+        open_interest = open_interest or {}
 
         def leg(contract: Optional[dict]) -> Optional[dict]:
             if contract is None:
@@ -209,6 +230,9 @@ class TastytradeOptionChainProvider:
                 "bid": quote.get("bid"),
                 "ask": quote.get("ask"),
                 "delta": greeks.get(sym, {}).get("delta"),
+                "iv": greeks.get(sym, {}).get("iv"),
+                "volume": volume.get(sym),
+                "openInterest": open_interest.get(sym),
             }
 
         by_strike: dict[float, dict[str, dict]] = {}

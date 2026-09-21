@@ -134,9 +134,10 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
             # itself.
             result = await asyncio.to_thread(client.get_chain_snapshot, symbol, contracts, known_spot=spot)
             quotes, greeks = result["quotes"], result["greeks"]
+            volume, open_interest = result["volume"], result["open_interest"]
         except TastytradeAPIError as e:
             logger.error("Failed to fetch initial chain quotes/greeks for %s: %s", symbol, e)
-            quotes, greeks = {}, {}
+            quotes, greeks, volume, open_interest = {}, {}, {}, {}
         t_snapshot = time.monotonic()
         logger.info(
             "Chain load for %s: spot=%.0fms contracts(%d)=%.0fms quotes+greeks=%.0fms total=%.0fms",
@@ -148,7 +149,7 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
             (t_snapshot - t0) * 1000,
         )
 
-        snapshot = provider._normalize_chain(contracts, quotes, greeks, spot)
+        snapshot = provider._normalize_chain(contracts, quotes, greeks, spot, volume, open_interest)
         if snapshot is None:
             await websocket.send_json({"type": "error", "message": f"No option chain found for {symbol}"})
             return

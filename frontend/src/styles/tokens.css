@@ -32,6 +32,13 @@
   --success-rgb:   5, 150, 105;
   --success-bg:    #f0fdf4;
   --success-border:#bbf7d0;
+  /* Opaque versions of the two above, for a surface that must never let
+     whatever's behind it (e.g. content it overlaps while floating) show
+     through — light mode's --success-bg/-border are already solid hex, so
+     these just repeat them; dark mode's are translucent rgba(), so these
+     are the solid color that rgba blend works out to over --card-bg. */
+  --success-bg-solid:    #f0fdf4;
+  --success-border-solid:#bbf7d0;
   --error:         #dc2626;
   --error-rgb:     220, 38, 38;
   --error-bg:      #fef2f2;
@@ -85,6 +92,10 @@
   --success-rgb:   52, 211, 153;
   --success-bg:    rgba(52, 211, 153, 0.12);
   --success-border:rgba(52, 211, 153, 0.35);
+  /* Solid equivalents of the two above (rgba(52,211,153,.12/.35) blended
+     over --card-bg #262626) — same color, just opaque. */
+  --success-bg-solid:    #283b34;
+  --success-border-solid:#2b634e;
   --error:         #f87171;
   --error-rgb:     248, 113, 113;
   --error-bg:      rgba(248, 113, 113, 0.12);
