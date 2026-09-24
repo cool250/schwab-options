@@ -1219,7 +1219,7 @@ const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, quo
             {isNum(quote.openInterest) && <span>OI {Math.round(quote.openInterest).toLocaleString()}</span>}
           </div>
         )}
-      <button type="button" className="btn btn-secondary leg-popover-remove" onClick={onRemove}>
+      <button type="button" className="btn btn-primary leg-popover-remove" onClick={onRemove}>
         Remove
       </button>
     </div>
@@ -1346,27 +1346,29 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
           </span>
         </div>
       )}
-      <div className="table-scroll">
+      <div className="table-scroll chain-table-scroll">
         <div className="chain-table">
-          <div className="chain-row chain-head">
-            <span style={{ gridColumn: "1 / 2" }} />
-            <span className="chain-side-label" style={{ gridColumn: "2 / 5" }}>CALLS</span>
-            <span style={{ gridColumn: "5 / 6" }} />
-            <span className="chain-side-label" style={{ gridColumn: "6 / 9" }}>PUTS</span>
-            <span style={{ gridColumn: "9 / 10" }} />
+          <div className="chain-header-sticky">
+            <div className="chain-row chain-head">
+              <span style={{ gridColumn: "1 / 2" }} />
+              <span className="chain-side-label" style={{ gridColumn: "2 / 5" }}>CALLS</span>
+              <span style={{ gridColumn: "5 / 6" }} />
+              <span className="chain-side-label" style={{ gridColumn: "6 / 9" }}>PUTS</span>
+              <span style={{ gridColumn: "9 / 10" }} />
+            </div>
+            <div className="chain-row chain-subhead">
+              <span></span>
+              <span>Delta</span>
+              <span>Bid</span>
+              <span>Ask</span>
+              <span>Strike</span>
+              <span>Bid</span>
+              <span>Ask</span>
+              <span>Delta</span>
+              <span></span>
+            </div>
           </div>
-          <div className="chain-row chain-subhead">
-            <span></span>
-            <span>Delta</span>
-            <span>Bid</span>
-            <span>Ask</span>
-            <span>Strike</span>
-            <span>Bid</span>
-            <span>Ask</span>
-            <span>Delta</span>
-            <span></span>
-          </div>
-          {visible.map((row) => {
+          {visible.map((row, i) => {
             const isAtm = row.strikePrice === atmStrike;
             const callLeg = legs.find((l) => l.strike === row.strikePrice && l.type === "CALL");
             const putLeg = legs.find((l) => l.strike === row.strikePrice && l.type === "PUT");
@@ -1378,7 +1380,7 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
             return (
               <div
                 key={row.strikePrice}
-                className={`chain-row ${isAtm ? "chain-atm" : ""}`}
+                className={`chain-row ${isAtm ? "chain-atm" : ""} ${i % 2 === 1 ? "chain-row-even" : ""}`}
                 onDoubleClick={isSelected ? deselect : undefined}
                 title={isSelected ? "Double-click to remove this strike" : undefined}
               >
