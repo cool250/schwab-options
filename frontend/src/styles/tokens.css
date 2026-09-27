@@ -23,8 +23,10 @@
   --text-faint: #94a3b8;
   --text-inverse: #ffffff;
 
-  /* Dark UI (table/chain headers, card-header banner) */
-  --header-bg: #0f172a;
+  /* Table/chain header row background — same blue as --primary rather than
+     a near-black navy, so every table header reads as an accent band
+     instead of "dark UI". */
+  --header-bg: var(--primary);
   --header-font-size: 0.93rem; /* shared by DataTable's <th> and StrikeLab's chain-table header spans */
 
   /* Semantic */
@@ -84,9 +86,9 @@
   --text-faint: #737373;
   --text-inverse: #ffffff;
 
-  /* Kept as a distinct banner shade from --bg/--card-bg rather than reusing
-     either, so table/chain headers still read as their own band. */
-  --header-bg: #404040;
+  /* Same blue as --primary (see the light-mode block above) rather than a
+     dark neutral, so table headers stay recognizably blue in dark mode too. */
+  --header-bg: var(--primary);
 
   --success:       #34d399;
   --success-rgb:   52, 211, 153;
