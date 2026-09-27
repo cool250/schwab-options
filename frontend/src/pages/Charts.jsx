@@ -46,6 +46,14 @@ const RANGE_CAPTION = {
   MAX: "Full history · monthly candles",
 };
 
+// Shared by both put/call ratio gauges (volume-based and OI-based) — same
+// thresholds a high put/call ratio conventionally reads as (more puts
+// relative to calls = more hedging/bearish positioning).
+const ratioSentiment = (ratio) =>
+  ratio == null ? null : ratio < 0.7 ? "Bullish" : ratio > 1.3 ? "Bearish" : "Neutral";
+const sentimentClassName = (sentiment) =>
+  sentiment === "Bullish" ? "positive" : sentiment === "Bearish" ? "negative" : "";
+
 export default function Charts() {
   // symbolStore is shared with Analyze (StrikeLab, and always has a value,
   // its own default included) — switching symbol here carries over there,
@@ -236,12 +244,18 @@ function OptionsSnapshotBody({ chain }) {
 
   let putVolume = 0;
   let callVolume = 0;
+  let putOI = 0;
+  let callOI = 0;
   for (const row of rows) {
     if (isNum(row.call?.volume)) callVolume += row.call.volume;
     if (isNum(row.put?.volume)) putVolume += row.put.volume;
+    if (isNum(row.call?.openInterest)) callOI += row.call.openInterest;
+    if (isNum(row.put?.openInterest)) putOI += row.put.openInterest;
   }
   const totalVolume = putVolume + callVolume;
+  const totalOI = putOI + callOI;
   const putCallRatio = callVolume > 0 ? putVolume / callVolume : null;
+  const oiPutCallRatio = callOI > 0 ? putOI / callOI : null;
 
   // ATM = the strike closest to spot; average of its call/put IV, same
   // convention SchwabOptionChainProvider._normalize_chain already uses for
@@ -252,9 +266,10 @@ function OptionsSnapshotBody({ chain }) {
   const atmIvValues = [atmRow.call?.iv, atmRow.put?.iv].filter(isNum);
   const atmIv = atmIvValues.length ? atmIvValues.reduce((s, v) => s + v, 0) / atmIvValues.length : null;
 
-  const sentiment =
-    putCallRatio == null ? null : putCallRatio < 0.7 ? "Bullish" : putCallRatio > 1.3 ? "Bearish" : "Neutral";
-  const sentimentClass = sentiment === "Bullish" ? "positive" : sentiment === "Bearish" ? "negative" : "";
+  const sentiment = ratioSentiment(putCallRatio);
+  const sentimentClass = sentimentClassName(sentiment);
+  const oiSentiment = ratioSentiment(oiPutCallRatio);
+  const oiSentimentClass = sentimentClassName(oiSentiment);
 
   return (
     <>
@@ -285,28 +300,61 @@ function OptionsSnapshotBody({ chain }) {
             { to: 1.3, color: "var(--warning)" },
             { to: 2, color: "var(--error)" },
           ]}
-          footer={sentiment && <span className={`chart-tooltip-pl ${sentimentClass}`}>{sentiment}</span>}
+          footer={
+            <>
+              {sentiment && <span className={`chart-tooltip-pl ${sentimentClass}`}>{sentiment}</span>}
+              <GaugeStats
+                items={[
+                  { label: "Call", value: callVolume },
+                  { label: "Put", value: putVolume },
+                  { label: "Total", value: totalVolume },
+                ]}
+              />
+            </>
+          }
+        />
+        <Gauge
+          label="Put/Call OI Ratio"
+          value={oiPutCallRatio}
+          min={0}
+          max={2}
+          format={(v) => v.toFixed(2)}
+          zones={[
+            { to: 0.7, color: "var(--success)" },
+            { to: 1.3, color: "var(--warning)" },
+            { to: 2, color: "var(--error)" },
+          ]}
+          footer={
+            <>
+              {oiSentiment && <span className={`chart-tooltip-pl ${oiSentimentClass}`}>{oiSentiment}</span>}
+              <GaugeStats
+                items={[
+                  { label: "Call", value: callOI },
+                  { label: "Put", value: putOI },
+                  { label: "Total", value: totalOI },
+                ]}
+              />
+            </>
+          }
         />
       </div>
-      <div className="metrics-row">
-        <div className="metric">
-          <span className="metric-label">Call Volume</span>
-          <span className="metric-value">{callVolume.toLocaleString()}</span>
-        </div>
-        <div className="metric">
-          <span className="metric-label">Put Volume</span>
-          <span className="metric-value">{putVolume.toLocaleString()}</span>
-        </div>
-        <div className="metric">
-          <span className="metric-label">Total Volume</span>
-          <span className="metric-value highlight">{totalVolume.toLocaleString()}</span>
-        </div>
-      </div>
-      <p className="chart-caption">
-        Live Tastytrade data for the {formatDateLabel(chain.expirationDate)} expiration only — not aggregated
-        across every expiration.
-      </p>
     </>
+  );
+}
+
+/** Call/Put/Total breakdown shown under a gauge (see Gauge's `footer`) —
+ *  keeps the numbers a ratio gauge is computed from right next to it,
+ *  instead of a separate row shared across every gauge in the card. */
+function GaugeStats({ items }) {
+  return (
+    <div className="gauge-stats">
+      {items.map(({ label, value }) => (
+        <div key={label} className="gauge-stat">
+          <span className="gauge-stat-label">{label}</span>
+          <span className="gauge-stat-value">{value.toLocaleString()}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -349,24 +397,29 @@ function Gauge({ label, value, min, max, format, zones, footer }) {
 
   return (
     <div className="gauge">
-      <svg viewBox="0 0 200 110" width="100%">
-        {bands}
-        {hasValue && (
-          <>
-            <line x1={cx} y1={cy} x2={needleTip.x} y2={needleTip.y} stroke="var(--text)" strokeWidth={2.5} strokeLinecap="round" />
-            <circle cx={cx} cy={cy} r={5} fill="var(--text)" />
-          </>
-        )}
-        <text x={cx - r} y={cy + 16} textAnchor="middle" className="gauge-scale-label">
-          {format(min)}
-        </text>
-        <text x={cx + r} y={cy + 16} textAnchor="middle" className="gauge-scale-label">
-          {format(max)}
-        </text>
-      </svg>
-      <div className="gauge-value">{hasValue ? format(value) : "—"}</div>
-      <div className="gauge-label">{label}</div>
-      {footer}
+      <div className="gauge-dial">
+        {/* Height 130, not 110 — the min/max scale labels sit at y = cy+16
+            (111), which is already past a 110-tall viewBox's own bottom
+            edge, and SVG clips anything past the viewBox by default. */}
+        <svg viewBox="0 0 200 130" width="100%">
+          {bands}
+          {hasValue && (
+            <>
+              <line x1={cx} y1={cy} x2={needleTip.x} y2={needleTip.y} stroke="var(--text)" strokeWidth={2.5} strokeLinecap="round" />
+              <circle cx={cx} cy={cy} r={5} fill="var(--text)" />
+            </>
+          )}
+          <text x={cx - r} y={cy + 16} textAnchor="middle" className="gauge-scale-label">
+            {format(min)}
+          </text>
+          <text x={cx + r} y={cy + 16} textAnchor="middle" className="gauge-scale-label">
+            {format(max)}
+          </text>
+        </svg>
+        <div className="gauge-value">{hasValue ? format(value) : "—"}</div>
+        <div className="gauge-label">{label}</div>
+      </div>
+      {footer && <div className="gauge-side">{footer}</div>}
     </div>
   );
 }
@@ -447,7 +500,16 @@ function PriceHistoryChart({ history, loading, error, noSymbol }) {
               stroke="var(--error)"
               strokeDasharray="4 4"
               strokeWidth={1.5}
-              label={{ value: `R $${lvl.toFixed(2)}`, position: "insideTopRight", fill: "var(--error)", fontSize: 11 }}
+              // Alternate right/left by index — two resistance levels close
+              // enough in price to land on (near-)identical pixel rows would
+              // otherwise both anchor to the same "insideTopRight" corner
+              // and render as illegibly overlapping text.
+              label={{
+                value: `R $${lvl.toFixed(2)}`,
+                position: i % 2 === 0 ? "insideTopRight" : "insideTopLeft",
+                fill: "var(--error)",
+                fontSize: 11,
+              }}
             />
           ))}
           {history.support.map((lvl, i) => (
@@ -457,7 +519,12 @@ function PriceHistoryChart({ history, loading, error, noSymbol }) {
               stroke="var(--success)"
               strokeDasharray="4 4"
               strokeWidth={1.5}
-              label={{ value: `S $${lvl.toFixed(2)}`, position: "insideBottomRight", fill: "var(--success)", fontSize: 11 }}
+              label={{
+                value: `S $${lvl.toFixed(2)}`,
+                position: i % 2 === 0 ? "insideBottomRight" : "insideBottomLeft",
+                fill: "var(--success)",
+                fontSize: 11,
+              }}
             />
           ))}
           <Bar dataKey="range" shape={Candle} isAnimationActive={true} animationDuration={700} />

@@ -31,15 +31,26 @@
 .range-change-badge.negative { background: var(--error-bg); }
 
 /* ─── Gauges (Charts page: options snapshot) ────────────── */
-.gauge-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.gauge { display: flex; flex-direction: column; align-items: center; text-align: center; }
-.gauge svg { display: block; max-width: 220px; }
+.gauge-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+/* Dial on the left, its Call/Put/Total breakdown (`footer`) to the right —
+   centered as a unit when there's no footer (the IV gauge has no
+   call/put breakdown to show), so it doesn't look off-center next to the
+   other two gauges' two-column layout. */
+.gauge { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 14px; }
+.gauge-dial { display: flex; flex-direction: column; align-items: center; text-align: center; flex-shrink: 0; }
+.gauge-dial svg { display: block; max-width: 190px; }
 .gauge-scale-label { font-size: 8px; fill: var(--text-faint); }
 .gauge-value { font-size: 1.4rem; font-weight: 700; color: var(--text); margin-top: -8px; }
 .gauge-label { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+.gauge-side { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 8px; }
+.gauge-stats { display: flex; flex-direction: column; gap: 2px; }
+.gauge-stat { display: flex; align-items: baseline; gap: 10px; font-size: 0.78rem; }
+.gauge-stat-label { color: var(--text-faint); width: 34px; }
+.gauge-stat-value { color: var(--text); font-weight: 600; }
 
 /* ─── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
   .charts-row { grid-template-columns: 1fr; }
   .gauge-row { grid-template-columns: 1fr; }
+  .gauge { justify-content: flex-start; }
 }
