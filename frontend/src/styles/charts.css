@@ -10,7 +10,36 @@
 .chart-tooltip-pl.positive { color: var(--success); }
 .chart-tooltip-pl.negative { color: var(--error); }
 
+/* ─── Timeframe row (Charts page: candlestick range buttons) ── */
+.range-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
+.range-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.range-pill {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.range-pill:hover { border-color: var(--border-strong); }
+.range-pill.active { background: var(--primary); border-color: var(--primary); color: var(--text-inverse); }
+.range-change-badge { padding: 3px 8px; border-radius: var(--radius-sm); }
+.range-change-badge.positive { background: var(--success-bg); }
+.range-change-badge.negative { background: var(--error-bg); }
+
+/* ─── Gauges (Charts page: options snapshot) ────────────── */
+.gauge-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.gauge { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.gauge svg { display: block; max-width: 220px; }
+.gauge-scale-label { font-size: 8px; fill: var(--text-faint); }
+.gauge-value { font-size: 1.4rem; font-weight: 700; color: var(--text); margin-top: -8px; }
+.gauge-label { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+
 /* ─── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
   .charts-row { grid-template-columns: 1fr; }
+  .gauge-row { grid-template-columns: 1fr; }
 }

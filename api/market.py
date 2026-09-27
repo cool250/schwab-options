@@ -29,13 +29,13 @@ def get_option_chain(
     return chain
 
 
-@router.get("/price-history", summary="Daily closes + support/resistance for the last N days")
+@router.get("/price-history", summary="OHLC candles + support/resistance for a Charts-page timeframe button")
 def get_price_history(
     symbol: str,
-    days: int = 30,
+    range: str = "1M",
     service: MarketService = Depends(get_service),
 ):
-    history = service.get_price_history(symbol, days)
+    history = service.get_price_history(symbol, range)
     if history is None:
         return {"message": "No price history found"}
     return history

@@ -104,10 +104,11 @@ class Client:
         period_type: str = "month",
         period: int = 2,
         frequency_type: str = "daily",
+        frequency: int = 1,
     ) -> PriceHistoryResponse:
         """OHLCV price history for *symbol*."""
         return self._market_data.get_price_history(
-            symbol, period_type, period, frequency_type
+            symbol, period_type, period, frequency_type, frequency
         )
 
     def get_chain(

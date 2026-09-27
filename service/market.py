@@ -1,6 +1,5 @@
 import logging
 import time
-from datetime import datetime, timedelta
 from typing import Optional
 
 from broker.schwab import Client as SchwabClient
@@ -16,6 +15,23 @@ logger = logging.getLogger(__name__)
 # for this symbol".
 _PRICE_HISTORY_RETRIES = 3
 _PRICE_HISTORY_RETRY_DELAY = 0.5
+
+# Schwab's own (periodType, period, frequencyType[, frequency]) vocabulary
+# for each Charts-page timeframe button. Chosen so denser ranges don't fetch
+# more candles than a chart can usefully show — 1D/5D use intraday bars
+# (5-min/30-min), everything from 1M up uses daily, and 5Y/MAX step down to
+# weekly/monthly so "20 years" isn't 5,000+ daily candles.
+_RANGE_PARAMS = {
+    "1D":  {"period_type": "day",   "period": 1,  "frequency_type": "minute", "frequency": 5},
+    "5D":  {"period_type": "day",   "period": 5,  "frequency_type": "minute", "frequency": 30},
+    "1M":  {"period_type": "month", "period": 1,  "frequency_type": "daily",  "frequency": 1},
+    "6M":  {"period_type": "month", "period": 6,  "frequency_type": "daily",  "frequency": 1},
+    "YTD": {"period_type": "ytd",   "period": 1,  "frequency_type": "daily",  "frequency": 1},
+    "1Y":  {"period_type": "year",  "period": 1,  "frequency_type": "daily",  "frequency": 1},
+    "5Y":  {"period_type": "year",  "period": 5,  "frequency_type": "weekly", "frequency": 1},
+    "MAX": {"period_type": "year",  "period": 20, "frequency_type": "monthly", "frequency": 1},
+}
+DEFAULT_PRICE_HISTORY_RANGE = "1M"
 
 
 def _swing_levels(
@@ -54,29 +70,35 @@ class MarketService:
             self._schwab_client = SchwabClient()
         return self._schwab_client
 
-    def get_price_history(self, symbol: str, days: int = 30) -> Optional[dict]:
+    def get_price_history(self, symbol: str, range_key: str = DEFAULT_PRICE_HISTORY_RANGE) -> Optional[dict]:
         """
-        Daily OHLC candles for `symbol` over the last `days` calendar days,
-        plus support/resistance levels derived from swing highs/lows in that
-        series. Backed by Schwab regardless of CHAIN_PROVIDER (same as
-        Positions/Transactions) — Tastytrade has no REST daily-bar endpoint,
-        only live DXLink ticks, so it can't serve a historical chart. Best
-        suited to equities; Schwab's price-history endpoint may not resolve
-        a bare futures root like "/NQ" the way it resolves a stock ticker.
+        OHLC candles for `symbol` over one of the Charts page's timeframe
+        buttons (see _RANGE_PARAMS — "1D", "5D", "1M", "6M", "YTD", "1Y",
+        "5Y", "MAX"), plus support/resistance levels derived from swing
+        highs/lows in that series. Backed by Schwab regardless of
+        CHAIN_PROVIDER (same as Positions/Transactions) — Tastytrade has no
+        REST bar endpoint, only live DXLink ticks, so it can't serve a
+        historical chart. Best suited to equities; Schwab's price-history
+        endpoint may not resolve a bare futures root like "/NQ" the way it
+        resolves a stock ticker.
 
-        Returns None if no history is available (bad symbol, broker error,
-        or a market that hasn't printed inside the requested window).
+        Returns None if no history is available (bad symbol/range, broker
+        error, or a market that hasn't printed inside the requested window).
         """
+        params = _RANGE_PARAMS.get(range_key, _RANGE_PARAMS[DEFAULT_PRICE_HISTORY_RANGE])
+
         history = None
         for attempt in range(_PRICE_HISTORY_RETRIES):
             try:
-                # 2 months of buffer so filtering down to `days` calendar days
-                # below still has enough trading days even after weekends/holidays.
                 history = self._get_schwab_client().get_price_history(
-                    symbol, period_type="month", period=2, frequency_type="daily"
+                    symbol,
+                    period_type=params["period_type"],
+                    period=params["period"],
+                    frequency_type=params["frequency_type"],
+                    frequency=params["frequency"],
                 )
             except Exception as e:
-                logger.error("Failed to fetch price history for %s: %s", symbol, e)
+                logger.error("Failed to fetch price history for %s (%s): %s", symbol, range_key, e)
                 return None
             if history.candles:
                 break
@@ -86,21 +108,21 @@ class MarketService:
         if not history.candles:
             return None
 
-        cutoff = datetime.now() - timedelta(days=days)
-        candles = sorted(
-            (c for c in history.candles if c.get_datetime() >= cutoff),
-            key=lambda c: c.datetime,
-        )
-        if not candles:
-            return None
+        candles = sorted(history.candles, key=lambda c: c.datetime)
 
         support, resistance = _swing_levels([c.high for c in candles], [c.low for c in candles])
 
         return {
             "symbol": symbol,
+            "range": range_key,
             "candles": [
                 {
-                    "date": c.get_datetime().strftime("%Y-%m-%d"),
+                    # Full timestamp (not just the date) — 1D/5D are intraday
+                    # bars, and collapsing those down to a bare date would
+                    # give every candle in the same trading day an identical
+                    # x-axis key. The frontend picks how much of this to
+                    # actually display based on the selected range.
+                    "date": c.get_datetime().isoformat(),
                     "open": c.open,
                     "high": c.high,
                     "low": c.low,
