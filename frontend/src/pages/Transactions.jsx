@@ -94,7 +94,7 @@ function DownloadIcon() {
 
 function DownloadCsvButton({ onClick }) {
   return (
-    <button type="button" className="icon-btn" title="Download as CSV" onClick={onClick}>
+    <button type="button" className="btn btn-secondary icon-btn" title="Download as CSV" onClick={onClick}>
       <DownloadIcon />
       <span>CSV</span>
     </button>

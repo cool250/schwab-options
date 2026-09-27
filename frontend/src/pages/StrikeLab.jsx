@@ -248,6 +248,11 @@ function midPrice(sideData) {
   return null;
 }
 
+// iv arrives as a decimal (0.104 for 10.4%); volume/openInterest as whole
+// contract counts — same formatting the leg popover's quote row already uses.
+const fmtIv = (v) => (isNum(v) ? `${(v * 100).toFixed(1)}%` : "—");
+const fmtCount = (v) => (isNum(v) ? Math.round(v).toLocaleString() : "—");
+
 /* ============================================================================
    MAIN PAGE
 ============================================================================ */
@@ -1351,13 +1356,16 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
           <div className="chain-header-sticky">
             <div className="chain-row chain-head">
               <span style={{ gridColumn: "1 / 2" }} />
-              <span className="chain-side-label" style={{ gridColumn: "2 / 5" }}>CALLS</span>
-              <span style={{ gridColumn: "5 / 6" }} />
-              <span className="chain-side-label" style={{ gridColumn: "6 / 9" }}>PUTS</span>
-              <span style={{ gridColumn: "9 / 10" }} />
+              <span className="chain-side-label" style={{ gridColumn: "2 / 8" }}>CALLS</span>
+              <span style={{ gridColumn: "8 / 9" }} />
+              <span className="chain-side-label" style={{ gridColumn: "9 / 15" }}>PUTS</span>
+              <span style={{ gridColumn: "15 / 16" }} />
             </div>
             <div className="chain-row chain-subhead">
               <span></span>
+              <span>OI</span>
+              <span>Vol</span>
+              <span>IV</span>
               <span>Delta</span>
               <span>Bid</span>
               <span>Ask</span>
@@ -1365,6 +1373,9 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
               <span>Bid</span>
               <span>Ask</span>
               <span>Delta</span>
+              <span>IV</span>
+              <span>Vol</span>
+              <span>OI</span>
               <span></span>
             </div>
           </div>
@@ -1392,6 +1403,9 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
                   )}
                 </span>
                 <span className={`chain-side-group ${callLeg ? "chain-side-selected" : ""}`}>
+                  <span className="chain-stat">{fmtCount(row.call?.openInterest)}</span>
+                  <span className="chain-stat">{fmtCount(row.call?.volume)}</span>
+                  <span className="chain-stat">{fmtIv(row.call?.iv)}</span>
                   <span className="chain-delta">{isNum(row.call?.delta) ? row.call.delta.toFixed(2) : "—"}</span>
                   <span
                     className={`chain-bid ${isNum(row.call?.bid) ? "" : "chain-disabled"}`}
@@ -1425,6 +1439,9 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
                     {isNum(row.put?.ask) ? row.put.ask.toFixed(2) : "—"}
                   </span>
                   <span className="chain-delta">{isNum(row.put?.delta) ? row.put.delta.toFixed(2) : "—"}</span>
+                  <span className="chain-stat">{fmtIv(row.put?.iv)}</span>
+                  <span className="chain-stat">{fmtCount(row.put?.volume)}</span>
+                  <span className="chain-stat">{fmtCount(row.put?.openInterest)}</span>
                 </span>
                 <span className="chain-leg-col">
                   {putLeg && (
