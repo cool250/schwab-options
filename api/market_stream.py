@@ -12,6 +12,7 @@ Protocol (JSON messages over the WebSocket):
                      {"action": "unsubscribe"}
   Server -> client: {"type": "snapshot", "chain": {...}}   # same shape as the REST endpoint
                      {"type": "quote", "symbol": "...", "bid": 1.23, "ask": 1.45}
+                     {"type": "underlying_quote", "price": 123.45}
                      {"type": "error", "message": "..."}
 """
 
@@ -63,13 +64,25 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
             await streamer.__aexit__(None, None, None)
             streamer = None
 
-    async def forward_quotes(valid_symbols: set):
+    async def forward_quotes(valid_symbols: set, underlying_symbol: str | None):
         # Runs for the lifetime of one subscription — cancelled by
         # stop_streaming() when the client unsubscribes, resubscribes to
-        # something else, or disconnects.
+        # something else, or disconnects. The underlying's own Quote ticks
+        # share this same subscription/channel (see subscribe() below)
+        # rather than a second one, so its price stays live too instead of
+        # being frozen at whatever get_live_underlying_price() returned at
+        # snapshot time — previously the only spot update the frontend ever
+        # got, all this feed's ongoing ticks were per-*contract* only.
         try:
             async for event in streamer.listen("Quote"):
                 symbol = event.get("eventSymbol")
+                if symbol == underlying_symbol:
+                    bid = _finite_float(event.get("bidPrice"))
+                    ask = _finite_float(event.get("askPrice"))
+                    price = (bid + ask) / 2 if bid is not None and ask is not None else (bid if bid is not None else ask)
+                    if price is not None:
+                        await websocket.send_json({"type": "underlying_quote", "price": price})
+                    continue
                 if symbol not in valid_symbols:
                     continue
                 # dxFeed marks "no value" with the string "NaN" (see
@@ -106,6 +119,16 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
         try:
             spot = await asyncio.to_thread(client.get_live_underlying_price, symbol)
             t_spot = time.monotonic()
+            # Best-effort: used below to keep the underlying's own price
+            # updating live for the rest of this subscription (see
+            # forward_quotes) — a failure here still leaves a perfectly
+            # usable chain, just with spot frozen at the value above, so it
+            # doesn't abort the load the way the chain-fetch failures below do.
+            try:
+                underlying_symbol = await asyncio.to_thread(client.resolve_underlying_streamer_symbol, symbol)
+            except (TastytradeAPIError, ValueError) as e:
+                logger.error("Failed to resolve underlying streamer symbol for %s: %s", symbol, e)
+                underlying_symbol = None
             # Tastytrade's num_strikes keeps the N strikes closest to the
             # underlying total (not per side) — same doubling convention as
             # the REST snapshot path in TastytradeOptionChainProvider.
@@ -159,21 +182,22 @@ async def stream_chain(websocket: WebSocket, token: str = Query(...)):
         # TastytradeOptionChainProvider._normalize_chain), so Quote events can
         # be forwarded to the frontend under that same key with no translation.
         valid_symbols = {c["streamer-symbol"] for c in contracts if c.get("streamer-symbol")}
-        if not valid_symbols:
+        if not valid_symbols and not underlying_symbol:
             return
 
+        subscribe_symbols = list(valid_symbols) + ([underlying_symbol] if underlying_symbol else [])
         try:
             quote_token = await asyncio.to_thread(client.get_quote_token)
             streamer = DXLinkStreamer(quote_token)
             await streamer.__aenter__()
-            await streamer.subscribe("Quote", list(valid_symbols))
+            await streamer.subscribe("Quote", subscribe_symbols)
         except Exception as e:
             logger.error("Failed to open live quote stream for %s: %s", symbol, e)
             await websocket.send_json({"type": "error", "message": "Could not start live quote stream"})
             streamer = None
             return
 
-        listen_task = asyncio.create_task(forward_quotes(valid_symbols))
+        listen_task = asyncio.create_task(forward_quotes(valid_symbols, underlying_symbol))
 
     try:
         while True:

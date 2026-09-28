@@ -490,6 +490,13 @@ export default function StrikeLab() {
           }
         } else if (msg.type === "quote") {
           setChain((prev) => patchChainQuote(prev, msg));
+        } else if (msg.type === "underlying_quote") {
+          // Keeps "Price: $X" live for the rest of this subscription —
+          // previously spot was only ever set once, from the initial
+          // snapshot (see the "snapshot" branch above), so it stayed frozen
+          // at whatever it was when the chain first loaded even as this
+          // same feed kept ticking every option contract's own price.
+          if (isNum(msg.price)) setSpot(msg.price);
         } else if (msg.type === "error") {
           // The chain view falls back to whatever's already rendered (cached
           // or a prior snapshot) rather than clearing to a blank state, but

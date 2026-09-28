@@ -384,32 +384,40 @@ class TastytradeClient:
         product_code = product_code.lstrip("/")
         return self.get("/instruments/futures", params={"product-code[]": product_code})["data"]["items"]
 
+    def resolve_underlying_streamer_symbol(self, ticker: str) -> str:
+        """Resolve `ticker` (equity ticker or futures root, e.g. '/ES') to
+        its real dxFeed streamer symbol — for a futures root, the
+        active-month contract; Tastytrade computes the correct
+        exchange-qualified symbol, so this doesn't guess at the format.
+
+        Split out of get_live_underlying_price() so a caller that wants to
+        keep a *subscription* open on this symbol (e.g. the live chain
+        WebSocket in api/market_stream.py, which already has its own
+        DXLinkStreamer session) doesn't have to duplicate this lookup.
+        """
+        if ticker.strip().startswith("/"):
+            contracts = self.get_futures_by_product_code(ticker)
+            if not contracts:
+                raise ValueError(f"No live futures contracts found for {ticker!r}")
+            front = next((c for c in contracts if c.get("active-month")), contracts[0])
+            return front["streamer-symbol"]
+        return self.get_equity(ticker)["streamer-symbol"]
+
     def get_live_underlying_price(self, ticker: str, timeout: float = 5.0) -> float:
         """Fetch a live price for `ticker` itself (equity ticker or futures
         root, e.g. '/ES') over DXLink — not an option contract.
 
-        Resolves the underlying's real dxFeed streamer symbol via the
-        instruments API (for a futures root, the active-month contract;
-        Tastytrade computes the correct exchange-qualified symbol, so this
-        doesn't guess at the format). Opens a short-lived DXLinkStreamer,
-        races a Trade subscription against a Quote subscription, and
-        returns whichever arrives first: the last trade price, or the
-        bid/ask midpoint if no trade shows up within `timeout` seconds.
+        Opens a short-lived DXLinkStreamer, races a Trade subscription
+        against a Quote subscription, and returns whichever arrives first:
+        the last trade price, or the bid/ask midpoint if no trade shows up
+        within `timeout` seconds.
 
         Raises TimeoutError if neither arrives in time (e.g. market
         closed, no streaming entitlement, or an illiquid symbol).
         """
         from .dxlink_streamer import DXLinkStreamer  # lazy: only needed here
 
-        if ticker.strip().startswith("/"):
-            contracts = self.get_futures_by_product_code(ticker)
-            if not contracts:
-                raise ValueError(f"No live futures contracts found for {ticker!r}")
-            front = next((c for c in contracts if c.get("active-month")), contracts[0])
-            streamer_symbol = front["streamer-symbol"]
-        else:
-            streamer_symbol = self.get_equity(ticker)["streamer-symbol"]
-
+        streamer_symbol = self.resolve_underlying_streamer_symbol(ticker)
         quote_token = self.get_quote_token()
 
         async def _fetch() -> float:
