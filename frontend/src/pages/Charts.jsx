@@ -25,7 +25,14 @@ const RANGES = ["1D", "5D", "1M", "6M", "YTD", "1Y", "5Y", "MAX"];
 // day, a coarser month/day for the middle ranges, and just month/year once
 // each candle is a week or a month wide (5Y/MAX) rather than a day.
 const formatDateLabel = (dateStr, range) => {
-  const d = new Date(dateStr);
+  // A bare "YYYY-MM-DD" (e.g. the options snapshot's expirationDate, unlike
+  // candle timestamps which always carry a time) has no timezone of its
+  // own — the Date constructor treats that shape as UTC midnight, which
+  // then renders as the *previous* day once toLocaleDateString converts it
+  // to any timezone behind UTC. Appending a bare local time anchors it to
+  // local midnight instead, same fix this function used before it also had
+  // to handle full intraday timestamps.
+  const d = new Date(dateStr.includes("T") ? dateStr : `${dateStr}T00:00:00`);
   if (range === "1D") return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   if (range === "5D") return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric" });
   if (range === "5Y" || range === "MAX") return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
@@ -192,10 +199,15 @@ function OptionsSnapshot({ symbol }) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    // dte=7 isn't a literal week out — the backend resolves it to whichever
-    // real expiration is closest (see service/market.py), same default the
-    // REST chain endpoint itself uses.
-    getOptionChain(symbol, 7)
+    // dte=0 targets today's expiration — the backend resolves it to
+    // whichever real *listed* expiration is closest (see
+    // TastytradeOptionChainProvider.get_option_chain), and Tastytrade's
+    // chain only ever lists current/unexpired contracts, so "closest to
+    // today" naturally becomes "the next business day's expiration"
+    // whenever today itself has none (a weekend/holiday, or a symbol with
+    // no daily expirations) — verified live on a Sunday: resolved straight
+    // to Monday's expiration with no special-casing needed here.
+    getOptionChain(symbol, 0)
       .then((data) => {
         if (cancelled) return;
         if (data?.chain?.length) {
