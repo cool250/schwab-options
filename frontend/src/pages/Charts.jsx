@@ -314,7 +314,7 @@ function OptionsSnapshotBody({ chain }) {
           }
         />
         <Gauge
-          label="Put/Call OI Ratio"
+          label="Put/Call Open Interest Ratio"
           value={oiPutCallRatio}
           min={0}
           max={2}
