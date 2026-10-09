@@ -302,6 +302,14 @@
   padding-top: 8px;
 }
 :root[data-theme="dark"] .leg-popover-quote { border-top-color: var(--success-border); }
+.leg-popover-roi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--success);
+}
 .leg-popover-remove { width: 100%; justify-content: center; }
 /* Keeps the clicked tag visually distinct while its popover is open, same
    idea as .ruler-tag-dragging. */

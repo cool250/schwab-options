@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { sendCopilotMessage, friendlyErrorMessage } from "../api/client";
+import { sendCopilotMessage, friendlyErrorMessage, isSystemError } from "../api/client";
 import { copilotContext } from "../utils/copilotContext";
 import { applyProposedLegs } from "../utils/copilotProposedLegs";
 
@@ -128,7 +128,15 @@ export default function CopilotWidget() {
       ]);
     } catch (err) {
       console.error("Copilot request failed:", err);
-      setError(friendlyErrorMessage(err, err.message || "Copilot request failed."));
+      // A 502 here is almost never a broker outage — /copilot/chat wraps every
+      // failure (OpenAI quota, bad key, a tool error) as 502 with the real
+      // cause in `detail`, so show that rather than the generic broker
+      // "System error" message friendlyErrorMessage maps 502 to.
+      setError(
+        isSystemError(err) && err.message
+          ? err.message
+          : friendlyErrorMessage(err, err.message || "Copilot request failed.")
+      );
     } finally {
       setLoading(false);
     }

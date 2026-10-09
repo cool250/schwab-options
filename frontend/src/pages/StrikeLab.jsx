@@ -1154,11 +1154,23 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symb
   );
 }
 
+// Wheel-style return on a short leg: premium collected over the strike, i.e.
+// the cash securing a put (or the assignment basis of a covered call).
+// Annualized simply via 365/DTE. A bought leg has no premium "return" to
+// speak of, so it gets none.
+function legRoi(leg) {
+  if (leg.side !== "SELL" || !isNum(leg.premium) || !isNum(leg.strike) || leg.strike <= 0) return null;
+  const pct = (leg.premium / leg.strike) * 100;
+  const annualized = isNum(leg.dte) && leg.dte > 0 ? pct * (365 / leg.dte) : null;
+  return { pct, annualized };
+}
+
 // Editable leg details, positioned above the ruler over its tag's strike —
 // replaces the old always-visible rows table (see StrikeRuler) so building a
 // multi-leg strategy doesn't need a full table's worth of vertical space for
 // legs that aren't being edited right now.
 const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, quote, onUpdate, onRemove, onClose }, ref) {
+  const roi = legRoi(leg);
   return (
     <div className="leg-popover" style={{ left: `${left}%` }} ref={ref}>
       <div className="leg-popover-header">
@@ -1231,6 +1243,12 @@ const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, quo
             {isNum(quote.openInterest) && <span>OI {Math.round(quote.openInterest).toLocaleString()}</span>}
           </div>
         )}
+      {roi && (
+        <div className="leg-popover-roi">
+          <span>ROI {roi.pct.toFixed(2)}%</span>
+          {roi.annualized != null && <span>Annualized {roi.annualized.toFixed(1)}%</span>}
+        </div>
+      )}
       <button type="button" className="btn btn-primary leg-popover-remove" onClick={onRemove}>
         Remove
       </button>
