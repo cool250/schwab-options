@@ -1,7 +1,7 @@
 /* ─── Form ───────────────────────────────────────────── */
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-group label {
-  font-size: 0.72rem;
+  font-size: var(--label-font-size);
   font-weight: 700;
   color: var(--text);
   text-transform: uppercase;

@@ -12,11 +12,11 @@ import HelpTip from '../components/HelpTip'
 // strikeLabCache in StrikeLab.jsx) — a screen across several tickers takes
 // a few seconds, so losing it on a quick detour to another page would hurt.
 const DEFAULT_CRITERIA = {
-  tickers: 'AAPL, MSFT, AMZN, NVDA',
+  tickers: '',
   minMoneyness: 0,
   maxMoneyness: 10,
   minDte: 0,
-  maxDte: 45,
+  maxDte: 7,
   minDelta: '',
   maxDelta: '',
   puts: true,
@@ -228,7 +228,6 @@ export default function Screener() {
                 className="input"
                 value={criteria.tickers}
                 onChange={update('tickers')}
-                placeholder="AAPL, MSFT, /ES"
                 autoComplete="off"
               />
             </div>

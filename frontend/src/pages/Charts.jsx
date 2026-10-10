@@ -117,9 +117,10 @@ export default function Charts() {
     <div className="page">
       <div className="card">
         <div className="form-group form-group--sm">
-          <h3 className="section-title">Symbol</h3>
+          <label htmlFor="charts-symbol">Symbol</label>
           <form onSubmit={submitSymbol}>
             <input
+              id="charts-symbol"
               className="input"
               placeholder="e.g. AAPL"
               value={symbolInput}
