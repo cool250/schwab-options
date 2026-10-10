@@ -282,6 +282,10 @@ export default function StrikeLab() {
   // as a deliberate new search, so it wins over whatever's cached below.
   const pendingPositions = useRef(location.state?.analyzePositions ?? []);
   const isNewAnalyzeRequest = pendingPositions.current.length > 0;
+  // Set when legs arrive from elsewhere (Positions/Screener "Analyze
+  // Selected", or a copilot "Apply") — the Range ±% slider then widens to
+  // fit them once the chain has loaded. See the fit-to-legs effect below.
+  const fitRangeToLegsRef = useRef(isNewAnalyzeRequest);
 
   // symbolStore is shared with the Charts page (and always has a value, its
   // own default included) — it takes priority over this page's own cache so
@@ -355,6 +359,7 @@ export default function StrikeLab() {
   useEffect(() => {
     function apply(incomingLegs) {
       if (!incomingLegs || incomingLegs.length === 0) return;
+      fitRangeToLegsRef.current = true;
       const legSymbol = incomingLegs[0].symbol;
       if (legSymbol) {
         setSymbol(legSymbol);
@@ -642,6 +647,26 @@ export default function StrikeLab() {
     [legs, spot]
   );
 
+  // Widen the Range ±% slider so legs that arrived from elsewhere — every
+  // strike and breakeven, plus a 25% margin — are actually on the Table/
+  // Graph. The strike-spacing default (snapshot handler above) only aims for
+  // ~20 strikes, which can leave e.g. a 10%-OTM put from the Screener off
+  // the edge. Only ever widens (never narrows below that default), capped at
+  // the slider's 15% max, and runs once per arrival so later manual slider
+  // changes stick. Waits until the spacing default has been applied for this
+  // symbol, i.e. a real spot for it is in hand rather than a stale/placeholder
+  // one from before the chain loaded.
+  useEffect(() => {
+    if (!fitRangeToLegsRef.current) return;
+    if (legs.length === 0 || !(spot > 0) || rangeInitializedSymbolRef.current !== symbol) return;
+    fitRangeToLegsRef.current = false;
+    const points = [...legs.map((l) => l.strike), ...breakevens].filter((x) => Number.isFinite(x));
+    if (points.length === 0) return;
+    const farthest = Math.max(...points.map((x) => Math.abs(x - spot)));
+    const needed = Math.min(15, Math.ceil(((farthest * 1.25) / spot) * 1000) / 10);
+    setRangePct((current) => Math.max(current, needed));
+  }, [legs, spot, symbol, breakevens]);
+
   // Lets the copilot answer questions about "this position"/"this spread",
   // or find a strike for a *new* one on the expiration already selected
   // here, without the user restating it — see copilotContext.js. Cleared
@@ -689,7 +714,19 @@ export default function StrikeLab() {
 
   const removeLeg = (id) => setLegs((prev) => prev.filter((l) => l.id !== id));
 
+  // The id of a leg just added by a chain bid/ask click, for StrikeRuler to
+  // open its popover — and only that: legs arriving any other way (Positions/
+  // Screener "Analyze Selected", a copilot "Apply", a cached session) never
+  // set this, so the page doesn't load with a popover already open. The ruler
+  // clears it once handled so a remount doesn't reopen it.
+  const [autoOpenLegId, setAutoOpenLegId] = useState(null);
+
   const addLegFromChain = (type, side, strike, premium) => {
+    // Generated outside the updater (which must stay pure); if the click turns
+    // out to be a duplicate no leg gets this id, and the ruler finds nothing
+    // to open.
+    const id = `l${Date.now()}`;
+    setAutoOpenLegId(id);
     setLegs((prev) => {
       // Idempotent: a bid/ask click for a strike/side already in the position is a
       // no-op rather than a duplicate leg — otherwise a double-click on an already
@@ -700,7 +737,7 @@ export default function StrikeLab() {
       }
       return [
         ...prev,
-        { id: `l${Date.now()}`, side, qty: 1, type, strike, premium: +premium.toFixed(2), dte, multiplier: getMultiplier(symbol) },
+        { id, side, qty: 1, type, strike, premium: +premium.toFixed(2), dte, multiplier: getMultiplier(symbol) },
       ];
     });
   };
@@ -779,6 +816,8 @@ export default function StrikeLab() {
           onUpdateLeg={updateLeg}
           onRemoveLeg={removeLeg}
           symbol={symbol}
+          autoOpenLegId={autoOpenLegId}
+          onAutoOpenHandled={() => setAutoOpenLegId(null)}
         />
         <span className="summary-line">
           {legs.length === 0
@@ -972,7 +1011,7 @@ export default function StrikeLab() {
    SELL=bid convention as clicking a cell directly in the chain table
    (see addLegFromChain/OptionChainTable's onAddLeg calls).
 ============================================================================ */
-function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symbol }) {
+function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symbol, autoOpenLegId, onAutoOpenHandled }) {
   const width = 100;
   const strikes = legs.map((l) => l.strike);
   const effLo = Math.min(lo, ...strikes);
@@ -997,15 +1036,19 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symb
   const [openLegId, setOpenLegId] = useState(null);
   const popoverRef = useRef(null);
 
-  // A freshly added leg (from a chain bid/ask click, always appended last)
-  // opens its own popover automatically, confirming what was just added
-  // since there's no other row-based UI — the ruler tag + popover is the
-  // only editor.
-  const prevLenRef = useRef(legs.length);
+  // A leg freshly added from a chain bid/ask click opens its own popover
+  // automatically, confirming what was just added since there's no other
+  // row-based UI — the ruler tag + popover is the only editor. Driven by an
+  // explicit id from the parent (addLegFromChain) rather than "legs got
+  // longer", which also fired for legs loaded on page arrival (Positions/
+  // Screener/copilot) and opened a popover nobody asked for.
   useEffect(() => {
-    if (legs.length > prevLenRef.current) setOpenLegId(legs[legs.length - 1].id);
-    prevLenRef.current = legs.length;
-  }, [legs]);
+    if (autoOpenLegId == null) return;
+    // A duplicate click adds no leg with this id — leave any open popover be.
+    if (legs.some((l) => l.id === autoOpenLegId)) setOpenLegId(autoOpenLegId);
+    onAutoOpenHandled();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenLegId]);
 
   useEffect(() => {
     if (openLegId == null) return;
