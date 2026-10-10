@@ -1,0 +1,87 @@
+/* ─── Options Screener ───────────────────────────────── */
+/* Every search field on one row — Tickers, Option Type, then the three
+   min/max ranges — wrapping onto further rows only once the card is too
+   narrow. Bottom-aligned so the inputs share one baseline even though the
+   labels above them differ in length. */
+.screener-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px 28px;
+}
+/* Fields stretch to fill the whole row: Tickers takes the biggest share
+   (a list of symbols benefits most from width), each range grows evenly
+   after it, and Option Type stays at its natural checkbox width. */
+.screener-tickers { flex: 2 1 220px; min-width: 0; }
+.screener-fields > .screener-range:not(.screener-option-types) { flex: 1 1 170px; }
+.screener-option-types { flex-shrink: 0; }
+.screener-option-type-inputs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  /* Match the ticker input's height (10px vertical padding + 2px underline)
+     so the checkboxes line up with the text, not the label above it. */
+  padding: 10px 0 12px;
+}
+
+/* Reset the browser's default fieldset box so a range reads like any other
+   .form-group, with the legend styled as that group's label. */
+.screener-range {
+  position: relative; /* anchors a HelpTip pop-up on narrow screens, below */
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.screener-range legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.screener-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Min/max split their range's width evenly, never narrower than fits a
+   short number like "-12.5" / "0.25". */
+.screener-range-inputs .input { flex: 1; width: auto; min-width: 56px; }
+.screener-range-sep {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.screener-hint {
+  margin: 12px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.screener-ann-roi { font-weight: 700; }
+
+/* Title, match count and Analyze Selected share one row on desktop; let
+   them wrap on narrow screens instead of overflowing the card. */
+.screener-results-header { flex-wrap: wrap; row-gap: 10px; margin-bottom: 12px; }
+
+/* Pushed to the right end of the results card's .section-header. */
+.screener-analyze-selected { margin-left: auto; white-space: nowrap; }
+
+/* The last field (Delta) sits at the card's right edge, so its HelpTip
+   pop-up opens leftward from the "?" instead of off the edge. */
+.screener-fields > .screener-range:last-child .help-tip-popup { left: auto; right: 0; }
+
+@media (max-width: 600px) {
+  .screener-fields { flex-direction: column; align-items: stretch; }
+  .screener-tickers,
+  .screener-fields > .screener-range:not(.screener-option-types) { flex-basis: auto; }
+  /* The "?" sits partway along the legend, so a pop-up anchored to it can
+     run off the right edge of a phone screen — span the whole fieldset. */
+  .screener-range .help-tip { position: static; }
+  .screener-range .help-tip-popup { left: 0; right: 0; width: auto; max-width: none; }
+  .screener-fields > .screener-range:last-child .help-tip-popup { left: 0; }
+}

@@ -388,8 +388,6 @@ export default function Reports() {
 
   return (
     <div className="page">
-      <h2 className="page-title">Reports</h2>
-
       <div className="tab-row">
         <button
           type="button"

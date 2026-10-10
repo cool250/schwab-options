@@ -51,6 +51,7 @@ class MarketData(BaseClient):
         period_type: str = "month",
         period: int = 2,
         frequency_type: str = "daily",
+        frequency: int = 1,
     ) -> PriceHistoryResponse:
         """
         Fetch OHLCV price history for a symbol.
@@ -67,6 +68,10 @@ class MarketData(BaseClient):
         frequency_type:
             Bar frequency (``"minute"``, ``"daily"``, ``"weekly"``,
             ``"monthly"``).  Defaults to ``"daily"``.
+        frequency:
+            Bar size within *frequency_type* — only meaningful for
+            ``"minute"`` (Schwab allows 1/5/10/15/30); every other
+            frequency_type is only ever 1 unit. Defaults to ``1``.
 
         Returns
         -------
@@ -84,6 +89,7 @@ class MarketData(BaseClient):
                 "periodType": period_type,
                 "period": period,
                 "frequencyType": frequency_type,
+                "frequency": frequency,
             },
         )
         try:

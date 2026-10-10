@@ -185,7 +185,7 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 .copilot-msg-row {
   display: flex;
   align-items: flex-end;
-  gap: 6px;
+  gap: 12px;
   max-width: 100%;
 }
 .copilot-msg-icon {

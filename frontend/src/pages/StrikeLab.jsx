@@ -35,12 +35,33 @@ function patchChainQuote(chain, msg) {
   return anyChanged ? { ...chain, chain: rows } : chain;
 }
 
-function blackScholesApprox(spot, strike, dte, iv, isCall) {
+// Abramowitz-Stegun 7.1.26 — accurate to ~1.5e-7, plenty for pricing here.
+function erf(x) {
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x);
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const t = 1 / (1 + p * x);
+  const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return sign * y;
+}
+function normCdf(x) {
+  return 0.5 * (1 + erf(x / Math.SQRT2));
+}
+
+// Real Black-Scholes (no dividend yield, r=0 — same no-rate assumption the
+// old heuristic made, and matches OptionStrat closely enough over a
+// days-to-expiration window that carry cost is negligible either way).
+function blackScholes(spot, strike, dte, iv, isCall) {
   const t = Math.max(dte / 365, 1 / 365);
-  const moneyness = (spot - strike) / (spot * iv * Math.sqrt(t));
   const intrinsic = isCall ? Math.max(0, spot - strike) : Math.max(0, strike - spot);
-  const timeValue = spot * iv * Math.sqrt(t) * 0.4 * Math.exp(-0.5 * moneyness * moneyness);
-  return Math.max(0.01, intrinsic + timeValue);
+  if (iv <= 0) return Math.max(0.01, intrinsic);
+  const sqrtT = Math.sqrt(t);
+  const d1 = (Math.log(spot / strike) + (iv * iv / 2) * t) / (iv * sqrtT);
+  const d2 = d1 - iv * sqrtT;
+  const value = isCall
+    ? spot * normCdf(d1) - strike * normCdf(d2)
+    : strike * normCdf(-d2) - spot * normCdf(-d1);
+  return Math.max(0.01, value);
 }
 
 /* ============================================================================
@@ -88,7 +109,7 @@ function findBreakevens(legs, lo, hi) {
  *  collapses to pure intrinsic value, matching the at-expiration payoff. */
 function legTheoPL(leg, price, dte, iv) {
   if (dte <= 0) return legPL(leg, price);
-  const value = blackScholesApprox(price, leg.strike, dte, iv, leg.type === "CALL");
+  const value = blackScholes(price, leg.strike, dte, iv, leg.type === "CALL");
   const perShare = leg.side === "BUY" ? value - leg.premium : leg.premium - value;
   return perShare * leg.qty * (leg.multiplier ?? MULTIPLIER);
 }
@@ -195,6 +216,14 @@ const fmtMoney = (n) => {
   return `${n < 0 ? "-" : ""}$${s}`;
 };
 
+// Paints the filled portion of a range input up to its thumb (native
+// sliders have no cross-browser "progress" concept) — the track itself is
+// transparent in CSS (see .range-slider) so this background shows through.
+const sliderFillStyle = (value, min, max) => {
+  const pct = ((value - min) / (max - min)) * 100;
+  return { background: `linear-gradient(to right, var(--primary) ${pct}%, var(--border) ${pct}%)` };
+};
+
 const formatExpLabel = (dateStr) =>
   new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
@@ -218,6 +247,11 @@ function midPrice(sideData) {
   if (isNum(ask)) return ask;
   return null;
 }
+
+// iv arrives as a decimal (0.104 for 10.4%); volume/openInterest as whole
+// contract counts — same formatting the leg popover's quote row already uses.
+const fmtIv = (v) => (isNum(v) ? `${(v * 100).toFixed(1)}%` : "—");
+const fmtCount = (v) => (isNum(v) ? Math.round(v).toLocaleString() : "—");
 
 /* ============================================================================
    MAIN PAGE
@@ -248,6 +282,10 @@ export default function StrikeLab() {
   // as a deliberate new search, so it wins over whatever's cached below.
   const pendingPositions = useRef(location.state?.analyzePositions ?? []);
   const isNewAnalyzeRequest = pendingPositions.current.length > 0;
+  // Set when legs arrive from elsewhere (Positions/Screener "Analyze
+  // Selected", or a copilot "Apply") — the Range ±% slider then widens to
+  // fit them once the chain has loaded. See the fit-to-legs effect below.
+  const fitRangeToLegsRef = useRef(isNewAnalyzeRequest);
 
   // symbolStore is shared with the Charts page (and always has a value, its
   // own default included) — it takes priority over this page's own cache so
@@ -321,6 +359,7 @@ export default function StrikeLab() {
   useEffect(() => {
     function apply(incomingLegs) {
       if (!incomingLegs || incomingLegs.length === 0) return;
+      fitRangeToLegsRef.current = true;
       const legSymbol = incomingLegs[0].symbol;
       if (legSymbol) {
         setSymbol(legSymbol);
@@ -456,6 +495,13 @@ export default function StrikeLab() {
           }
         } else if (msg.type === "quote") {
           setChain((prev) => patchChainQuote(prev, msg));
+        } else if (msg.type === "underlying_quote") {
+          // Keeps "Price: $X" live for the rest of this subscription —
+          // previously spot was only ever set once, from the initial
+          // snapshot (see the "snapshot" branch above), so it stayed frozen
+          // at whatever it was when the chain first loaded even as this
+          // same feed kept ticking every option contract's own price.
+          if (isNum(msg.price)) setSpot(msg.price);
         } else if (msg.type === "error") {
           // The chain view falls back to whatever's already rendered (cached
           // or a prior snapshot) rather than clearing to a blank state, but
@@ -601,6 +647,26 @@ export default function StrikeLab() {
     [legs, spot]
   );
 
+  // Widen the Range ±% slider so legs that arrived from elsewhere — every
+  // strike and breakeven, plus a 25% margin — are actually on the Table/
+  // Graph. The strike-spacing default (snapshot handler above) only aims for
+  // ~20 strikes, which can leave e.g. a 10%-OTM put from the Screener off
+  // the edge. Only ever widens (never narrows below that default), capped at
+  // the slider's 15% max, and runs once per arrival so later manual slider
+  // changes stick. Waits until the spacing default has been applied for this
+  // symbol, i.e. a real spot for it is in hand rather than a stale/placeholder
+  // one from before the chain loaded.
+  useEffect(() => {
+    if (!fitRangeToLegsRef.current) return;
+    if (legs.length === 0 || !(spot > 0) || rangeInitializedSymbolRef.current !== symbol) return;
+    fitRangeToLegsRef.current = false;
+    const points = [...legs.map((l) => l.strike), ...breakevens].filter((x) => Number.isFinite(x));
+    if (points.length === 0) return;
+    const farthest = Math.max(...points.map((x) => Math.abs(x - spot)));
+    const needed = Math.min(15, Math.ceil(((farthest * 1.25) / spot) * 1000) / 10);
+    setRangePct((current) => Math.max(current, needed));
+  }, [legs, spot, symbol, breakevens]);
+
   // Lets the copilot answer questions about "this position"/"this spread",
   // or find a strike for a *new* one on the expiration already selected
   // here, without the user restating it — see copilotContext.js. Cleared
@@ -648,28 +714,19 @@ export default function StrikeLab() {
 
   const removeLeg = (id) => setLegs((prev) => prev.filter((l) => l.id !== id));
 
-  const addLeg = () => {
-    const nearestStrike = chain
-      ? chain.chain.reduce((a, b) =>
-          Math.abs(b.strikePrice - spot) < Math.abs(a.strikePrice - spot) ? b : a
-        ).strikePrice
-      : Math.round(spot);
-    setLegs((prev) => [
-      ...prev,
-      {
-        id: `l${Date.now()}`,
-        side: "SELL",
-        qty: 1,
-        type: "PUT",
-        strike: nearestStrike,
-        premium: 1.0,
-        dte,
-        multiplier: getMultiplier(symbol),
-      },
-    ]);
-  };
+  // The id of a leg just added by a chain bid/ask click, for StrikeRuler to
+  // open its popover — and only that: legs arriving any other way (Positions/
+  // Screener "Analyze Selected", a copilot "Apply", a cached session) never
+  // set this, so the page doesn't load with a popover already open. The ruler
+  // clears it once handled so a remount doesn't reopen it.
+  const [autoOpenLegId, setAutoOpenLegId] = useState(null);
 
   const addLegFromChain = (type, side, strike, premium) => {
+    // Generated outside the updater (which must stay pure); if the click turns
+    // out to be a duplicate no leg gets this id, and the ruler finds nothing
+    // to open.
+    const id = `l${Date.now()}`;
+    setAutoOpenLegId(id);
     setLegs((prev) => {
       // Idempotent: a bid/ask click for a strike/side already in the position is a
       // no-op rather than a duplicate leg — otherwise a double-click on an already
@@ -680,7 +737,7 @@ export default function StrikeLab() {
       }
       return [
         ...prev,
-        { id: `l${Date.now()}`, side, qty: 1, type, strike, premium: +premium.toFixed(2), dte, multiplier: getMultiplier(symbol) },
+        { id, side, qty: 1, type, strike, premium: +premium.toFixed(2), dte, multiplier: getMultiplier(symbol) },
       ];
     });
   };
@@ -696,31 +753,29 @@ export default function StrikeLab() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h2 className="page-title">StrikeLab</h2>
-      </div>
-
       {chainError && <div className="alert error">{chainError}</div>}
 
       {/* ---------------- Symbol / strategy / expirations / ruler ---------------- */}
       <div className="card">
         <div className="symbol-exp-row">
-          <div className="form-group form-group--sm">
-            <label>Symbol</label>
-            <form onSubmit={submitSymbol}>
-              <input
-                className="input"
-                placeholder="e.g. AAPL"
-                value={symbolInput}
-                onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
-              />
-            </form>
-            {symbol && (
-              <span className="price-badge ok">
-                Current price: ${spot.toFixed(2)}
-                {loadingChain && <span className="spinner spinner-sm" title="Syncing chain…" />}
-              </span>
-            )}
+          <div className="form-group symbol-group">
+             <h3 className="section-title">Symbol</h3>
+            <div className="symbol-input-row">
+              <form onSubmit={submitSymbol}>
+                <input
+                  className="input"
+                  placeholder="e.g. AAPL"
+                  value={symbolInput}
+                  onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
+                />
+              </form>
+              {symbol && (
+                <span className="price-badge ok">
+                  Price: ${spot.toFixed(2)}
+                  {loadingChain && <span className="spinner spinner-sm" title="Syncing chain…" />}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="exp-group">
@@ -751,73 +806,24 @@ export default function StrikeLab() {
 
       {/* ---------------- Legs editor ---------------- */}
       <div className="card">
-        <div className="section-header" style={{ justifyContent: "space-between" }}>
-          <h3 className="section-title">Strikes</h3>
-          <button className="btn btn-secondary" onClick={addLeg}>
-            + Add Leg
-          </button>
-        </div>
-        <StrikeRuler legs={legs} spot={spot} lo={lo} hi={hi} chain={chain} onUpdateLeg={updateLeg} />
+        <h3 className="section-title">Strike</h3>
+        <StrikeRuler
+          legs={legs}
+          spot={spot}
+          lo={lo}
+          hi={hi}
+          chain={chain}
+          onUpdateLeg={updateLeg}
+          onRemoveLeg={removeLeg}
+          symbol={symbol}
+          autoOpenLegId={autoOpenLegId}
+          onAutoOpenHandled={() => setAutoOpenLegId(null)}
+        />
         <span className="summary-line">
-          {legs.length} leg{legs.length !== 1 ? "s" : ""}
+          {legs.length === 0
+            ? "No legs yet — click a bid/ask in the chain below to add one."
+            : `${legs.length} leg${legs.length !== 1 ? "s" : ""} — click a tag above to edit.`}
         </span>
-        <div className="legs-table">
-          <div className="leg-row leg-row-head">
-            <span>Side</span>
-            <span>Qty</span>
-            <span>Type</span>
-            <span>Strike</span>
-            <span>Premium</span>
-            <span></span>
-          </div>
-          {legs.map((leg) => (
-            <div className="leg-row" key={leg.id}>
-              <select
-                className={`leg-cell leg-side-${leg.side.toLowerCase()}`}
-                value={leg.side}
-                onChange={(e) => updateLeg(leg.id, { side: e.target.value })}
-              >
-                <option value="BUY">BUY</option>
-                <option value="SELL">SELL</option>
-              </select>
-              <input
-                className="leg-cell"
-                type="number"
-                min="1"
-                value={leg.qty}
-                onChange={(e) => updateLeg(leg.id, { qty: Math.max(1, +e.target.value) })}
-              />
-              <select
-                className="leg-cell"
-                value={leg.type}
-                onChange={(e) => updateLeg(leg.id, { type: e.target.value })}
-              >
-                <option value="CALL">CALL</option>
-                <option value="PUT">PUT</option>
-              </select>
-              <input
-                className="leg-cell"
-                type="number"
-                step="0.5"
-                value={leg.strike}
-                onChange={(e) => updateLeg(leg.id, { strike: +e.target.value })}
-              />
-              <input
-                className="leg-cell"
-                type="number"
-                step="0.01"
-                value={leg.premium}
-                onChange={(e) => updateLeg(leg.id, { premium: Math.max(0, +e.target.value) })}
-              />
-              <button className="leg-remove" onClick={() => removeLeg(leg.id)} title="Remove leg">
-                ×
-              </button>
-            </div>
-          ))}
-          {legs.length === 0 && (
-            <div className="legs-empty">No legs yet — add one to start building a payoff.</div>
-          )}
-        </div>
       </div>
 
       {/* ---------------- Metrics ---------------- */}
@@ -847,7 +853,7 @@ export default function StrikeLab() {
                 : "None in range"}
               {breakevens.length > 0 && (
                 <span className="text-muted metric-subtext">
-                  {" "}({(((breakevens[0] - spot) / spot) * 100).toFixed(1)}% from spot)
+                  {" "}({(((breakevens[0] - spot) / spot) * 100).toFixed(1)}%)
                 </span>
               )}
             </span>
@@ -946,8 +952,6 @@ export default function StrikeLab() {
             hi={hi}
             dte={positionDte}
             iv={ivPct / 100}
-            maxProfit={maxProfit}
-            maxLoss={maxLoss}
             chain={chain}
           />
         ) : (
@@ -977,6 +981,7 @@ export default function StrikeLab() {
               value={rangePct}
               onChange={(e) => setRangePct(+e.target.value)}
               className="range-slider"
+              style={sliderFillStyle(rangePct, 0.5, 15)}
             />
           </div>
           <div className="slider-row">
@@ -989,6 +994,7 @@ export default function StrikeLab() {
               value={ivPct}
               onChange={(e) => setIvPct(+e.target.value)}
               className="range-slider"
+              style={sliderFillStyle(ivPct, 2, 60)}
             />
           </div>
         </div>
@@ -1005,7 +1011,7 @@ export default function StrikeLab() {
    SELL=bid convention as clicking a cell directly in the chain table
    (see addLegFromChain/OptionChainTable's onAddLeg calls).
 ============================================================================ */
-function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
+function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symbol, autoOpenLegId, onAutoOpenHandled }) {
   const width = 100;
   const strikes = legs.map((l) => l.strike);
   const effLo = Math.min(lo, ...strikes);
@@ -1018,6 +1024,44 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
 
   const trackRef = useRef(null);
   const [draggingId, setDraggingId] = useState(null);
+  // A plain click (mousedown+mouseup with no snap-worthy movement in between)
+  // opens this leg's popover instead of starting a drag — set by handleMove
+  // below whenever it actually repositions the leg, so handleUp can tell the
+  // two apart.
+  const draggedRef = useRef(false);
+
+  // A leg tag's popover (editable fields + remove, replacing the old always-
+  // visible rows table below the ruler — see leg-popover CSS) — click a tag
+  // to open/close it, click elsewhere to dismiss.
+  const [openLegId, setOpenLegId] = useState(null);
+  const popoverRef = useRef(null);
+
+  // A leg freshly added from a chain bid/ask click opens its own popover
+  // automatically, confirming what was just added since there's no other
+  // row-based UI — the ruler tag + popover is the only editor. Driven by an
+  // explicit id from the parent (addLegFromChain) rather than "legs got
+  // longer", which also fired for legs loaded on page arrival (Positions/
+  // Screener/copilot) and opened a popover nobody asked for.
+  useEffect(() => {
+    if (autoOpenLegId == null) return;
+    // A duplicate click adds no leg with this id — leave any open popover be.
+    if (legs.some((l) => l.id === autoOpenLegId)) setOpenLegId(autoOpenLegId);
+    onAutoOpenHandled();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenLegId]);
+
+  useEffect(() => {
+    if (openLegId == null) return;
+    function handleOutside(e) {
+      // A ruler-tag's own mousedown/mouseup already owns opening/closing its
+      // popover (see handleUp below) — this only dismisses on a click that
+      // lands outside both the popover and every tag.
+      if (e.target.closest(".ruler-tag")) return;
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) setOpenLegId(null);
+    }
+    window.addEventListener("mousedown", handleOutside);
+    return () => window.removeEventListener("mousedown", handleOutside);
+  }, [openLegId]);
 
   const availableStrikes = useMemo(
     () => [...new Set((chain?.chain ?? []).map((r) => r.strikePrice))].sort((a, b) => a - b),
@@ -1039,6 +1083,14 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
     return midPrice(sideData);
   }
 
+  // Live bid/ask/delta for a leg's current strike, shown read-only in its
+  // popover — same chain lookup premiumForStrike uses, just without
+  // collapsing bid/ask down to one mid price.
+  function quoteForLeg(leg) {
+    const row = (chain?.chain ?? []).find((r) => r.strikePrice === leg.strike);
+    return leg.type === "PUT" ? row?.put : row?.call;
+  }
+
   useEffect(() => {
     if (draggingId == null || !onUpdateLeg) return;
 
@@ -1051,10 +1103,14 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
       const snapped = nearestStrike(priceFromPct(pctPos));
       const leg = legs.find((l) => l.id === draggingId);
       if (!leg || leg.strike === snapped) return;
+      draggedRef.current = true;
       const newPremium = premiumForStrike(snapped, leg.type);
       onUpdateLeg(draggingId, { strike: snapped, ...(newPremium != null ? { premium: newPremium } : {}) });
     }
     function handleUp() {
+      if (!draggedRef.current) {
+        setOpenLegId((prev) => (prev === draggingId ? null : draggingId));
+      }
       setDraggingId(null);
     }
 
@@ -1085,9 +1141,10 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
   });
   const STACK_STEP_PX = 26;
 
+  const openLeg = legs.find((l) => l.id === openLegId);
+
   return (
     <div className="strike-ruler">
-      <span className="metric-label">Strikes</span>
       <div className="ruler-track" ref={trackRef}>
         <div className="ruler-line" />
         {ticks.map((t, i) => (
@@ -1096,7 +1153,7 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
           </div>
         ))}
         <div className="ruler-spot" style={{ left: `${pct(spot)}%` }}>
-          <span className="ruler-spot-label">SPOT</span>
+          <span className="ruler-spot-label">{symbol || "SPOT"}</span>
           <span className="ruler-spot-arrow">▾</span>
         </div>
         {legs.map((leg) => {
@@ -1105,25 +1162,142 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
           return (
             <div
               key={leg.id}
-              className={`ruler-tag ${leg.side === "SELL" ? "tag-sell tag-below" : "tag-buy tag-above"} tag-${leg.type.toLowerCase()} ${draggingId === leg.id ? "ruler-tag-dragging" : ""}`}
+              className={`ruler-tag ${leg.side === "SELL" ? "tag-sell tag-below" : "tag-buy tag-above"} tag-${leg.type.toLowerCase()} ${draggingId === leg.id ? "ruler-tag-dragging" : ""} ${openLegId === leg.id ? "ruler-tag-open" : ""}`}
               style={{
                 left: `${pct(leg.strike)}%`,
                 top: leg.side === "SELL" ? `calc(34px + ${stackOffset}px)` : `calc(-44px - ${stackOffset}px)`,
-                cursor: onUpdateLeg ? "ew-resize" : undefined,
+                cursor: onUpdateLeg ? "ew-resize" : "pointer",
               }}
-              onMouseDown={onUpdateLeg ? (e) => { e.preventDefault(); setDraggingId(leg.id); } : undefined}
-              onTouchStart={onUpdateLeg ? () => setDraggingId(leg.id) : undefined}
-              title={onUpdateLeg ? "Drag to change strike" : undefined}
+              onMouseDown={onUpdateLeg ? (e) => { e.preventDefault(); draggedRef.current = false; setDraggingId(leg.id); } : undefined}
+              onTouchStart={onUpdateLeg ? () => { draggedRef.current = false; setDraggingId(leg.id); } : undefined}
+              title={onUpdateLeg ? "Click to edit, drag to change strike" : undefined}
             >
               {leg.strike}
               {leg.type[0]}
             </div>
           );
         })}
+        {openLeg && (
+          <LegPopover
+            ref={popoverRef}
+            leg={openLeg}
+            left={Math.min(88, Math.max(12, pct(openLeg.strike)))}
+            symbol={symbol}
+            quote={quoteForLeg(openLeg)}
+            onUpdate={(patch) => onUpdateLeg(openLeg.id, patch)}
+            onRemove={() => {
+              onRemoveLeg(openLeg.id);
+              setOpenLegId(null);
+            }}
+            onClose={() => setOpenLegId(null)}
+          />
+        )}
       </div>
     </div>
   );
 }
+
+// Wheel-style return on a short leg: premium collected over the strike, i.e.
+// the cash securing a put (or the assignment basis of a covered call).
+// Annualized simply via 365/DTE. A bought leg has no premium "return" to
+// speak of, so it gets none.
+function legRoi(leg) {
+  if (leg.side !== "SELL" || !isNum(leg.premium) || !isNum(leg.strike) || leg.strike <= 0) return null;
+  const pct = (leg.premium / leg.strike) * 100;
+  const annualized = isNum(leg.dte) && leg.dte > 0 ? pct * (365 / leg.dte) : null;
+  return { pct, annualized };
+}
+
+// Editable leg details, positioned above the ruler over its tag's strike —
+// replaces the old always-visible rows table (see StrikeRuler) so building a
+// multi-leg strategy doesn't need a full table's worth of vertical space for
+// legs that aren't being edited right now.
+const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, quote, onUpdate, onRemove, onClose }, ref) {
+  const roi = legRoi(leg);
+  return (
+    <div className="leg-popover" style={{ left: `${left}%` }} ref={ref}>
+      <div className="leg-popover-header">
+        <span>
+          {symbol} {leg.strike}
+          {leg.type[0]} · {leg.dte}d to exp
+        </span>
+        <button type="button" className="leg-popover-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+      <div className="leg-popover-grid">
+        <label>
+          Side
+          <select
+            className={`leg-cell leg-side-${leg.side.toLowerCase()}`}
+            value={leg.side}
+            onChange={(e) => onUpdate({ side: e.target.value })}
+          >
+            <option value="BUY">BUY</option>
+            <option value="SELL">SELL</option>
+          </select>
+        </label>
+        <label>
+          Qty
+          <input
+            className="leg-cell"
+            type="number"
+            min="1"
+            value={leg.qty}
+            onChange={(e) => onUpdate({ qty: Math.max(1, +e.target.value) })}
+          />
+        </label>
+        <label>
+          Type
+          <select className="leg-cell" value={leg.type} onChange={(e) => onUpdate({ type: e.target.value })}>
+            <option value="CALL">CALL</option>
+            <option value="PUT">PUT</option>
+          </select>
+        </label>
+        <label>
+          Strike
+          <input
+            className="leg-cell"
+            type="number"
+            step="0.5"
+            value={leg.strike}
+            onChange={(e) => onUpdate({ strike: +e.target.value })}
+          />
+        </label>
+        <label className="leg-popover-premium">
+          Premium
+          <input
+            className="leg-cell"
+            type="number"
+            step="0.01"
+            value={leg.premium}
+            onChange={(e) => onUpdate({ premium: Math.max(0, +e.target.value) })}
+          />
+        </label>
+      </div>
+      {quote &&
+        (isNum(quote.bid) || isNum(quote.ask) || isNum(quote.delta) || isNum(quote.iv) || isNum(quote.volume) || isNum(quote.openInterest)) && (
+          <div className="leg-popover-quote">
+            {isNum(quote.bid) && <span>Bid ${quote.bid.toFixed(2)}</span>}
+            {isNum(quote.ask) && <span>Ask ${quote.ask.toFixed(2)}</span>}
+            {isNum(quote.delta) && <span>Δ {quote.delta.toFixed(2)}</span>}
+            {isNum(quote.iv) && <span>IV {(quote.iv * 100).toFixed(1)}%</span>}
+            {isNum(quote.volume) && <span>Vol {Math.round(quote.volume).toLocaleString()}</span>}
+            {isNum(quote.openInterest) && <span>OI {Math.round(quote.openInterest).toLocaleString()}</span>}
+          </div>
+        )}
+      {roi && (
+        <div className="leg-popover-roi">
+          <span>ROI {roi.pct.toFixed(2)}%</span>
+          {roi.annualized != null && <span>Annualized {roi.annualized.toFixed(1)}%</span>}
+        </div>
+      )}
+      <button type="button" className="btn btn-primary leg-popover-remove" onClick={onRemove}>
+        Remove
+      </button>
+    </div>
+  );
+});
 
 /* ============================================================================
    Table view — strike x date theta-decay heatmap
@@ -1132,18 +1306,22 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg }) {
 // than set here — that token is already dark in light mode / light in dark
 // mode, which is exactly "black in normal mode, white in dark mode" without
 // hardcoding a theme check in JS.
+// var(--success-rgb)/var(--error-rgb) (tokens.css) instead of hardcoded RGB
+// literals — those were baked to the light-mode hex values, so in dark mode
+// the low-alpha cells blended into a muddy, desaturated tone instead of
+// reading as an actual red/green.
 function cellColor(value, maxProfit, maxLoss) {
   if (value >= 0) {
     const t = maxProfit > 0 ? Math.min(1, value / maxProfit) : 0;
     const alpha = 0.08 + t * 0.55;
-    return { background: `rgba(5, 150, 105, ${alpha})` };
+    return { background: `rgba(var(--success-rgb), ${alpha})` };
   }
   const t = maxLoss < 0 ? Math.min(1, value / maxLoss) : 0;
   const alpha = 0.08 + t * 0.55;
-  return { background: `rgba(220, 38, 38, ${alpha})` };
+  return { background: `rgba(var(--error-rgb), ${alpha})` };
 }
 
-function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss, chain }) {
+function PLTable({ legs, spot, lo, hi, dte, iv, chain }) {
   const chainStrikes = useMemo(() => (chain?.chain ?? []).map((r) => r.strikePrice), [chain]);
   const { dateCols, grid } = useMemo(
     () => buildPLTable(legs, spot, lo, hi, dte, iv, chainStrikes, 16, 8),
@@ -1155,11 +1333,15 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss, chain }) {
     0
   );
 
-  // maxLoss can be -Infinity for a genuinely unbounded strategy — fall back to the
-  // grid's own worst theoretical value so the heatmap coloring stays meaningful.
-  const colorMaxLoss = Number.isFinite(maxLoss)
-    ? maxLoss
-    : grid.reduce((min, row) => Math.min(min, ...row.values), 0);
+  // Color intensity is scaled to the grid's own visible best/worst values,
+  // not the strategy's theoretical maxProfit/maxLoss — e.g. a naked short
+  // put's max loss assumes the stock goes to zero, a number so much bigger
+  // than any realistic loss in a sane strike range that every red cell was
+  // getting crushed to the same near-invisible near-floor alpha, reading as
+  // a muddy brown instead of red. (maxLoss can also be -Infinity for a
+  // genuinely unbounded strategy, which this local scaling sidesteps too.)
+  const colorMaxProfit = grid.reduce((max, row) => Math.max(max, ...row.values), 0);
+  const colorMaxLoss = grid.reduce((min, row) => Math.min(min, ...row.values), 0);
 
   return (
     <>
@@ -1177,7 +1359,7 @@ function PLTable({ legs, spot, lo, hi, dte, iv, maxProfit, maxLoss, chain }) {
                 ${row.price.toFixed(0)}
               </div>
               {row.values.map((v, ci) => {
-                const style = cellColor(v, maxProfit, colorMaxLoss);
+                const style = cellColor(v, colorMaxProfit, colorMaxLoss);
                 return (
                   <div
                     key={ci}
@@ -1237,27 +1419,35 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
           </span>
         </div>
       )}
-      <div className="table-scroll">
+      <div className="table-scroll chain-table-scroll">
         <div className="chain-table">
-          <div className="chain-row chain-head">
-            <span style={{ gridColumn: "1 / 2" }} />
-            <span className="chain-side-label" style={{ gridColumn: "2 / 5" }}>CALLS</span>
-            <span style={{ gridColumn: "5 / 6" }} />
-            <span className="chain-side-label" style={{ gridColumn: "6 / 9" }}>PUTS</span>
-            <span style={{ gridColumn: "9 / 10" }} />
+          <div className="chain-header-sticky">
+            <div className="chain-row chain-head">
+              <span style={{ gridColumn: "1 / 2" }} />
+              <span className="chain-side-label" style={{ gridColumn: "2 / 8" }}>CALLS</span>
+              <span style={{ gridColumn: "8 / 9" }} />
+              <span className="chain-side-label" style={{ gridColumn: "9 / 15" }}>PUTS</span>
+              <span style={{ gridColumn: "15 / 16" }} />
+            </div>
+            <div className="chain-row chain-subhead">
+              <span></span>
+              <span>OI</span>
+              <span>Vol</span>
+              <span>IV</span>
+              <span>Delta</span>
+              <span>Bid</span>
+              <span>Ask</span>
+              <span>Strike</span>
+              <span>Bid</span>
+              <span>Ask</span>
+              <span>Delta</span>
+              <span>IV</span>
+              <span>Vol</span>
+              <span>OI</span>
+              <span></span>
+            </div>
           </div>
-          <div className="chain-row chain-subhead">
-            <span></span>
-            <span>Delta</span>
-            <span>Bid</span>
-            <span>Ask</span>
-            <span>Strike</span>
-            <span>Bid</span>
-            <span>Ask</span>
-            <span>Delta</span>
-            <span></span>
-          </div>
-          {visible.map((row) => {
+          {visible.map((row, i) => {
             const isAtm = row.strikePrice === atmStrike;
             const callLeg = legs.find((l) => l.strike === row.strikePrice && l.type === "CALL");
             const putLeg = legs.find((l) => l.strike === row.strikePrice && l.type === "PUT");
@@ -1269,7 +1459,7 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
             return (
               <div
                 key={row.strikePrice}
-                className={`chain-row ${isAtm ? "chain-atm" : ""} ${isSelected ? "chain-row-selected" : ""}`}
+                className={`chain-row ${isAtm ? "chain-atm" : ""} ${i % 2 === 1 ? "chain-row-even" : ""}`}
                 onDoubleClick={isSelected ? deselect : undefined}
                 title={isSelected ? "Double-click to remove this strike" : undefined}
               >
@@ -1280,37 +1470,47 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
                     </span>
                   )}
                 </span>
-                <span className="chain-delta">{isNum(row.call?.delta) ? row.call.delta.toFixed(2) : "—"}</span>
-                <span
-                  className={`chain-bid ${isNum(row.call?.bid) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.call?.bid) && onAddLeg("CALL", "SELL", row.strikePrice, midPrice(row.call))}
-                  title={isNum(row.call?.bid) ? "Sell a call at mid" : undefined}
-                >
-                  {isNum(row.call?.bid) ? row.call.bid.toFixed(2) : "—"}
-                </span>
-                <span
-                  className={`chain-ask ${isNum(row.call?.ask) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.call?.ask) && onAddLeg("CALL", "BUY", row.strikePrice, midPrice(row.call))}
-                  title={isNum(row.call?.ask) ? "Buy a call at mid" : undefined}
-                >
-                  {isNum(row.call?.ask) ? row.call.ask.toFixed(2) : "—"}
+                <span className={`chain-side-group ${callLeg ? "chain-side-selected" : ""}`}>
+                  <span className="chain-stat">{fmtCount(row.call?.openInterest)}</span>
+                  <span className="chain-stat">{fmtCount(row.call?.volume)}</span>
+                  <span className="chain-stat">{fmtIv(row.call?.iv)}</span>
+                  <span className="chain-delta">{isNum(row.call?.delta) ? row.call.delta.toFixed(2) : "—"}</span>
+                  <span
+                    className={`chain-bid ${isNum(row.call?.bid) ? "" : "chain-disabled"}`}
+                    onClick={() => isNum(row.call?.bid) && onAddLeg("CALL", "SELL", row.strikePrice, midPrice(row.call))}
+                    title={isNum(row.call?.bid) ? "Sell a call at mid" : undefined}
+                  >
+                    {isNum(row.call?.bid) ? row.call.bid.toFixed(2) : "—"}
+                  </span>
+                  <span
+                    className={`chain-ask ${isNum(row.call?.ask) ? "" : "chain-disabled"}`}
+                    onClick={() => isNum(row.call?.ask) && onAddLeg("CALL", "BUY", row.strikePrice, midPrice(row.call))}
+                    title={isNum(row.call?.ask) ? "Buy a call at mid" : undefined}
+                  >
+                    {isNum(row.call?.ask) ? row.call.ask.toFixed(2) : "—"}
+                  </span>
                 </span>
                 <span className="chain-strike">{row.strikePrice}</span>
-                <span
-                  className={`chain-bid ${isNum(row.put?.bid) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.put?.bid) && onAddLeg("PUT", "SELL", row.strikePrice, midPrice(row.put))}
-                  title={isNum(row.put?.bid) ? "Sell a put at mid" : undefined}
-                >
-                  {isNum(row.put?.bid) ? row.put.bid.toFixed(2) : "—"}
+                <span className={`chain-side-group ${putLeg ? "chain-side-selected" : ""}`}>
+                  <span
+                    className={`chain-bid ${isNum(row.put?.bid) ? "" : "chain-disabled"}`}
+                    onClick={() => isNum(row.put?.bid) && onAddLeg("PUT", "SELL", row.strikePrice, midPrice(row.put))}
+                    title={isNum(row.put?.bid) ? "Sell a put at mid" : undefined}
+                  >
+                    {isNum(row.put?.bid) ? row.put.bid.toFixed(2) : "—"}
+                  </span>
+                  <span
+                    className={`chain-ask ${isNum(row.put?.ask) ? "" : "chain-disabled"}`}
+                    onClick={() => isNum(row.put?.ask) && onAddLeg("PUT", "BUY", row.strikePrice, midPrice(row.put))}
+                    title={isNum(row.put?.ask) ? "Buy a put at mid" : undefined}
+                  >
+                    {isNum(row.put?.ask) ? row.put.ask.toFixed(2) : "—"}
+                  </span>
+                  <span className="chain-delta">{isNum(row.put?.delta) ? row.put.delta.toFixed(2) : "—"}</span>
+                  <span className="chain-stat">{fmtIv(row.put?.iv)}</span>
+                  <span className="chain-stat">{fmtCount(row.put?.volume)}</span>
+                  <span className="chain-stat">{fmtCount(row.put?.openInterest)}</span>
                 </span>
-                <span
-                  className={`chain-ask ${isNum(row.put?.ask) ? "" : "chain-disabled"}`}
-                  onClick={() => isNum(row.put?.ask) && onAddLeg("PUT", "BUY", row.strikePrice, midPrice(row.put))}
-                  title={isNum(row.put?.ask) ? "Buy a put at mid" : undefined}
-                >
-                  {isNum(row.put?.ask) ? row.put.ask.toFixed(2) : "—"}
-                </span>
-                <span className="chain-delta">{isNum(row.put?.delta) ? row.put.delta.toFixed(2) : "—"}</span>
                 <span className="chain-leg-col">
                   {putLeg && (
                     <span className={`chain-leg-badge ${putLeg.side === "SELL" ? "tag-sell" : "tag-buy"}`}>

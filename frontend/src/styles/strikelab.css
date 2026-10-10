@@ -2,6 +2,13 @@
 .symbol-exp-row { display: flex; align-items: flex-start; gap: 28px; flex-wrap: wrap; }
 .exp-group { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin-left: auto; min-width: 220px; }
 
+/* Wider than the plain form-group--sm used elsewhere (e.g. Charts' symbol
+   input) — this one also fits the Current price badge on the same row. */
+.symbol-group { max-width: 420px; }
+.symbol-input-row { display: flex; align-items: center; gap: 16px; }
+.symbol-input-row form { flex: 1; min-width: 120px; }
+.symbol-input-row .price-badge { margin-top: 0; white-space: nowrap; }
+
 /* ─── StrikeLab: expiration pills ─────────────────────── */
 .exp-pills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
 .exp-pill {
@@ -27,19 +34,23 @@
 
 /* ─── StrikeLab: strike ruler ──────────────────────────── */
 .strike-ruler { display: flex; flex-direction: column; gap: 2px; }
-/* Top/bottom margin has room for one stacked duplicate per side beyond the
-   base tag position (see StrikeRuler's stackIndexById) — e.g. a short
-   straddle's SELL call + SELL put at the same strike. */
-.ruler-track { position: relative; height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; margin: 76px 8px 86px; }
+/* Top/bottom margin is sized for a single (unstacked) leg tag per side —
+   trimmed from the old height that reserved room for a second stacked
+   duplicate too (see StrikeRuler's stackIndexById), which made the panel
+   taller than the common case needs. Two legs at the exact same
+   strike+side (e.g. a straddle's SELL call + SELL put) will overlap the
+   card content above/below by about a tag's height — a rare case,
+   accepted for a more compact panel. */
+.ruler-track { position: relative; height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; margin: 50px 8px 66px; }
 .ruler-line { position: absolute; inset: 0; border-radius: 3px; background: linear-gradient(90deg, var(--border), var(--border-strong)); }
 .ruler-tick { position: absolute; top: 12px; transform: translateX(-50%); font-size: 0.7rem; color: var(--text-faint); }
 .ruler-spot { position: absolute; top: -24px; transform: translateX(-50%); text-align: center; }
-.ruler-spot-label { font-size: 0.6rem; color: var(--primary); letter-spacing: 0.5px; font-weight: 700; display: block; }
-.ruler-spot-arrow { color: var(--primary); font-size: 12px; display: block; margin-top: -2px; }
+.ruler-spot-label { font-size: 0.85rem; color: var(--primary); letter-spacing: 0.5px; font-weight: 700; display: block; }
+.ruler-spot-arrow { color: var(--primary); font-size: 12px; display: block; margin-top: -5px; }
 .ruler-tag {
   position: absolute;
   transform: translateX(-50%);
-  font-size: 0.72rem;
+  font-size: 0.85rem;
   font-weight: 700;
   padding: 3px 8px;
   border-radius: var(--radius-sm);
@@ -59,7 +70,7 @@
 
 /* ─── StrikeLab: P&L heatmap (Table view) ─────────────── */
 .pl-heatmap { display: grid; gap: 2px; min-width: 560px; }
-.pl-cell { font-size: 0.78rem; text-align: center; padding: 8px 4px; border-radius: 4px; }
+.pl-cell { font-size: 0.78rem; text-align: center; padding: 8px 4px; }
 .pl-corner { color: var(--text-faint); font-size: 0.7rem; }
 .pl-colhead { color: var(--text-muted); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.3px; }
 .pl-strike { color: var(--text); font-weight: 700; background: var(--bg); }
@@ -68,24 +79,52 @@
 .pl-spotrow.pl-value { box-shadow: inset 0 0 0 1px rgba(37,99,235,0.4); }
 
 /* ─── StrikeLab: option chain ──────────────────────────── */
-.chain-table { display: flex; flex-direction: column; gap: 2px; min-width: 560px; }
-.chain-row { display: grid; grid-template-columns: 56px 1fr 1fr 1fr 100px 1fr 1fr 1fr 56px; gap: 2px; align-items: center; }
-.chain-row > span { font-size: 0.8rem; text-align: center; padding: 7px 4px; border-radius: 4px; }
+/* Caps how tall the chain gets before it scrolls internally — a wide range
+   (see the Range ±% slider) can list 40+ strikes, which otherwise pushes
+   the rest of the page down indefinitely. .table-scroll already handles
+   the horizontal case; this adds the vertical one just for this table. */
+.chain-table-scroll { max-height: 560px; overflow-y: auto; }
+.chain-table { display: flex; flex-direction: column; gap: 2px; min-width: 980px; }
+.chain-row { display: grid; grid-template-columns: 56px 1fr 1fr 1fr 1fr 1fr 1fr 100px 1fr 1fr 1fr 1fr 1fr 1fr 56px; gap: 2px; align-items: center; }
+.chain-row > span, .chain-side-group > span { font-size: 0.8rem; text-align: center; padding: 7px 4px; }
+
+/* The head/subhead rows keep the flat 15-column grid above (OI/Vol/IV/Delta/
+   Bid/Ask per side). Data rows collapse that same six-per-side set into one
+   flex group (below) so a selected leg can get a single continuous highlight
+   instead of six separate cell boxes; the group still uses the same 2px gap
+   as the outer grid, so fr-unit math works out to the same per-cell width
+   and stays pixel-aligned with the header. */
+.chain-row:not(.chain-head):not(.chain-subhead) { grid-template-columns: 56px 6fr 100px 6fr 56px; }
+.chain-row > .chain-side-group { display: flex; gap: 2px; align-items: center; padding: 0; }
+.chain-side-group > span { flex: 1; }
 
 /* Alternating row stripe, matching .data-table. Applied to the row container
    (not individual cells) so cells with their own background — .chain-strike,
-   .chain-bid:hover, .chain-ask:hover — simply paint over it undisturbed. */
-.chain-row:not(.chain-head):not(.chain-subhead):nth-child(even) { background: var(--bg); }
-/* Dark header, matching .data-table th */
+   .chain-bid:hover, .chain-ask:hover — simply paint over it undisturbed.
+   Driven by each row's own array index (see visible.map in
+   OptionChainTable) rather than a :nth-child CSS selector — the header rows
+   now live inside their own wrapper (.chain-header-sticky, see below) so
+   they no longer share a sibling index with the data rows for :nth-child to
+   count against. */
+.chain-row-even { background: var(--bg); }
+/* Dark header, matching .data-table th. Pinned to the top of the scroll
+   container below while scrolling a long chain — one shared sticky wrapper
+   for both rows (rather than each sticking independently) since the
+   subhead's own top offset would otherwise depend on the head row's exact
+   rendered height. */
+.chain-header-sticky { position: sticky; top: 0; z-index: 2; }
 .chain-head, .chain-subhead { background: var(--header-bg); }
 .chain-head span { font-size: var(--header-font-size); font-weight: 700; letter-spacing: 0.6px; color: var(--text-inverse); text-transform: uppercase; }
 .chain-subhead span { color: var(--text-inverse); font-size: var(--header-font-size); font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }
 .chain-strike { font-weight: 700; background: var(--primary-light); color: var(--text); }
 .chain-leg-col { display: flex; align-items: center; justify-content: center; }
-.chain-leg-badge { font-size: 0.62rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; line-height: 1.4; white-space: nowrap; }
+.chain-leg-badge { font-size: 0.74rem; font-weight: 700; padding: 2px 6px; border-radius: 999px; line-height: 1.4; white-space: nowrap; }
 .chain-leg-badge.tag-sell { background: var(--error-bg); color: var(--error); }
 .chain-leg-badge.tag-buy { background: var(--success-bg); color: var(--success); }
 .chain-delta { color: var(--text-muted); }
+/* IV/Volume/Open Interest — informational like Delta, not clickable like
+   Bid/Ask, so it gets the same muted treatment rather than its own color. */
+.chain-stat { color: var(--text-muted); }
 .chain-bid { cursor: pointer; color: var(--error); }
 .chain-bid:hover { background: var(--error-bg); }
 .chain-ask { cursor: pointer; color: var(--success); }
@@ -94,10 +133,15 @@
 .chain-disabled:hover { background: none; }
 .chain-atm .chain-strike { outline: 2px solid var(--primary); color: var(--primary); }
 
-/* A row with a leg attached needs to read clearly at a glance, so it overrides
-   the zebra stripe (hence !important) with a stronger tint plus a full-row outline. */
-.chain-row-selected { background: var(--primary-light) !important; box-shadow: inset 0 0 0 1.5px var(--primary); cursor: pointer; }
-.chain-row-selected > span { font-weight: 600; }
+/* A leg attached to one side needs to read clearly at a glance, so it overrides
+   the zebra stripe (hence !important) with a stronger tint on just that side's
+   delta/bid/ask group - one shared border around the trio, not 3 separate boxes. */
+.chain-side-selected {
+  background: var(--accent-light) !important;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
 
 .chain-empty { color: var(--text-muted); font-size: 0.85rem; padding: 24px 0; text-align: center; }
 
@@ -111,12 +155,67 @@
 .slider-row + .slider-row { margin-top: 14px; }
 .chain-week-badge { font-size: 0.78rem; font-weight: 700; color: var(--primary); background: var(--primary-light); border: 1px solid var(--primary-ring); border-radius: var(--radius-sm); padding: 4px 10px; white-space: nowrap; }
 .slider-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; width: 160px; flex-shrink: 0; }
-.range-slider { flex: 1; accent-color: var(--primary); }
+
+/* Custom track + thumb (OptionStrat-style: a slim pill track with a filled
+   segment up to the thumb, and a larger round thumb with a visible ring)
+   instead of the browser's plain default. The filled segment itself comes
+   from the element's own `background` (see sliderFillStyle in StrikeLab.jsx)
+   — the track pseudo-elements below stay transparent so that shows through;
+   Firefox's native `::-moz-range-progress` is skipped since the JS gradient
+   already covers it there too. */
+.range-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  outline: none;
+  transition: box-shadow 0.15s;
+}
+.range-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
+}
+.range-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
+}
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid var(--card-bg);
+  box-shadow: 0 0 0 1px var(--border-strong), var(--shadow-xs);
+  cursor: grab;
+  transition: transform 0.1s, box-shadow 0.15s;
+}
+.range-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid var(--card-bg);
+  box-shadow: 0 0 0 1px var(--border-strong), var(--shadow-xs);
+  cursor: grab;
+  transition: transform 0.1s, box-shadow 0.15s;
+}
+.range-slider:hover::-webkit-slider-thumb,
+.range-slider:focus-visible::-webkit-slider-thumb { transform: scale(1.15); }
+.range-slider:hover::-moz-range-thumb,
+.range-slider:focus-visible::-moz-range-thumb { transform: scale(1.15); }
+.range-slider:active::-webkit-slider-thumb { cursor: grabbing; }
+.range-slider:active::-moz-range-thumb { cursor: grabbing; }
+.range-slider:focus-visible { box-shadow: 0 0 0 4px var(--primary-ring); border-radius: 999px; }
 
 /* ─── StrikeLab: Strikes (legs) editor ─────────────────── */
-.legs-table { display: flex; flex-direction: column; gap: 8px; }
-.leg-row { display: grid; grid-template-columns: 84px 64px 96px 1fr 1fr 32px; gap: 8px; align-items: center; }
-.leg-row-head span { font-size: 0.72rem; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; }
 .leg-cell {
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -132,13 +231,92 @@
 .leg-cell:focus-visible { outline: none; border-color: var(--primary); }
 .leg-side-sell { color: var(--error); font-weight: 700; }
 .leg-side-buy { color: var(--success); font-weight: 700; }
-.leg-remove { background: none; border: none; color: var(--text-faint); font-size: 20px; cursor: pointer; line-height: 1; }
-.leg-remove:hover { color: var(--error); }
-.legs-empty { color: var(--text-muted); font-size: 0.85rem; padding: 16px 0; }
+
+/* A leg tag's editable popover — replaces the old always-visible rows table,
+   growing into the space that freed up below the ruler instead. Anchored
+   below the track (clear of both tag-above and tag-below, and of any
+   stacked duplicates — see STACK_STEP_PX in StrikeRuler) rather than above
+   it, since above has only .ruler-track's own margin to work with before
+   running into the Symbol card above. */
+.leg-popover {
+  position: absolute;
+  top: calc(100% + 70px);
+  transform: translateX(-50%);
+  z-index: 3;
+  width: 260px;
+  /* Light mode: the same neutral grey Copilot's assistant bubble uses
+     (--bg/--border) — matches the light color used for copilot's own text.
+     Dark mode below switches to Copilot's green instead (--success-bg/
+     -border there is a dark green rather than grey), same reasoning as
+     Copilot itself using different treatments per theme. Both use the
+     opaque -solid token where one exists, since this floats over the chain
+     table below it and a translucent surface let those rows show through. */
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: default;
+}
+:root[data-theme="dark"] .leg-popover {
+  background: var(--success-bg-solid);
+  border-color: var(--success-border-solid);
+}
+.leg-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.leg-popover-close { background: none; border: none; color: var(--text-faint); font-size: 18px; cursor: pointer; line-height: 1; padding: 0; }
+.leg-popover-close:hover { color: var(--error); }
+.leg-popover-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+}
+.leg-popover-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.leg-popover-premium { grid-column: 1 / -1; }
+.leg-popover-quote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+:root[data-theme="dark"] .leg-popover-quote { border-top-color: var(--success-border); }
+.leg-popover-roi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--success);
+}
+.leg-popover-remove { width: 100%; justify-content: center; }
+/* Keeps the clicked tag visually distinct while its popover is open, same
+   idea as .ruler-tag-dragging. */
+.ruler-tag-open { box-shadow: 0 0 0 2px var(--primary); z-index: 2; }
 
 /* ─── Responsive ─────────────────────────────────────── */
 @media (max-width: 640px) {
-  .leg-row { grid-template-columns: 62px 46px 68px 1fr 1fr 24px; }
   .slider-label { width: 120px; }
   /* Back to stacked — side by side gets too cramped below this width. */
   .slider-row-pair { flex-direction: column; gap: 0; }

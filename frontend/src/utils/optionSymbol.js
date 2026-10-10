@@ -16,5 +16,8 @@ import { formatDate } from './dateFormat'
 export function formatOptionSymbol(ticker, expirationDate, strike, optionType) {
   if (!ticker || !expirationDate || strike == null || !Number.isFinite(strike)) return null
   const cp = optionType === 'PUT' ? 'P' : 'C'
-  return `${ticker} ${formatDate(expirationDate)} ${strike.toFixed(2)} ${cp}`
+  // Trailing zeros dropped ("756" not "756.00") — a real fractional strike
+  // (e.g. "332.5") still shows its decimal, just without padding to 2 places.
+  const strikeStr = strike.toFixed(2).replace(/\.?0+$/, '')
+  return `${ticker} ${formatDate(expirationDate)} ${strikeStr} ${cp}`
 }

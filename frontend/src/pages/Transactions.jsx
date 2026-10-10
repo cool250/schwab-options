@@ -26,10 +26,11 @@ function optionSymbolCell(row) {
 
 const OPTION_COLUMNS = [
   { key: 'symbol', label: 'Symbol', render: optionSymbolCell },
+  { key: 'strike_price', label: 'Strike', align: 'right' },
   dateColumn('date', 'Opened Date'),
   dateColumn('close_date', 'Closed Date'),
   { key: 'open_type',     label: 'Opened As' },
-  { key: 'amount',        label: 'Quantity',     align: 'right' },
+  { key: 'qty',           label: 'Quantity',     align: 'right' },
   { key: 'open_price',     label: 'Cost basis',  align: 'right' },
   { key: 'close_price',   label: 'Closing Price',  align: 'right' },
   { key: 'total_amount',     label: 'Total Gain/Loss ($)',  align: 'right' },
@@ -93,7 +94,7 @@ function DownloadIcon() {
 
 function DownloadCsvButton({ onClick }) {
   return (
-    <button type="button" className="icon-btn" title="Download as CSV" onClick={onClick}>
+    <button type="button" className="btn btn-secondary icon-btn" title="Download as CSV" onClick={onClick}>
       <DownloadIcon />
       <span>CSV</span>
     </button>
@@ -222,7 +223,13 @@ export default function Transactions() {
   // realized (closed, shows its real total_amount) or unrealized (open,
   // shows its unrealized gain), never both, so one column covers it.
   // null while the live quote hasn't loaded yet, rendered as "—" by DataTable.
-  const optionRows = (transactions ?? []).map((t) => {
+  //
+  // Also exposes the API's `amount` (contract count — or a "N:M" label on a
+  // grouped ratio-spread row) as `qty` for the Quantity column: DataTable
+  // auto-colors any field whose name contains "amount" as a gain/loss, and
+  // a quantity isn't one.
+  const optionRows = (transactions ?? []).map((raw) => {
+    const t = { ...raw, qty: raw.amount }
     if (t.type !== 'TRADE') return t
     const price = optionQuotes[t.symbol]
     if (price == null) return { ...t, total_amount: null }
@@ -234,18 +241,42 @@ export default function Transactions() {
   // unrealized figures for open rows) so it isn't diluted by unrealized P&L.
   const totalAmount = (transactions ?? []).reduce((s, t) => s + (t.type === 'TRADE' ? 0 : (t.total_amount ?? 0)), 0)
 
-  // Live current price isn't a field on the row — it depends on the quote
-  // fetched separately above — so it's added as a render-only column (like
-  // the futures tab's current_price) rather than merged into the row data.
-  function currentPriceColumn() {
+  // Still-open rows' total_amount is null until optionQuotes loads (see
+  // optionRows above) — a render column so it can show "Loading..." instead
+  // of DataTable's default "—" for null, matching the Positions page pattern
+  // (futuresPnLColumn). getCellClass's automatic coloring is skipped for
+  // render columns, so it's reapplied manually here.
+  function totalAmountColumn() {
     return {
-      key: 'current_price',
-      label: 'Current Price',
+      key: 'total_amount',
+      label: 'Total Gain/Loss ($)',
       align: 'right',
       render: (row) => {
+        const val = row.total_amount
+        if (val == null) return row.type === 'TRADE' && optionQuotesLoading ? 'Loading...' : '—'
+        const text = val.toLocaleString('en-US', { maximumFractionDigits: 2 })
+        return <span className={val > 0 ? 'cell-positive' : val < 0 ? 'cell-negative' : ''}>{text}</span>
+      },
+    }
+  }
+
+  // A still-open row has no close_price yet — reuses the same Closing Price
+  // column to show its live current price instead of a separate column, the
+  // same one-column-covers-both approach as totalAmountColumn above. Live
+  // current price isn't a field on the row itself; it depends on the quote
+  // fetched separately (see optionQuotes above).
+  function closePriceColumn() {
+    return {
+      key: 'close_price',
+      label: 'Closing Price',
+      align: 'right',
+      render: (row) => {
+        if (row.type !== 'TRADE') {
+          return row.close_price != null ? row.close_price.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'
+        }
         const price = optionQuotes[row.symbol]
         if (price != null) return `$${price.toFixed(2)}`
-        return optionQuotesLoading ? '…' : '—'
+        return optionQuotesLoading ? 'Loading...' : '—'
       },
     }
   }
@@ -253,11 +284,14 @@ export default function Transactions() {
   // Live pricing is relevant whenever open rows can appear: the
   // unrealized-only view (every row is open), or the unfiltered "show
   // everything" view (open and closed rows mixed). Realized-only never has
-  // open rows. Close Price is only dropped in the pure-unrealized view — in
-  // the mixed view, closed rows still have a real close price to show.
+  // open rows, so its plain close_price/total_amount columns are left as-is.
   const showLivePricing = !realizedOnly
   const optionColumns = showLivePricing
-    ? [...(unrealizedOnly ? OPTION_COLUMNS.filter((c) => c.key !== 'close_price') : OPTION_COLUMNS), currentPriceColumn()]
+    ? OPTION_COLUMNS.map((c) => {
+        if (c.key === 'close_price') return closePriceColumn()
+        if (c.key === 'total_amount') return totalAmountColumn()
+        return c
+      })
     : OPTION_COLUMNS
 
   const totalUnrealizedGain = showLivePricing
@@ -348,8 +382,6 @@ export default function Transactions() {
 
   return (
     <div className="page">
-      <h2 className="page-title">Transactions</h2>
-
       <div className="tab-row">
         <button
           type="button"

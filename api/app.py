@@ -74,7 +74,7 @@ async def broker_auth_error_handler(request: Request, exc: BrokerAuthError):
 # A transient broker-side failure (e.g. Schwab returning 503s after retries)
 # is not an auth problem — FastAPI dispatches to the most specific handler by
 # exception type, so BrokerAuthError still hits the 503 handler above; every
-# other BrokerError (e.g. PositionService._require_position surfacing a
+# other BrokerError (e.g. PositionService._require_snapshot surfacing a
 # fetch failure instead of silently degrading to an empty portfolio) lands
 # here as a 502 so the frontend can show it as a system error distinct from
 # "please re-authenticate".

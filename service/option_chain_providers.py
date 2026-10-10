@@ -22,9 +22,13 @@ class OptionChainProvider(Protocol):
                 "symbol": str, "spot": float, "dte": int, "expirationDate": str,
                 "iv": float,
                 "chain": [{"strikePrice": float,
-                           "call": {"symbol", "bid", "ask", "delta"} | None,
-                           "put": {"symbol", "bid", "ask", "delta"} | None}, ...],
-            }, or None if unavailable.
+                           "call": {"symbol", "bid", "ask", "delta", "iv",
+                                     "volume", "openInterest"} | None,
+                           "put": {...} | None}, ...],
+            }, or None if unavailable. Per-contract "iv"/"volume"/
+            "openInterest" and the chain-level "iv" above are different
+            things — chain-level is one ATM-derived figure for the whole
+            chain, per-contract is that specific strike's own value.
         """
         ...
 
@@ -36,6 +40,68 @@ class OptionChainProvider(Protocol):
             list[dict]: [{"date": "YYYY-MM-DD", "dte": int}, ...] sorted by dte.
         """
         ...
+
+    def get_screener_contracts(
+        self,
+        symbol: str,
+        min_dte: int,
+        max_dte: int,
+        option_types: list[str],
+        min_otm_pct: float,
+        max_otm_pct: float,
+    ) -> Optional[dict]:
+        """Every contract for `symbol` across *all* expirations within
+        [min_dte, max_dte] whose strike falls inside the moneyness band —
+        one fetch for the whole window, unlike get_option_chain() which
+        resolves a single expiration. Backs the Options Screener page.
+
+        `option_types`: subset of ["PUT", "CALL"]. Moneyness is percent
+        out-of-the-money (positive = OTM, negative = ITM), mirrored per side
+        — see strike_in_band().
+
+        Returns:
+            dict | None: {
+                "symbol": str, "spot": float, "truncated": bool,
+                "contracts": [{"symbol", "type": "PUT"|"CALL",
+                               "expirationDate": "YYYY-MM-DD", "dte": int,
+                               "strike", "bid", "ask", "delta",
+                               "iv" (fraction, e.g. 0.25),
+                               "volume", "openInterest"}, ...],
+            }, or None if the symbol has no listed options.
+        """
+        ...
+
+
+# Upper bound on contracts streamed per ticker in one screener snapshot. A
+# daily-expiration underlying (SPY/QQQ, /ES) across a 60-DTE window with $1
+# strikes can produce thousands of contracts in even a modest moneyness band
+# — more than a single DXLink session reliably fills within its timeout.
+# Over the cap, the contracts nearest ATM are kept (the highest-premium,
+# so most ROI-relevant ones) and the result is flagged "truncated".
+MAX_SCREENER_CONTRACTS = 600
+
+
+def strike_in_band(strike: float, spot: float, option_type: str, min_otm_pct: float, max_otm_pct: float) -> bool:
+    """Whether `strike` is within [min_otm_pct, max_otm_pct] percent OTM for
+    `option_type` ("PUT"/"CALL"). OTM% is measured from spot in the direction
+    that makes the option worthless: below spot for puts, above for calls —
+    so "0 to 10" means "ATM out to 10% OTM" on either side, and a negative
+    bound reaches into ITM strikes."""
+    return min_otm_pct <= otm_pct(strike, spot, option_type) <= max_otm_pct
+
+
+def otm_pct(strike: float, spot: float, option_type: str) -> float:
+    if option_type == "PUT":
+        return (spot - strike) / spot * 100
+    return (strike - spot) / spot * 100
+
+
+def _cap_contracts(contracts: list[dict], spot: float, key) -> tuple[list[dict], bool]:
+    """Apply MAX_SCREENER_CONTRACTS, keeping the contracts whose strike
+    (extracted via `key`) is nearest spot."""
+    if len(contracts) <= MAX_SCREENER_CONTRACTS:
+        return contracts, False
+    return sorted(contracts, key=lambda c: abs(key(c) - spot))[:MAX_SCREENER_CONTRACTS], True
 
 
 class SchwabOptionChainProvider:
@@ -82,7 +148,15 @@ class SchwabOptionChainProvider:
             option = options[0] if options else None
             if option is None:
                 return None
-            return {"symbol": option.symbol, "bid": option.bid, "ask": option.ask, "delta": option.delta}
+            return {
+                "symbol": option.symbol,
+                "bid": option.bid,
+                "ask": option.ask,
+                "delta": option.delta,
+                "iv": option.volatility,
+                "volume": option.totalVolume,
+                "openInterest": option.openInterest,
+            }
 
         call_key, call_strikes = pick_expiration(option_chain.callExpDateMap)
         put_key, put_strikes = pick_expiration(option_chain.putExpDateMap)
@@ -150,6 +224,77 @@ class SchwabOptionChainProvider:
         expirations.sort(key=lambda e: e["dte"])
         return expirations
 
+    def get_screener_contracts(
+        self,
+        symbol: str,
+        min_dte: int,
+        max_dte: int,
+        option_types: list[str],
+        min_otm_pct: float,
+        max_otm_pct: float,
+    ) -> Optional[dict]:
+        today = datetime.now(pytz.timezone("US/Eastern")).date()
+        from_date = (today + timedelta(days=min_dte)).strftime("%Y-%m-%d")
+        to_date = (today + timedelta(days=max_dte)).strftime("%Y-%m-%d")
+        contract_type = option_types[0] if len(option_types) == 1 else "ALL"
+
+        try:
+            # Schwab has no "strikes within X% of spot" filter on this
+            # client, so over-fetch strikes and apply the moneyness band
+            # below once the spot price is known from the response itself.
+            option_chain = self.client.get_chain(
+                symbol, from_date, to_date, strike_count=200, contract_type=contract_type
+            )
+        except BrokerAuthError:
+            raise
+        except BrokerError as e:
+            logger.error("Failed to fetch screener chain for %s: %s", symbol, e)
+            raise
+
+        spot = option_chain.underlyingPrice
+        if not spot:
+            return None
+
+        def clean(value: Optional[float]) -> Optional[float]:
+            # Schwab reports -999 (and occasionally NaN) for greeks/IV it
+            # couldn't compute, e.g. on a deep-ITM or zero-bid contract.
+            if value is None or value != value or value <= -999:
+                return None
+            return value
+
+        contracts = []
+        for option_type, exp_map in (("CALL", option_chain.callExpDateMap), ("PUT", option_chain.putExpDateMap)):
+            if option_type not in option_types:
+                continue
+            for key, strikes in (exp_map or {}).items():
+                exp_date, dte = key.split(":")
+                if not min_dte <= int(dte) <= max_dte:
+                    continue
+                for strike, options in strikes.items():
+                    if not options or not strike_in_band(float(strike), spot, option_type, min_otm_pct, max_otm_pct):
+                        continue
+                    option = options[0]
+                    iv = clean(option.volatility)
+                    contracts.append({
+                        "symbol": option.symbol,
+                        "type": option_type,
+                        "expirationDate": exp_date,
+                        "dte": int(dte),
+                        "strike": float(strike),
+                        "bid": option.bid,
+                        "ask": option.ask,
+                        "delta": clean(option.delta),
+                        # Schwab's per-contract volatility is in percent
+                        # points (25.0); normalize to a fraction like
+                        # Tastytrade's so the screener sees one unit.
+                        "iv": iv / 100 if iv is not None else None,
+                        "volume": option.totalVolume,
+                        "openInterest": option.openInterest,
+                    })
+
+        contracts, truncated = _cap_contracts(contracts, spot, key=lambda c: c["strike"])
+        return {"symbol": option_chain.symbol, "spot": spot, "truncated": truncated, "contracts": contracts}
+
 
 class TastytradeOptionChainProvider:
     """Options-chain fetching backed by TastytradeClient."""
@@ -187,17 +332,26 @@ class TastytradeOptionChainProvider:
         try:
             snapshot = self.client.get_chain_snapshot(symbol, contracts, known_spot=spot)
             quotes, greeks = snapshot["quotes"], snapshot["greeks"]
+            volume, open_interest = snapshot["volume"], snapshot["open_interest"]
         except TastytradeAPIError as e:
             logger.error("Failed to fetch chain quotes/greeks for %s: %s", symbol, e)
-            quotes, greeks = {}, {}
+            quotes, greeks, volume, open_interest = {}, {}, {}, {}
 
-        return self._normalize_chain(contracts, quotes, greeks, spot)
+        return self._normalize_chain(contracts, quotes, greeks, spot, volume, open_interest)
 
     def _normalize_chain(
-        self, contracts: list[dict], quotes: dict[str, dict], greeks: dict[str, dict], spot: float
+        self,
+        contracts: list[dict],
+        quotes: dict[str, dict],
+        greeks: dict[str, dict],
+        spot: float,
+        volume: Optional[dict[str, float]] = None,
+        open_interest: Optional[dict[str, float]] = None,
     ) -> Optional[dict]:
         """Merge Tastytrade's flat contract list into the same strike-indexed
         shape SchwabOptionChainProvider produces."""
+        volume = volume or {}
+        open_interest = open_interest or {}
 
         def leg(contract: Optional[dict]) -> Optional[dict]:
             if contract is None:
@@ -209,6 +363,9 @@ class TastytradeOptionChainProvider:
                 "bid": quote.get("bid"),
                 "ask": quote.get("ask"),
                 "delta": greeks.get(sym, {}).get("delta"),
+                "iv": greeks.get(sym, {}).get("iv"),
+                "volume": volume.get(sym),
+                "openInterest": open_interest.get(sym),
             }
 
         by_strike: dict[float, dict[str, dict]] = {}
@@ -281,6 +438,76 @@ class TastytradeOptionChainProvider:
         expirations.sort(key=lambda e: e["dte"])
         return expirations
 
+    def get_screener_contracts(
+        self,
+        symbol: str,
+        min_dte: int,
+        max_dte: int,
+        option_types: list[str],
+        min_otm_pct: float,
+        max_otm_pct: float,
+    ) -> Optional[dict]:
+        try:
+            spot = self.client.get_live_underlying_price(symbol)
+            contracts = self.client.get_options_chain(
+                symbol,
+                min_dte=min_dte,
+                max_dte=max_dte,
+                option_type=option_types[0].lower() if len(option_types) == 1 else "all",
+                fetch_live_price=False,
+            )
+        except (TastytradeAPIError, ValueError, TimeoutError) as e:
+            logger.error("Failed to fetch screener chain for %s: %s", symbol, e)
+            raise
+
+        def contract_type(contract: dict) -> str:
+            return "PUT" if contract.get("option-type", "").upper().startswith("P") else "CALL"
+
+        contracts = [
+            c for c in contracts
+            if c.get("streamer-symbol")
+            and strike_in_band(float(c.get("strike-price", 0)), spot, contract_type(c), min_otm_pct, max_otm_pct)
+        ]
+        if not contracts:
+            return None
+        contracts, truncated = _cap_contracts(contracts, spot, key=lambda c: float(c.get("strike-price", 0)))
+
+        try:
+            # Longer timeout than a single-expiration chain load — a
+            # multi-expiration screener snapshot can be several hundred
+            # contracts, each needing its own Quote/Greeks/Summary event.
+            snapshot = self.client.get_chain_snapshot(symbol, contracts, timeout=8.0, known_spot=spot)
+        except TastytradeAPIError as e:
+            logger.error("Failed to fetch screener quotes/greeks for %s: %s", symbol, e)
+            raise
+
+        quotes, greeks = snapshot["quotes"], snapshot["greeks"]
+        volume, open_interest = snapshot["volume"], snapshot["open_interest"]
+        rows = []
+        for c in contracts:
+            sym = c["streamer-symbol"]
+            quote = quotes.get(sym, {})
+            rows.append({
+                "symbol": sym,
+                "type": contract_type(c),
+                "expirationDate": c.get("expiration-date"),
+                "dte": c.get("days-to-expiration"),
+                "strike": float(c.get("strike-price", 0)),
+                "bid": quote.get("bid"),
+                "ask": quote.get("ask"),
+                "delta": greeks.get(sym, {}).get("delta"),
+                "iv": greeks.get(sym, {}).get("iv"),
+                "volume": volume.get(sym),
+                "openInterest": open_interest.get(sym),
+            })
+
+        return {
+            "symbol": symbol_from_contracts(contracts) or symbol,
+            "spot": spot,
+            "truncated": truncated,
+            "contracts": rows,
+        }
+
 
 def symbol_from_contracts(contracts: list[dict]) -> Optional[str]:
     for contract in contracts:
@@ -291,11 +518,11 @@ def symbol_from_contracts(contracts: list[dict]) -> Optional[str]:
 
 
 def get_option_chain_provider() -> OptionChainProvider:
-    """Select the option-chain provider based on the BROKER_PROVIDER env var
+    """Select the option-chain provider based on the CHAIN_PROVIDER env var
     (set in .env). Defaults to Tastytrade."""
-    provider = os.environ.get("BROKER_PROVIDER", "tastytrade").strip().lower()
+    provider = os.environ.get("CHAIN_PROVIDER", "tastytrade").strip().lower()
     if provider == "tastytrade":
         return TastytradeOptionChainProvider()
     if provider == "schwab":
         return SchwabOptionChainProvider()
-    raise ValueError(f"Unknown BROKER_PROVIDER {provider!r}; expected 'schwab' or 'tastytrade'")
+    raise ValueError(f"Unknown CHAIN_PROVIDER {provider!r}; expected 'schwab' or 'tastytrade'")

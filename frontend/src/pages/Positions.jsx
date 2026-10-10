@@ -407,10 +407,6 @@ export default function Positions() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h2 className="page-title">Positions</h2>
-      </div>
-
       <div className="tab-bar">
         <div className="tab-row">
           <button

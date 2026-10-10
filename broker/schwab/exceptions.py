@@ -1,58 +1,17 @@
 """
-Typed exception hierarchy for the broker SDK.
+Backward-compatible re-export of the broker-neutral exception hierarchy —
+see broker/exceptions.py for the actual definitions and docstrings.
 
-All broker exceptions inherit from :class:`BrokerError` so callers can
-catch the base class when they don't need to distinguish failure modes::
-
-    from broker.schwab.exceptions import BrokerError, BrokerAuthError, BrokerAPIError, BrokerValidationError
-
-    try:
-        quote = client.get_price("AAPL")
-    except BrokerAuthError:
-        # Token expired and refresh failed — re-authenticate via broker.schwab.auth.authenticate
-        ...
-    except BrokerAPIError as e:
-        print(e.status_code)   # HTTP status, if available
-    except BrokerValidationError:
-        # API response schema changed
-        ...
-    except BrokerError:
-        # Catch-all for any other broker failure
-        ...
+These used to be defined here, Schwab-specific in name only (the hierarchy
+was always meant to be broker-neutral, per its own original docstring).
+Moved so a non-Schwab provider (e.g. a future TastytradeAccountProvider)
+can raise/import them without an odd `from broker.schwab.exceptions import
+...`. `from X import Y` preserves class identity, so every existing
+`except BrokerError` (or `BrokerAuthError`, etc.) written against this
+module path still catches the exact same runtime exceptions — no caller
+needs to change.
 """
 
+from broker.exceptions import BrokerError, BrokerAuthError, BrokerAPIError, BrokerValidationError
 
-class BrokerError(Exception):
-    """Base class for all broker SDK exceptions."""
-
-
-class BrokerAuthError(BrokerError):
-    """
-    Raised when authentication fails or a token refresh cannot be completed.
-
-    This typically means the refresh token has expired and the user must
-    re-authenticate via :func:`broker.schwab.auth.authenticate.get_access_token`.
-    """
-
-
-class BrokerAPIError(BrokerError):
-    """
-    Raised when an API call returns a non-200 response after all retries.
-
-    Attributes
-    ----------
-    status_code : int | None
-        HTTP status code of the final failed response, if available.
-    """
-
-    def __init__(self, message: str, status_code: int | None = None) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-
-
-class BrokerValidationError(BrokerError):
-    """
-    Raised when an API response cannot be parsed into the expected Pydantic model.
-
-    Usually indicates the Schwab API schema has changed.
-    """
+__all__ = ["BrokerError", "BrokerAuthError", "BrokerAPIError", "BrokerValidationError"]

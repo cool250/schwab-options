@@ -56,16 +56,8 @@
 .price-badge.ok  { color: var(--success); }
 .price-badge.err { color: var(--error); }
 
-/* ─── Max-return result metrics ──────────────────────── */
-.result-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
 /* ─── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
   .metrics-row    { flex-direction: column; align-items: flex-start; gap: 4px; }
   .metric         { border-right: none; margin-right: 0; padding-right: 0; }
-  .result-metrics { grid-template-columns: 1fr; }
 }

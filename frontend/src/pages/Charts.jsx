@@ -9,13 +9,57 @@ import {
   ReferenceLine,
   Tooltip,
 } from "recharts";
-import { getPriceHistory, friendlyErrorMessage } from "../api/client";
+import { getPriceHistory, getOptionChain, friendlyErrorMessage } from "../api/client";
 import { symbolStore } from "../utils/symbolStore";
 
 const isNum = (x) => typeof x === "number" && Number.isFinite(x);
 
-const formatDateLabel = (dateStr) =>
-  new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+// Every button on the Charts page's timeframe row, in display order — see
+// service/market.py's _RANGE_PARAMS for what each one actually fetches
+// (bar size and how far back).
+const RANGES = ["1D", "5D", "1M", "6M", "YTD", "1Y", "5Y", "MAX"];
+
+// Candle timestamps are a full ISO datetime now (see service/market.py),
+// not just a date, since 1D/5D are intraday bars — but how much of that to
+// actually show depends on the selected range: a time-of-day for a single
+// day, a coarser month/day for the middle ranges, and just month/year once
+// each candle is a week or a month wide (5Y/MAX) rather than a day.
+const formatDateLabel = (dateStr, range) => {
+  // A bare "YYYY-MM-DD" (e.g. the options snapshot's expirationDate, unlike
+  // candle timestamps which always carry a time) has no timezone of its
+  // own — the Date constructor treats that shape as UTC midnight, which
+  // then renders as the *previous* day once toLocaleDateString converts it
+  // to any timezone behind UTC. Appending a bare local time anchors it to
+  // local midnight instead, same fix this function used before it also had
+  // to handle full intraday timestamps.
+  const d = new Date(dateStr.includes("T") ? dateStr : `${dateStr}T00:00:00`);
+  if (range === "1D") return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (range === "5D") return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric" });
+  if (range === "5Y" || range === "MAX") return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
+
+// Matches _RANGE_PARAMS' bar size on the backend — shown in the chart's
+// caption so "swing support/resistance" always reads next to what it was
+// actually computed from.
+const RANGE_CAPTION = {
+  "1D": "Today · 5-min candles",
+  "5D": "Last 5 days · 30-min candles",
+  "1M": "Last month · daily candles",
+  "6M": "Last 6 months · daily candles",
+  YTD: "Year to date · daily candles",
+  "1Y": "Last year · daily candles",
+  "5Y": "Last 5 years · weekly candles",
+  MAX: "Full history · monthly candles",
+};
+
+// Shared by both put/call ratio gauges (volume-based and OI-based) — same
+// thresholds a high put/call ratio conventionally reads as (more puts
+// relative to calls = more hedging/bearish positioning).
+const ratioSentiment = (ratio) =>
+  ratio == null ? null : ratio < 0.7 ? "Bullish" : ratio > 1.3 ? "Bearish" : "Neutral";
+const sentimentClassName = (sentiment) =>
+  sentiment === "Bullish" ? "positive" : sentiment === "Bearish" ? "negative" : "";
 
 export default function Charts() {
   // symbolStore is shared with Analyze (StrikeLab, and always has a value,
@@ -23,6 +67,7 @@ export default function Charts() {
   // and vice versa, instead of each page drifting independently.
   const [symbol, setSymbol] = useState(symbolStore.symbol);
   const [symbolInput, setSymbolInput] = useState(symbolStore.symbol);
+  const [range, setRange] = useState("1M");
   const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -38,7 +83,7 @@ export default function Charts() {
     (async () => {
       setLoading(true);
       try {
-        const result = await getPriceHistory(symbol, 30);
+        const result = await getPriceHistory(symbol, range);
         if (cancelled) return;
         if (result?.candles?.length) {
           setHistory(result);
@@ -60,7 +105,7 @@ export default function Charts() {
     return () => {
       cancelled = true;
     };
-  }, [symbol]);
+  }, [symbol, range]);
 
   const submitSymbol = (e) => {
     e.preventDefault();
@@ -70,13 +115,9 @@ export default function Charts() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h2 className="page-title">Charts</h2>
-      </div>
-
       <div className="card">
         <div className="form-group form-group--sm">
-          <label>Symbol</label>
+          <h3 className="section-title">Symbol</h3>
           <form onSubmit={submitSymbol}>
             <input
               className="input"
@@ -89,8 +130,308 @@ export default function Charts() {
       </div>
 
       <div className="card">
+        {symbol && (
+          <div className="range-row">
+            <div className="range-pills">
+              {RANGES.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={`range-pill ${r === range ? "active" : ""}`}
+                  onClick={() => setRange(r)}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <ChangeBadge history={history} />
+          </div>
+        )}
         <PriceHistoryChart history={history} loading={loading} error={symbol ? error : null} noSymbol={!symbol} />
       </div>
+
+      <OptionsSnapshot symbol={symbol} />
+    </div>
+  );
+}
+
+/** % change from the first candle's open to the last candle's close, over
+ *  whichever range is currently selected — the colored badge next to the
+ *  timeframe buttons. */
+function ChangeBadge({ history }) {
+  const candles = history?.candles;
+  if (!candles || candles.length < 2) return null;
+  const first = candles[0];
+  const last = candles[candles.length - 1];
+  if (!isNum(first.open) || first.open === 0 || !isNum(last.close)) return null;
+  const pct = ((last.close - first.open) / first.open) * 100;
+  const isUp = pct >= 0;
+  return (
+    <span className={`chart-tooltip-pl ${isUp ? "positive" : "negative"} range-change-badge`}>
+      {isUp ? "+" : ""}
+      {pct.toFixed(2)}%
+    </span>
+  );
+}
+
+/** Live options-market snapshot for `symbol`'s nearest expiration: ATM
+ *  implied volatility and the put/call volume ratio, each as a gauge, plus
+ *  the raw call/put/total volume it's built from.
+ *
+ *  Deliberately narrower than a typical "options overview" dashboard (no
+ *  IV Rank/Percentile, no 52-week IV high/low, no aggregate-across-every-
+ *  expiration figures) — those need a year+ of stored IV history this app
+ *  doesn't collect, or fundamentals data neither Schwab nor Tastytrade
+ *  expose the way they're used here. Everything shown is derived live from
+ *  one expiration's chain (see getOptionChain), the same per-contract iv/
+ *  volume/openInterest fields StrikeLab's chain table already surfaces. */
+function OptionsSnapshot({ symbol }) {
+  const [chain, setChain] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!symbol) {
+      setChain(null);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    // dte=0 targets today's expiration — the backend resolves it to
+    // whichever real *listed* expiration is closest (see
+    // TastytradeOptionChainProvider.get_option_chain), and Tastytrade's
+    // chain only ever lists current/unexpired contracts, so "closest to
+    // today" naturally becomes "the next business day's expiration"
+    // whenever today itself has none (a weekend/holiday, or a symbol with
+    // no daily expirations) — verified live on a Sunday: resolved straight
+    // to Monday's expiration with no special-casing needed here.
+    getOptionChain(symbol, 0)
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.chain?.length) {
+          setChain(data);
+          setError(null);
+        } else {
+          setChain(null);
+          setError(data?.message || "No option chain available for this symbol.");
+        }
+      })
+      .catch((e) => {
+        console.error("Failed to load option chain:", e);
+        if (!cancelled) {
+          setChain(null);
+          setError(friendlyErrorMessage(e, e.message || "Failed to load options data."));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+
+  if (!symbol) return null;
+
+  return (
+    <div className="card">
+      <h3 className="section-title">Options Snapshot</h3>
+      {loading ? (
+        <div className="chain-empty">Loading options snapshot…</div>
+      ) : error ? (
+        <div className="chain-empty">{error}</div>
+      ) : chain ? (
+        <OptionsSnapshotBody chain={chain} />
+      ) : (
+        <div className="chain-empty">No option chain available for this symbol.</div>
+      )}
+    </div>
+  );
+}
+
+function OptionsSnapshotBody({ chain }) {
+  const rows = chain.chain;
+
+  let putVolume = 0;
+  let callVolume = 0;
+  let putOI = 0;
+  let callOI = 0;
+  for (const row of rows) {
+    if (isNum(row.call?.volume)) callVolume += row.call.volume;
+    if (isNum(row.put?.volume)) putVolume += row.put.volume;
+    if (isNum(row.call?.openInterest)) callOI += row.call.openInterest;
+    if (isNum(row.put?.openInterest)) putOI += row.put.openInterest;
+  }
+  const totalVolume = putVolume + callVolume;
+  const totalOI = putOI + callOI;
+  const putCallRatio = callVolume > 0 ? putVolume / callVolume : null;
+  const oiPutCallRatio = callOI > 0 ? putOI / callOI : null;
+
+  // ATM = the strike closest to spot; average of its call/put IV, same
+  // convention SchwabOptionChainProvider._normalize_chain already uses for
+  // this chain's own chain-level "iv" field (see service/option_chain_providers.py).
+  const atmRow = rows.reduce((a, b) =>
+    Math.abs(b.strikePrice - chain.spot) < Math.abs(a.strikePrice - chain.spot) ? b : a
+  );
+  const atmIvValues = [atmRow.call?.iv, atmRow.put?.iv].filter(isNum);
+  const atmIv = atmIvValues.length ? atmIvValues.reduce((s, v) => s + v, 0) / atmIvValues.length : null;
+
+  const sentiment = ratioSentiment(putCallRatio);
+  const sentimentClass = sentimentClassName(sentiment);
+  const oiSentiment = ratioSentiment(oiPutCallRatio);
+  const oiSentimentClass = sentimentClassName(oiSentiment);
+
+  return (
+    <>
+      <p className="summary-line">
+        {formatDateLabel(chain.expirationDate)} · {chain.dte}d to expiration
+      </p>
+      <div className="gauge-row">
+        <Gauge
+          label="Implied Volatility (ATM)"
+          value={atmIv != null ? atmIv * 100 : null}
+          min={0}
+          max={150}
+          format={(v) => `${v.toFixed(1)}%`}
+          zones={[
+            { to: 30, color: "var(--success)" },
+            { to: 70, color: "var(--warning)" },
+            { to: 150, color: "var(--error)" },
+          ]}
+        />
+        <Gauge
+          label="Put/Call Volume Ratio"
+          value={putCallRatio}
+          min={0}
+          max={2}
+          format={(v) => v.toFixed(2)}
+          zones={[
+            { to: 0.7, color: "var(--success)" },
+            { to: 1.3, color: "var(--warning)" },
+            { to: 2, color: "var(--error)" },
+          ]}
+          footer={
+            <>
+              {sentiment && <span className={`chart-tooltip-pl ${sentimentClass}`}>{sentiment}</span>}
+              <GaugeStats
+                items={[
+                  { label: "Call", value: callVolume },
+                  { label: "Put", value: putVolume },
+                  { label: "Total", value: totalVolume },
+                ]}
+              />
+            </>
+          }
+        />
+        <Gauge
+          label="Put/Call Open Interest Ratio"
+          value={oiPutCallRatio}
+          min={0}
+          max={2}
+          format={(v) => v.toFixed(2)}
+          zones={[
+            { to: 0.7, color: "var(--success)" },
+            { to: 1.3, color: "var(--warning)" },
+            { to: 2, color: "var(--error)" },
+          ]}
+          footer={
+            <>
+              {oiSentiment && <span className={`chart-tooltip-pl ${oiSentimentClass}`}>{oiSentiment}</span>}
+              <GaugeStats
+                items={[
+                  { label: "Call", value: callOI },
+                  { label: "Put", value: putOI },
+                  { label: "Total", value: totalOI },
+                ]}
+              />
+            </>
+          }
+        />
+      </div>
+    </>
+  );
+}
+
+/** Call/Put/Total breakdown shown under a gauge (see Gauge's `footer`) —
+ *  keeps the numbers a ratio gauge is computed from right next to it,
+ *  instead of a separate row shared across every gauge in the card. */
+function GaugeStats({ items }) {
+  return (
+    <div className="gauge-stats">
+      {items.map(({ label, value }) => (
+        <div key={label} className="gauge-stat">
+          <span className="gauge-stat-label">{label}</span>
+          <span className="gauge-stat-value">{value.toLocaleString()}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A semicircular meter: colored severity zones (see `zones`, each a value
+ *  boundary + the color of the band ending there) with a needle pointing at
+ *  `value`. `null`/missing value renders a neutral gray needle-less dial
+ *  rather than guessing a position. */
+function Gauge({ label, value, min, max, format, zones, footer }) {
+  const cx = 100;
+  const cy = 95;
+  const r = 78;
+  const strokeWidth = 16;
+
+  const fractionOf = (v) => Math.min(1, Math.max(0, (v - min) / (max - min)));
+  // 180deg (left, min) sweeping over the top to 0deg (right, max) — standard
+  // math angle convention (0deg = +x axis, increasing counterclockwise).
+  const angleOf = (v) => 180 - fractionOf(v) * 180;
+  const pointAt = (angleDeg, radius) => {
+    const rad = (angleDeg * Math.PI) / 180;
+    return { x: cx + radius * Math.cos(rad), y: cy - radius * Math.sin(rad) };
+  };
+  const arcPath = (fromV, toV) => {
+    const a1 = angleOf(fromV);
+    const a2 = angleOf(toV);
+    const p1 = pointAt(a1, r);
+    const p2 = pointAt(a2, r);
+    return `M ${p1.x} ${p1.y} A ${r} ${r} 0 0 1 ${p2.x} ${p2.y}`;
+  };
+
+  let prev = min;
+  const bands = zones.map((zone, i) => {
+    const path = arcPath(prev, zone.to);
+    prev = zone.to;
+    return <path key={i} d={path} fill="none" stroke={zone.color} strokeWidth={strokeWidth} strokeLinecap="butt" />;
+  });
+
+  const hasValue = isNum(value);
+  const needleAngle = angleOf(hasValue ? value : min);
+  const needleTip = pointAt(needleAngle, r - strokeWidth / 2 - 4);
+
+  return (
+    <div className="gauge">
+      <div className="gauge-dial">
+        {/* Height 130, not 110 — the min/max scale labels sit at y = cy+16
+            (111), which is already past a 110-tall viewBox's own bottom
+            edge, and SVG clips anything past the viewBox by default. */}
+        <svg viewBox="0 0 200 130" width="100%">
+          {bands}
+          {hasValue && (
+            <>
+              <line x1={cx} y1={cy} x2={needleTip.x} y2={needleTip.y} stroke="var(--text)" strokeWidth={2.5} strokeLinecap="round" />
+              <circle cx={cx} cy={cy} r={5} fill="var(--text)" />
+            </>
+          )}
+          <text x={cx - r} y={cy + 16} textAnchor="middle" className="gauge-scale-label">
+            {format(min)}
+          </text>
+          <text x={cx + r} y={cy + 16} textAnchor="middle" className="gauge-scale-label">
+            {format(max)}
+          </text>
+        </svg>
+        <div className="gauge-value">{hasValue ? format(value) : "—"}</div>
+        <div className="gauge-label">{label}</div>
+      </div>
+      {footer && <div className="gauge-side">{footer}</div>}
     </div>
   );
 }
@@ -125,7 +466,7 @@ function Candle({ x, y, width, height, payload }) {
 
 /** Last-30-days daily candlesticks with swing support/resistance levels
  *  (see service/market.py's _swing_levels) drawn as horizontal reference
- *  lines. Backed by Schwab regardless of BROKER_PROVIDER — Tastytrade has
+ *  lines. Backed by Schwab regardless of CHAIN_PROVIDER — Tastytrade has
  *  no REST daily-bar endpoint — so this may come back empty for a futures
  *  root like "/NQ" even when the option chain elsewhere is working fine. */
 function PriceHistoryChart({ history, loading, error, noSymbol }) {
@@ -148,7 +489,7 @@ function PriceHistoryChart({ history, loading, error, noSymbol }) {
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
           <XAxis
             dataKey="date"
-            tickFormatter={formatDateLabel}
+            tickFormatter={(v) => formatDateLabel(v, history.range)}
             stroke="var(--text-faint)"
             tick={{ fontSize: 12 }}
             tickLine={false}
@@ -163,7 +504,7 @@ function PriceHistoryChart({ history, loading, error, noSymbol }) {
             axisLine={false}
             width={56}
           />
-          <Tooltip content={<PriceHistoryTooltip />} />
+          <Tooltip content={<PriceHistoryTooltip range={history.range} />} />
           {history.resistance.map((lvl, i) => (
             <ReferenceLine
               key={`r${i}`}
@@ -171,7 +512,16 @@ function PriceHistoryChart({ history, loading, error, noSymbol }) {
               stroke="var(--error)"
               strokeDasharray="4 4"
               strokeWidth={1.5}
-              label={{ value: `R $${lvl.toFixed(2)}`, position: "insideTopRight", fill: "var(--error)", fontSize: 11 }}
+              // Alternate right/left by index — two resistance levels close
+              // enough in price to land on (near-)identical pixel rows would
+              // otherwise both anchor to the same "insideTopRight" corner
+              // and render as illegibly overlapping text.
+              label={{
+                value: `R $${lvl.toFixed(2)}`,
+                position: i % 2 === 0 ? "insideTopRight" : "insideTopLeft",
+                fill: "var(--error)",
+                fontSize: 11,
+              }}
             />
           ))}
           {history.support.map((lvl, i) => (
@@ -181,24 +531,29 @@ function PriceHistoryChart({ history, loading, error, noSymbol }) {
               stroke="var(--success)"
               strokeDasharray="4 4"
               strokeWidth={1.5}
-              label={{ value: `S $${lvl.toFixed(2)}`, position: "insideBottomRight", fill: "var(--success)", fontSize: 11 }}
+              label={{
+                value: `S $${lvl.toFixed(2)}`,
+                position: i % 2 === 0 ? "insideBottomRight" : "insideBottomLeft",
+                fill: "var(--success)",
+                fontSize: 11,
+              }}
             />
           ))}
           <Bar dataKey="range" shape={Candle} isAnimationActive={true} animationDuration={700} />
         </ComposedChart>
       </ResponsiveContainer>
-      <p className="chart-caption">Last 30 days · daily candles with swing support/resistance</p>
+      <p className="chart-caption">{RANGE_CAPTION[history.range] ?? RANGE_CAPTION["1M"]} with swing support/resistance</p>
     </>
   );
 }
 
-function PriceHistoryTooltip({ active, payload, label }) {
+function PriceHistoryTooltip({ active, payload, label, range }) {
   if (!active || !payload || !payload.length) return null;
   const { open, high, low, close } = payload[0].payload;
   const isUp = close >= open;
   return (
     <div className="chart-tooltip">
-      <div className="chart-tooltip-price">{formatDateLabel(label)}</div>
+      <div className="chart-tooltip-price">{formatDateLabel(label, range)}</div>
       <div className={`chart-tooltip-pl ${isUp ? "positive" : "negative"}`}>
         O {open.toFixed(2)} · H {high.toFixed(2)} · L {low.toFixed(2)} · C {close.toFixed(2)}
       </div>
