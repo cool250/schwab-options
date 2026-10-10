@@ -34,6 +34,7 @@ export default function Navbar() {
         <NavLink to="/allocation"   className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Reports</NavLink>
         <NavLink to="/analyze"    className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Analyze</NavLink>
         <NavLink to="/charts"     className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Charts</NavLink>
+        <NavLink to="/screener"   className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`} onClick={close}>Screener</NavLink>
         <a href="#" onClick={(e) => { e.preventDefault(); toggleTheme() }} className="nav-link navbar-theme-toggle--mobile">
           {theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}
         </a>

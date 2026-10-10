@@ -56,7 +56,12 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
     ? [...data].sort((a, b) => {
         const av = a[sortCol] ?? ''
         const bv = b[sortCol] ?? ''
-        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+        // Real numbers compare numerically — a numeric-collation string
+        // compare ignores the minus sign, so e.g. put deltas (-0.45, -0.30)
+        // would sort as if positive.
+        const cmp = typeof av === 'number' && typeof bv === 'number'
+          ? av - bv
+          : String(av).localeCompare(String(bv), undefined, { numeric: true })
         return sortDir === 'asc' ? cmp : -cmp
       })
     : data

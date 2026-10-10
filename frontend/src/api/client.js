@@ -66,6 +66,23 @@ export function getExpirationList(symbol, daysAhead = 60) {
   return request(`/market/options/expiration-list?${p}`)
 }
 
+export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyness, minDelta, maxDelta, optionTypes }) {
+  const p = new URLSearchParams({
+    symbols: symbols.join(','),
+    min_dte: minDte,
+    max_dte: maxDte,
+    min_moneyness: minMoneyness,
+    max_moneyness: maxMoneyness,
+    option_types: optionTypes.join(','),
+  })
+  // Delta bounds are optional — null means "no limit on that side", so
+  // leave the param off entirely rather than sending "null".
+  for (const [key, value] of Object.entries({ min_delta: minDelta, max_delta: maxDelta })) {
+    if (value != null) p.set(key, value)
+  }
+  return request(`/market/options/screener?${p}`)
+}
+
 export function getPriceHistory(symbol, range = '1M') {
   const p = new URLSearchParams({ symbol, range })
   return request(`/market/price-history?${p}`)

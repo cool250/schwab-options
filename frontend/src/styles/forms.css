@@ -77,3 +77,55 @@
   .form-row, .form-row--2 { grid-template-columns: 1fr; }
   .input { max-width: 100%; min-width: 0; }
 }
+
+/* ─── Help tip (HelpTip.jsx) ─────────────────────────── */
+/* Inline "?" beside a form label; reset the label's uppercase/letter-spacing
+   so the pop-up text reads as normal prose. */
+.help-tip {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.help-tip-button {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.help-tip-button:hover,
+.help-tip-button[aria-expanded="true"] {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.help-tip-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+.help-tip-popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.45;
+}

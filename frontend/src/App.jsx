@@ -11,6 +11,7 @@ import Transactions from './pages/Transactions'
 import Reports from './pages/Reports'
 import StrikeLab from './pages/StrikeLab'
 import Charts from './pages/Charts'
+import Screener from './pages/Screener'
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
                       <Route path="/allocation" element={<Reports />} />
                       <Route path="/analyze" element={<StrikeLab />} />
                       <Route path="/charts" element={<Charts />} />
+                      <Route path="/screener" element={<Screener />} />
                     </Routes>
                   </ErrorBoundary>
                 </main>

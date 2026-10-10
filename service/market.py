@@ -1,9 +1,11 @@
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from broker.schwab import Client as SchwabClient
-from service.option_chain_providers import get_option_chain_provider
+from broker.schwab.exceptions import BrokerAuthError
+from service.option_chain_providers import get_option_chain_provider, otm_pct
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,12 @@ _RANGE_PARAMS = {
     "MAX": {"period_type": "year",  "period": 20, "frequency_type": "monthly", "frequency": 1},
 }
 DEFAULT_PRICE_HISTORY_RANGE = "1M"
+
+# Tickers screened concurrently — each one is a chain fetch plus a DXLink
+# snapshot (Tastytrade) or one large chain request (Schwab), mostly spent
+# waiting on the network, so a small pool cuts a 10-ticker screen from ~10
+# sequential round-trips to ~3 without hammering either broker.
+_SCREENER_WORKERS = 4
 
 
 def _swing_levels(
@@ -162,3 +170,128 @@ class MarketService:
             dict | None: Normalized chain, or None if unavailable.
         """
         return self.option_chain_provider.get_option_chain(symbol, dte, strike_count)
+
+    def screen_options(
+        self,
+        symbols: list[str],
+        min_dte: int,
+        max_dte: int,
+        min_otm_pct: float,
+        max_otm_pct: float,
+        option_types: list[str],
+        min_abs_delta: Optional[float] = None,
+        max_abs_delta: Optional[float] = None,
+        limit: int = 200,
+    ) -> dict:
+        """
+        Rank every put/call across `symbols` that falls inside the DTE and
+        moneyness window by how much it returns to *sell* it, best first.
+        Backs the Options Screener page.
+
+        `min_abs_delta`/`max_abs_delta` filter on |delta| so one range covers
+        both sides (0.15-0.30 keeps a -0.20 put and a 0.20 call). Delta only
+        arrives with the quote snapshot, so this narrows the moneyness-band
+        fetch rather than replacing it.
+
+        Either delta bound is optional — None leaves that side open. With
+        no delta bound at all the filter is off; otherwise a
+        contract whose delta didn't come back is excluded, since there's no
+        way to know it qualifies.
+
+        Returns per contract (besides the raw quote/greeks fields):
+          premium            the bid — what a sell order can actually fill at
+                             right now, rather than an optimistic mid.
+          capital            cash-secured put: strike. Covered call: spot
+                             (the cost of the 100 shares). Per share, like
+                             premium, so the ratio is multiplier-agnostic.
+          roi                (premium - intrinsic) / capital — the return if
+                             the underlying is unchanged at expiration. For
+                             OTM strikes this is just premium / capital; for
+                             ITM strikes the intrinsic part is subtracted,
+                             since it's handed straight back on assignment/
+                             call-away — otherwise deep-ITM contracts would
+                             top a "max ROI" sort with a return they can't
+                             actually deliver.
+          annualizedRoi      roi * 365 / dte, so a 7-DTE and a 45-DTE
+                             contract can be ranked against each other. This
+                             is the sort key.
+          breakeven          put: strike - premium; call: spot - premium.
+
+        A ticker that fails to load (bad symbol, no listed options, broker
+        hiccup) is reported in "errors" rather than failing the whole screen
+        — except a dead Schwab session, which no other ticker would survive
+        either, so BrokerAuthError still propagates (-> 503).
+        """
+        def fetch(symbol: str):
+            try:
+                return symbol, self.option_chain_provider.get_screener_contracts(
+                    symbol, min_dte, max_dte, option_types, min_otm_pct, max_otm_pct
+                ), None
+            except BrokerAuthError:
+                raise
+            except Exception as e:
+                logger.error("Screener failed for %s: %s", symbol, e)
+                if getattr(e, "status_code", None) == 404:
+                    return symbol, None, "Symbol not found, or it has no listed options"
+                return symbol, None, str(e) or e.__class__.__name__
+
+        with ThreadPoolExecutor(max_workers=min(_SCREENER_WORKERS, len(symbols) or 1)) as pool:
+            results = list(pool.map(fetch, symbols))
+
+        delta_filter_on = min_abs_delta is not None or max_abs_delta is not None
+        rows, errors, truncated = [], [], []
+        for symbol, result, error in results:
+            if error is not None:
+                errors.append({"symbol": symbol, "message": error})
+                continue
+            if not result or not result["contracts"]:
+                errors.append({"symbol": symbol, "message": "No contracts in the selected DTE / moneyness range"})
+                continue
+            rows_before = len(rows)
+            if result["truncated"]:
+                truncated.append(symbol)
+
+            spot = result["spot"]
+            for c in result["contracts"]:
+                bid, dte = c["bid"], c["dte"]
+                if not bid or bid <= 0 or dte is None:
+                    continue
+                if delta_filter_on and (
+                    c["delta"] is None
+                    or (min_abs_delta is not None and abs(c["delta"]) < min_abs_delta)
+                    or (max_abs_delta is not None and abs(c["delta"]) > max_abs_delta)
+                ):
+                    continue
+                strike = c["strike"]
+                if c["type"] == "PUT":
+                    capital, intrinsic, breakeven = strike, max(strike - spot, 0), strike - bid
+                else:
+                    capital, intrinsic, breakeven = spot, max(spot - strike, 0), spot - bid
+                roi = (bid - intrinsic) / capital
+                ask = c["ask"]
+                rows.append({
+                    **c,
+                    "underlying": symbol,
+                    "spot": spot,
+                    "mid": (bid + ask) / 2 if ask else None,
+                    "otmPct": otm_pct(strike, spot, c["type"]),
+                    "premium": bid,
+                    "capital": capital,
+                    "roi": roi * 100,
+                    # max(dte, 1): a 0-DTE contract still ties up capital for
+                    # the rest of the session — annualize it as one day, not
+                    # divide by zero.
+                    "annualizedRoi": roi * 365 / max(dte, 1) * 100,
+                    "breakeven": breakeven,
+                })
+            if len(rows) == rows_before:
+                errors.append({"symbol": symbol, "message": "No contracts with a live bid matched the delta range"
+                               if delta_filter_on else "No contracts with a live bid in the selected range"})
+
+        rows.sort(key=lambda r: r["annualizedRoi"], reverse=True)
+        return {
+            "results": rows[:limit],
+            "totalMatches": len(rows),
+            "errors": errors,
+            "truncated": truncated,
+        }
