@@ -220,7 +220,7 @@ export default function Screener() {
     <div className="page">
       <div className="card">
         <form onSubmit={handleSubmit}>
-          <div className="screener-top-row">
+          <div className="screener-fields">
             <div className="form-group screener-tickers">
               <label htmlFor="screener-tickers">Tickers</label>
               <input
@@ -246,9 +246,7 @@ export default function Screener() {
                 </label>
               </div>
             </fieldset>
-          </div>
 
-          <div className="screener-ranges">
             <fieldset className="screener-range">
               <legend>
                 Moneyness (% OTM)
@@ -267,7 +265,7 @@ export default function Screener() {
             </fieldset>
 
             <fieldset className="screener-range">
-              <legend>DTE (days)</legend>
+              <legend>DTE</legend>
               <div className="screener-range-inputs">
                 <input type="number" min="0" max="365" className="input" aria-label="Min DTE"
                   value={criteria.minDte} onChange={update('minDte')} />
@@ -279,7 +277,7 @@ export default function Screener() {
 
             <fieldset className="screener-range">
               <legend>
-                Delta (absolute) · optional
+                Delta (optional)
                 <HelpTip label="About delta">
                   Matched by absolute value, so 0.15 to 0.30 covers a −0.20 put and a 0.20 call. Leave either
                   bound blank for no limit on that side. Delta narrows the moneyness range rather than replacing
