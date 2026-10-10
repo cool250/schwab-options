@@ -30,7 +30,7 @@ const OPTION_COLUMNS = [
   dateColumn('date', 'Opened Date'),
   dateColumn('close_date', 'Closed Date'),
   { key: 'open_type',     label: 'Opened As' },
-  { key: 'amount',        label: 'Quantity',     align: 'right' },
+  { key: 'qty',           label: 'Quantity',     align: 'right' },
   { key: 'open_price',     label: 'Cost basis',  align: 'right' },
   { key: 'close_price',   label: 'Closing Price',  align: 'right' },
   { key: 'total_amount',     label: 'Total Gain/Loss ($)',  align: 'right' },
@@ -223,7 +223,13 @@ export default function Transactions() {
   // realized (closed, shows its real total_amount) or unrealized (open,
   // shows its unrealized gain), never both, so one column covers it.
   // null while the live quote hasn't loaded yet, rendered as "—" by DataTable.
-  const optionRows = (transactions ?? []).map((t) => {
+  //
+  // Also exposes the API's `amount` (contract count — or a "N:M" label on a
+  // grouped ratio-spread row) as `qty` for the Quantity column: DataTable
+  // auto-colors any field whose name contains "amount" as a gain/loss, and
+  // a quantity isn't one.
+  const optionRows = (transactions ?? []).map((raw) => {
+    const t = { ...raw, qty: raw.amount }
     if (t.type !== 'TRADE') return t
     const price = optionQuotes[t.symbol]
     if (price == null) return { ...t, total_amount: null }
