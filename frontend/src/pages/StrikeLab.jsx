@@ -759,10 +759,11 @@ export default function StrikeLab() {
       <div className="card">
         <div className="symbol-exp-row">
           <div className="form-group symbol-group">
-             <h3 className="section-title">Symbol</h3>
+            <label htmlFor="strikelab-symbol">Symbol</label>
             <div className="symbol-input-row">
               <form onSubmit={submitSymbol}>
                 <input
+                  id="strikelab-symbol"
                   className="input"
                   placeholder="e.g. AAPL"
                   value={symbolInput}

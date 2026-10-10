@@ -35,7 +35,7 @@ def get_option_chain(
 def screen_options(
     symbols: str = Query(..., description="Comma-separated tickers, e.g. 'AAPL,MSFT,/ES'"),
     min_dte: int = Query(0, ge=0, le=365),
-    max_dte: int = Query(45, ge=0, le=365),
+    max_dte: int = Query(7, ge=0, le=365),
     min_moneyness: float = Query(..., ge=-100, le=100, description="Min percent OTM (negative = ITM)"),
     max_moneyness: float = Query(..., ge=-100, le=100, description="Max percent OTM (negative = ITM)"),
     option_types: str = Query("PUT,CALL", description="Comma-separated subset of PUT,CALL"),

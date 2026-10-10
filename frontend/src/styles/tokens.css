@@ -28,6 +28,7 @@
      instead of "dark UI". */
   --header-bg: var(--primary);
   --header-font-size: 0.93rem; /* shared by DataTable's <th> and StrikeLab's chain-table header spans */
+  --label-font-size: 0.9rem; /* form field labels (.form-group label) and anything styled to match them */
 
   /* Semantic */
   --success:       #059669;
