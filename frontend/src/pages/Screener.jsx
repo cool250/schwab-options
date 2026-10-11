@@ -25,12 +25,15 @@ const DEFAULT_CRITERIA = {
 // Dropdown choices — values match the API's `strategy` param
 // (service/screener_strategies.py STRATEGIES).
 const OPTION_TYPES = [
-  { value: 'PUT', label: 'Puts' },
-  { value: 'CALL', label: 'Calls' },
+  { value: 'PUT', label: 'Short Puts' },
+  { value: 'CALL', label: 'Short Calls' },
+  { value: 'LONG_PUT', label: 'Long Puts' },
+  { value: 'LONG_CALL', label: 'Long Calls' },
   { value: 'RATIO_PUT', label: 'Ratio Put (1×2)' },
   { value: 'JADE_LIZARD', label: 'Jade Lizard' },
 ]
 const MULTI_LEG = ['RATIO_PUT', 'JADE_LIZARD']
+const LONG = ['LONG_PUT', 'LONG_CALL']
 const OPTION_TYPE_LABELS = Object.fromEntries(OPTION_TYPES.map((o) => [o.value, o.label]))
 
 const screenerCache = {
@@ -64,15 +67,19 @@ const int = (v) => (v == null ? '—' : Number(v).toLocaleString('en-US', { maxi
 
 // Same router-state handoff as Positions' "Analyze Selected" (StrikeLab
 // reads location.state.analyzePositions on mount; negative quantity =
-// sold). A single contract arrives as a 1-lot short leg priced at the bid;
-// a strategy row arrives as all of its legs, each at the price the ROI
-// columns assume (bid for a short leg, ask for a long one).
+// sold). A short contract arrives as a 1-lot short leg priced at the bid, a
+// long contract as a 1-lot long leg at the ask; a strategy row arrives as
+// all of its legs, each at the price its columns assume (bid for a short
+// leg, ask for a long one).
 function toAnalyzePositions(row) {
   const common = { symbol: row.underlying, ticker: row.underlying, dte: row.dte, expirationDate: row.expirationDate }
   if (row.legs) {
     return row.legs.map((leg) => ({
       ...common, strike: leg.strike, optionType: leg.type, quantity: leg.qty, premium: leg.price,
     }))
+  }
+  if (LONG.includes(row.strategy)) {
+    return [{ ...common, strike: row.strike, optionType: row.type, quantity: 1, premium: row.ask }]
   }
   return [{ ...common, strike: row.strike, optionType: row.type, quantity: -1, premium: row.bid }]
 }
@@ -151,6 +158,20 @@ const STRATEGY_COLUMNS = [
     label: 'Ann. ROI',
     align: 'right',
     render: (r) => <span className="cell-positive screener-ann-roi">{pct(r.annualizedRoi, 1)}</span>,
+  },
+]
+
+// Long Puts / Long Calls — bought at the ask, ranked by leverage (λ) rather
+// than ROI, which assumes an unchanged price and so doesn't fit a long option.
+const LONG_COLUMNS = [
+  ...COLUMNS.filter((c) => !['breakeven', 'roi', 'annualizedRoi'].includes(c.key)),
+  { key: 'breakeven', label: 'Breakeven', align: 'right', render: (r) => num(r.breakeven) },
+  { key: 'breakevenMovePct', label: 'BE Move %', align: 'right', render: (r) => pct(r.breakevenMovePct, 1) },
+  {
+    key: 'leverage',
+    label: 'Leverage (λ)',
+    align: 'right',
+    render: (r) => <span className="screener-ann-roi">{r.leverage == null ? '—' : `${num(r.leverage, 1)}×`}</span>,
   },
 ]
 
@@ -233,6 +254,7 @@ export default function Screener() {
         roiPct: r.roi,
         annualizedRoiPct: r.annualizedRoi,
       }) : ({
+        strategy: r.strategy,
         contract: formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type),
         dte: r.dte,
         spot: r.spot,
@@ -244,6 +266,8 @@ export default function Screener() {
         openInterest: r.openInterest,
         roiPct: r.roi,
         annualizedRoiPct: r.annualizedRoi,
+        leverage: r.leverage,
+        breakevenMovePct: r.breakevenMovePct,
       })),
     })
     return () => clearCopilotContext('Screener')
@@ -326,7 +350,11 @@ export default function Screener() {
               <label htmlFor="screener-option-type">
                 Option Type
                 <HelpTip label="About option types">
-                  <strong>Puts / Calls:</strong> single contracts to sell (cash-secured put / covered call).
+                  <strong>Short Puts / Short Calls:</strong> single contracts to sell (cash-secured put /
+                  covered call), ranked by annualized ROI.
+                  <br />
+                  <strong>Long Puts / Long Calls:</strong> single contracts to buy, ranked by leverage (λ) —
+                  roughly the option's % gain for a 1% move in the stock.
                   <br />
                   <strong>Ratio Put (1×2):</strong> buy 1 put, sell 2 puts at a lower strike, same expiration —
                   only combinations that open for a net credit.
@@ -430,7 +458,7 @@ export default function Screener() {
               <h3 className="section-title">
                 {MULTI_LEG.includes(result.criteria?.strategy)
                   ? `Top ${OPTION_TYPE_LABELS[result.criteria.strategy]} Positions`
-                  : 'Top Contracts to Sell'}
+                  : LONG.includes(result.criteria?.strategy) ? 'Top Contracts to Buy' : 'Top Contracts to Sell'}
               </h3>
               <span className="summary-line">
                 {result.results.length < result.totalMatches
@@ -450,6 +478,9 @@ export default function Screener() {
             {result.results.length > 0 ? (
               <>
                 <DataTable
+                  // Remount per strategy so the default sort (leverage for
+                  // long scans, annualized ROI otherwise) applies afresh.
+                  key={result.criteria?.strategy ?? 'PUT'}
                   data={result.results}
                   columns={[
                     {
@@ -465,14 +496,19 @@ export default function Screener() {
                         />
                       ),
                     },
-                    ...(MULTI_LEG.includes(result.criteria?.strategy) ? STRATEGY_COLUMNS : COLUMNS),
+                    ...(MULTI_LEG.includes(result.criteria?.strategy) ? STRATEGY_COLUMNS
+                      : LONG.includes(result.criteria?.strategy) ? LONG_COLUMNS : COLUMNS),
                   ]}
-                  defaultSortKey="annualizedRoi"
+                  defaultSortKey={LONG.includes(result.criteria?.strategy) ? 'leverage' : 'annualizedRoi'}
                   defaultSortDir="desc"
                   maxHeight="640px"
                 />
                 <p className="screener-hint">
-                  {MULTI_LEG.includes(result.criteria?.strategy)
+                  {LONG.includes(result.criteria?.strategy)
+                    ? 'Bought at the ask, so the max loss is the premium paid. Leverage (λ) = |delta| × spot ÷ ask: '
+                      + 'roughly the option\'s % change for a 1% move in the stock. BE Move % is how far the stock '
+                      + 'must move in your favor by expiration to break even.'
+                    : MULTI_LEG.includes(result.criteria?.strategy)
                     ? 'Legs are priced at the bid when sold and the ask when bought; amounts are per share. ROI is '
                       + 'the P&L if the underlying is unchanged at expiration ÷ capital, where capital is the max '
                       + 'loss if the stock went to zero. Ann. ROI scales that to a 365-day year.'
@@ -482,7 +518,7 @@ export default function Screener() {
                 </p>
               </>
             ) : (
-              <div className="alert warning">No contracts with a live bid matched these criteria.</div>
+              <div className="alert warning">No contracts with a live quote matched these criteria.</div>
             )}
           </div>
         </>

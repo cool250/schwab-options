@@ -34,12 +34,18 @@ from typing import Callable, Optional
 # expiration rather than puts x calls^2.
 JADE_MAX_WING_STRIKES = 5
 
-STRATEGIES = ("PUT", "CALL", "RATIO_PUT", "JADE_LIZARD")
+# "PUT"/"CALL" are single contracts to *sell* (short); "LONG_PUT"/
+# "LONG_CALL" single contracts to *buy*, ranked by leverage rather than ROI
+# (see MarketService.screen_options).
+STRATEGIES = ("PUT", "CALL", "LONG_PUT", "LONG_CALL", "RATIO_PUT", "JADE_LIZARD")
 MULTI_LEG_STRATEGIES = ("RATIO_PUT", "JADE_LIZARD")
+LONG_STRATEGIES = ("LONG_PUT", "LONG_CALL")
 # Which option types each strategy needs fetched.
 STRATEGY_OPTION_TYPES = {
     "PUT": ["PUT"],
     "CALL": ["CALL"],
+    "LONG_PUT": ["PUT"],
+    "LONG_CALL": ["CALL"],
     "RATIO_PUT": ["PUT"],
     "JADE_LIZARD": ["PUT", "CALL"],
 }

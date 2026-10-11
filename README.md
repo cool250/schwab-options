@@ -13,7 +13,7 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 - Transaction history with FIFO-matched open/close pairs, realized P&L, and ratio-spread grouping (so a multi-leg combo shows as one row instead of loose legs).
 - Reports page: P&L broken down by symbol/week/day, with drill-through into the underlying transactions.
 - Price charts with support/resistance overlays.
-- Options Screener: scan a list of tickers for the puts, calls, 1×2 ratio puts, or jade lizards that pay the most to sell, ranked by annualized ROI, filtered by moneyness, DTE, and (optionally) delta — then send the picks straight to Analyze.
+- Options Screener: scan a list of tickers for the short puts/calls, 1×2 ratio puts, or jade lizards that pay the most to sell (ranked by annualized ROI), or the long puts/calls with the most leverage to buy — filtered by moneyness, DTE, and (optionally) delta — then send the picks straight to Analyze.
 - Dark mode.
 - Copilot: a read-only chat agent (OpenAI) with tool access to your real positions, transactions, and live market data, plus built-in knowledge of common options strategies.
 - FastAPI REST layer with auto-generated OpenAPI docs at `/docs`.
@@ -148,7 +148,7 @@ npm run dev
 - **Reports** — P&L breakdown by symbol/week/day.
 - **Analyze** (StrikeLab) — option chain browser and payoff builder.
 - **Charts** — price charts with support/resistance.
-- **Screener** — top puts, calls, ratio puts, or jade lizards to sell across a list of tickers (see [Options Screener](#options-screener) below).
+- **Screener** — top short puts/calls, ratio puts, or jade lizards to sell, or long puts/calls to buy, across a list of tickers (see [Options Screener](#options-screener) below).
 - **Settings** (bottom of the menu) — appearance, including the light/dark theme.
 - **Copilot** (chat icon, bottom-right) — only appears functional if `OPENAI_API_KEY` is set.
 
@@ -156,14 +156,14 @@ npm run dev
 
 ## Options Screener
 
-The **Screener** page ranks single puts or calls — or two multi-leg credit strategies — across a list of tickers by how much they return to *sell*.
+The **Screener** page ranks single puts or calls — or two multi-leg credit strategies — across a list of tickers by how much they return to *sell*, or long puts/calls by how much leverage they give to *buy*.
 
 **Search criteria** (all on one row):
 
 | Field | Notes |
 |---|---|
 | Tickers | Comma- or space-separated, up to 25. Futures roots (`/ES`) work too. |
-| Option Type | One per scan: **Puts**, **Calls**, **Ratio Put (1×2)**, or **Jade Lizard** (see below). Default Puts. |
+| Option Type | One per scan: **Short Puts**, **Short Calls**, **Long Puts**, **Long Calls**, **Ratio Put (1×2)**, or **Jade Lizard** (see below). Default Short Puts. |
 | Moneyness (% OTM) | Required min–max. Measured from spot toward worthless: below spot for puts, above for calls. A negative min reaches into ITM strikes. Default 0–10. |
 | DTE | Min–max days to expiration, 0–365. Default 0–7. |
 | Delta (optional) | Min–max **absolute** delta, so 0.15–0.30 matches a −0.20 put and a 0.20 call. Leave either side blank for no limit. Narrows the moneyness range rather than replacing it. For strategies it applies to the legs you sell. |
@@ -179,8 +179,9 @@ The **Screener** page ranks single puts or calls — or two multi-leg credit str
 - **ROI** = (bid − intrinsic) ÷ capital, i.e. the return if the underlying is unchanged at expiration. Capital is the strike for a cash-secured put and spot for a covered call. Intrinsic is subtracted so deep-ITM contracts don't top the list with premium that's handed straight back on assignment.
 - **Strategies** price sold legs at the bid and bought legs at the ask. ROI is the P&L if the underlying is unchanged at expiration ÷ capital, where capital is the **max loss if the stock went to zero** (both strategies carry naked-put-style downside). The table shows credit, max profit, breakeven(s), and capital per share.
 - **Ann. ROI** = ROI × 365 ÷ DTE — the default sort, so a weekly and a 45-DTE contract are comparable. The top 200 matches are returned.
+- **Long Puts / Long Calls** are bought at the **ask** (also the max loss) and ranked by **leverage (λ)** = |delta| × spot ÷ ask — roughly the option's % change for a 1% move in the stock — instead of ROI, whose "price unchanged" premise doesn't fit a long option. The table also shows breakeven and **BE Move %** (how far the stock must move in your favor by expiration to break even). λ naturally favors cheap far-OTM contracts; use the delta range to focus on more realistic strikes.
 
-**Analyze Selected:** tick one or more rows and click **Analyze Selected** to open them in Analyze (StrikeLab) — a single contract as a short 1-lot leg priced at the bid, a strategy row as all of its legs at the prices above — with the Range ± slider widened to fit every strike and breakeven. Selected rows must share one ticker and expiration — same rule as on Positions.
+**Analyze Selected:** tick one or more rows and click **Analyze Selected** to open them in Analyze (StrikeLab) — a short contract as a short 1-lot leg priced at the bid, a long contract as a long 1-lot leg at the ask, a strategy row as all of its legs at the prices above — with the Range ± slider widened to fit every strike and breakeven. Selected rows must share one ticker and expiration — same rule as on Positions.
 
 **Limits worth knowing:**
 

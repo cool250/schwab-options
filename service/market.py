@@ -6,7 +6,12 @@ from typing import Optional
 from broker.schwab import Client as SchwabClient
 from broker.schwab.exceptions import BrokerAuthError
 from service.option_chain_providers import get_option_chain_provider, otm_pct
-from service.screener_strategies import MULTI_LEG_STRATEGIES, STRATEGY_BUILDERS, STRATEGY_OPTION_TYPES
+from service.screener_strategies import (
+    LONG_STRATEGIES,
+    MULTI_LEG_STRATEGIES,
+    STRATEGY_BUILDERS,
+    STRATEGY_OPTION_TYPES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +195,9 @@ class MarketService:
         Backs the Options Screener page.
 
         `strategy` is one of service.screener_strategies.STRATEGIES: "PUT" /
-        "CALL" rank single contracts (fields below); "RATIO_PUT" /
+        "CALL" rank single contracts to sell (fields below); "LONG_PUT" /
+        "LONG_CALL" rank single contracts to *buy*, by leverage — see the
+        long-option fields further down; "RATIO_PUT" /
         "JADE_LIZARD" rank multi-leg combinations built within each
         expiration — see screener_strategies.py for their definitions and
         row shape. For those, every leg must sit inside the moneyness band
@@ -224,6 +231,19 @@ class MarketService:
                              contract can be ranked against each other. This
                              is the sort key.
           breakeven          put: strike - premium; call: spot - premium.
+
+        For LONG_PUT / LONG_CALL rows instead (bought at the ask; ROI's
+        "unchanged price" premise doesn't fit a long option, which loses
+        its time value if nothing moves):
+          premium            the ask — what a buy order can fill at; also
+                             the max loss.
+          leverage           lambda = |delta| * spot / ask: roughly the
+                             option's % change for a 1% move in the stock.
+                             This is the sort key (highest first); None if
+                             delta didn't come back, sorted last.
+          breakeven          call: strike + ask; put: strike - ask.
+          breakevenMovePct   % the stock must move in the option's favor by
+                             expiration to break even.
 
         A ticker that fails to load (bad symbol, no listed options, broker
         hiccup) is reported in "errors" rather than failing the whole screen
@@ -286,6 +306,11 @@ class MarketService:
 
             for c in result["contracts"]:
                 bid, dte = c["bid"], c["dte"]
+                if strategy in LONG_STRATEGIES:
+                    row = self._long_option_row(c, symbol, spot)
+                    if row and delta_ok(c):
+                        rows.append(row)
+                    continue
                 if not bid or bid <= 0 or dte is None:
                     continue
                 if not delta_ok(c):
@@ -314,13 +339,44 @@ class MarketService:
                     "breakeven": breakeven,
                 })
             if len(rows) == rows_before:
-                errors.append({"symbol": symbol, "message": "No contracts with a live bid matched the delta range"
-                               if delta_filter_on else "No contracts with a live bid in the selected range"})
+                errors.append({"symbol": symbol, "message": "No contracts with a live quote matched the delta range"
+                               if delta_filter_on else "No contracts with a live quote in the selected range"})
 
-        rows.sort(key=lambda r: r["annualizedRoi"], reverse=True)
+        if strategy in LONG_STRATEGIES:
+            rows.sort(key=lambda r: (r["leverage"] is not None, r["leverage"] or 0), reverse=True)
+        else:
+            rows.sort(key=lambda r: r["annualizedRoi"], reverse=True)
         return {
             "results": rows[:limit],
             "totalMatches": len(rows),
             "errors": errors,
             "truncated": truncated,
         }
+
+    @staticmethod
+    def _long_option_row(c: dict, underlying: str, spot: float) -> Optional[dict]:
+        """A screener row for *buying* contract `c` (see screen_options'
+        LONG_PUT/LONG_CALL fields), or None if it has no ask to buy at."""
+        ask, dte = c["ask"], c["dte"]
+        if not ask or ask <= 0 or dte is None:
+            return None
+        strike, bid = c["strike"], c["bid"]
+        if c["type"] == "CALL":
+            breakeven = strike + ask
+            move = (breakeven - spot) / spot * 100
+        else:
+            breakeven = strike - ask
+            move = (spot - breakeven) / spot * 100
+        return {
+            **c,
+            "strategy": f"LONG_{c['type']}",
+            "underlying": underlying,
+            "spot": spot,
+            "mid": (bid + ask) / 2 if bid else None,
+            "otmPct": otm_pct(strike, spot, c["type"]),
+            "premium": ask,
+            "leverage": abs(c["delta"]) * spot / ask if c["delta"] is not None else None,
+            "breakeven": breakeven,
+            "breakevenMovePct": move,
+        }
+
