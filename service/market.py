@@ -1,38 +1,60 @@
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import Optional
 
-from broker.schwab import Client as SchwabClient
+import pytz
+
 from broker.schwab.exceptions import BrokerAuthError
+from broker.tastytrade import TastytradeAPIError, TastytradeClient
 from service.option_chain_providers import get_option_chain_provider, otm_pct
+from service.screener_strategies import (
+    LONG_STRATEGIES,
+    MULTI_LEG_STRATEGIES,
+    STRATEGY_BUILDERS,
+    STRATEGY_OPTION_TYPES,
+)
 
 logger = logging.getLogger(__name__)
 
-# Schwab's /pricehistory endpoint intermittently comes back with
-# {"empty": true, "candles": []} for a perfectly valid symbol/params —
-# reproduced locally as streaks of up to 3 consecutive empty responses
-# among 8 identical back-to-back calls — so a single empty result is
-# treated as transient and retried rather than surfaced as "no history
-# for this symbol".
-_PRICE_HISTORY_RETRIES = 3
-_PRICE_HISTORY_RETRY_DELAY = 0.5
-
-# Schwab's own (periodType, period, frequencyType[, frequency]) vocabulary
-# for each Charts-page timeframe button. Chosen so denser ranges don't fetch
-# more candles than a chart can usefully show — 1D/5D use intraday bars
-# (5-min/30-min), everything from 1M up uses daily, and 5Y/MAX step down to
-# weekly/monthly so "20 years" isn't 5,000+ daily candles.
+# Charts-page timeframe button → Tastytrade DXLink candle request (see
+# TastytradeClient.get_candles). Chosen so denser ranges don't fetch more
+# bars than a chart can usefully show — 1D/5D use regular-session intraday
+# bars (5-min/30-min), 1M–1Y daily, and 5Y/MAX monthly. 5Y is monthly, not
+# weekly: DXLink's weekly history only reaches back a few months and its
+# daily history ~2 years, while monthly goes back decades.
+#   lookback_days  how far back to request (intraday ranges over-fetch to
+#                  span weekends/holidays, then keep the last `sessions`)
+#   ytd            start at Jan 1 instead of a fixed lookback
 _RANGE_PARAMS = {
-    "1D":  {"period_type": "day",   "period": 1,  "frequency_type": "minute", "frequency": 5},
-    "5D":  {"period_type": "day",   "period": 5,  "frequency_type": "minute", "frequency": 30},
-    "1M":  {"period_type": "month", "period": 1,  "frequency_type": "daily",  "frequency": 1},
-    "6M":  {"period_type": "month", "period": 6,  "frequency_type": "daily",  "frequency": 1},
-    "YTD": {"period_type": "ytd",   "period": 1,  "frequency_type": "daily",  "frequency": 1},
-    "1Y":  {"period_type": "year",  "period": 1,  "frequency_type": "daily",  "frequency": 1},
-    "5Y":  {"period_type": "year",  "period": 5,  "frequency_type": "weekly", "frequency": 1},
-    "MAX": {"period_type": "year",  "period": 20, "frequency_type": "monthly", "frequency": 1},
+    "1D":  {"interval": "5m",  "lookback_days": 5,   "regular_hours_only": True, "sessions": 1},
+    "5D":  {"interval": "30m", "lookback_days": 9,   "regular_hours_only": True, "sessions": 5},
+    "1M":  {"interval": "1d",  "lookback_days": 31},
+    "6M":  {"interval": "1d",  "lookback_days": 183},
+    "YTD": {"interval": "1d",  "ytd": True},
+    "1Y":  {"interval": "1d",  "lookback_days": 366},
+    "5Y":  {"interval": "1mo", "lookback_days": 365 * 5 + 2},
+    "MAX": {"interval": "1mo", "lookback_days": 365 * 20 + 5},
 }
+_INTRADAY_INTERVALS = ("5m", "30m")
+_ET = pytz.timezone("US/Eastern")
+# A DXLink candle subscription occasionally delivers nothing on the first
+# try; one retry before reporting "no history". Each attempt waits at most
+# _PRICE_HISTORY_TIMEOUT for the first bar — a healthy request answers in
+# well under a second, so waiting longer only delays the "no history" page.
+_PRICE_HISTORY_ATTEMPTS = 2
+_PRICE_HISTORY_TIMEOUT = 8.0
+
+# In-memory cache of successful results, per (symbol, range). dxFeed appears
+# to throttle *repeat* long-history requests (a monthly-bar request can
+# answer instantly once, then return nothing for the same series on the
+# next connection), so re-opening a chart shouldn't re-request it. TTLs
+# match how fast each bar size actually changes.
+_PRICE_HISTORY_TTL = {"5m": 60, "30m": 60, "1d": 600, "1mo": 12 * 3600}
+_price_history_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+_price_history_cache_lock = threading.Lock()
 DEFAULT_PRICE_HISTORY_RANGE = "1M"
 
 # Tickers screened concurrently — each one is a chain fetch plus a DXLink
@@ -71,56 +93,87 @@ def _swing_levels(
 class MarketService:
     def __init__(self):
         self.option_chain_provider = get_option_chain_provider()
-        self._schwab_client: Optional[SchwabClient] = None  # lazy: only needed for price history
+        self._tasty_client: Optional[TastytradeClient] = None  # lazy: only needed for price history
 
-    def _get_schwab_client(self) -> SchwabClient:
-        if self._schwab_client is None:
-            self._schwab_client = SchwabClient()
-        return self._schwab_client
+    def _get_tasty_client(self) -> TastytradeClient:
+        if self._tasty_client is None:
+            self._tasty_client = TastytradeClient.from_config()
+        return self._tasty_client
 
     def get_price_history(self, symbol: str, range_key: str = DEFAULT_PRICE_HISTORY_RANGE) -> Optional[dict]:
         """
         OHLC candles for `symbol` over one of the Charts page's timeframe
         buttons (see _RANGE_PARAMS — "1D", "5D", "1M", "6M", "YTD", "1Y",
         "5Y", "MAX"), plus support/resistance levels derived from swing
-        highs/lows in that series. Backed by Schwab regardless of
-        CHAIN_PROVIDER (same as Positions/Transactions) — Tastytrade has no
-        REST bar endpoint, only live DXLink ticks, so it can't serve a
-        historical chart. Best suited to equities; Schwab's price-history
-        endpoint may not resolve a bare futures root like "/NQ" the way it
-        resolves a stock ticker.
+        highs/lows in that series.
 
-        Returns None if no history is available (bad symbol/range, broker
-        error, or a market that hasn't printed inside the requested window).
+        Backed by Tastytrade's DXLink Candle feed regardless of
+        CHAIN_PROVIDER — no Schwab login needed. A futures root ("/ES")
+        resolves to its active-month contract, so long ranges show that
+        contract's own history rather than a continuous back-adjusted series.
+
+        Candle "date"s: intraday bars carry a full US/Eastern timestamp with
+        its offset (e.g. "2026-10-09T15:55:00-04:00"), so the browser shows
+        exchange times correctly in any timezone; daily/monthly bars are
+        stamped by dxFeed at 00:00 UTC of their day, so they're returned as
+        that UTC date at local midnight ("2026-10-09T00:00:00").
+
+        Returns None if no history is available (unknown symbol, or nothing
+        printed in the window). Raises TastytradeAPIError for any other
+        Tastytrade failure (→ app.py's 502 handler).
         """
-        params = _RANGE_PARAMS.get(range_key, _RANGE_PARAMS[DEFAULT_PRICE_HISTORY_RANGE])
+        if range_key not in _RANGE_PARAMS:
+            range_key = DEFAULT_PRICE_HISTORY_RANGE
+        params = _RANGE_PARAMS[range_key]
+        interval = params["interval"]
+        cache_key = (symbol.strip().upper(), range_key)
+        with _price_history_cache_lock:
+            hit = _price_history_cache.get(cache_key)
+        if hit and time.time() - hit[0] < _PRICE_HISTORY_TTL[interval]:
+            return hit[1]
 
-        history = None
-        for attempt in range(_PRICE_HISTORY_RETRIES):
+        now_ms = int(time.time() * 1000)
+        if params.get("ytd"):
+            jan1 = _ET.localize(datetime(datetime.now(_ET).year, 1, 1))
+            from_ms = int(jan1.timestamp() * 1000)
+        else:
+            from_ms = now_ms - params["lookback_days"] * 86_400_000
+
+        bars: list[dict] = []
+        for _ in range(_PRICE_HISTORY_ATTEMPTS):
             try:
-                history = self._get_schwab_client().get_price_history(
-                    symbol,
-                    period_type=params["period_type"],
-                    period=params["period"],
-                    frequency_type=params["frequency_type"],
-                    frequency=params["frequency"],
+                bars = self._get_tasty_client().get_candles(
+                    symbol, interval, from_ms,
+                    regular_hours_only=params.get("regular_hours_only", False),
+                    timeout=_PRICE_HISTORY_TIMEOUT,
                 )
-            except Exception as e:
+            except TastytradeAPIError as e:
+                if e.status_code == 404:  # unknown symbol: "no history", not a system error
+                    return None
+                raise
+            except Exception as e:  # e.g. no live futures contract for a root, DXLink handshake timeout
                 logger.error("Failed to fetch price history for %s (%s): %s", symbol, range_key, e)
                 return None
-            if history.candles:
+            if bars:
                 break
-            if attempt < _PRICE_HISTORY_RETRIES - 1:
-                time.sleep(_PRICE_HISTORY_RETRY_DELAY)
-
-        if not history.candles:
+        if not bars:
             return None
 
-        candles = sorted(history.candles, key=lambda c: c.datetime)
+        intraday = interval in _INTRADAY_INTERVALS
+        if intraday:
+            def session(b: dict):
+                return datetime.fromtimestamp(b["time"] / 1000, _ET).date()
+            keep = sorted({session(b) for b in bars})[-params["sessions"]:]
+            bars = [b for b in bars if session(b) in keep]
 
-        support, resistance = _swing_levels([c.high for c in candles], [c.low for c in candles])
+        def bar_date(b: dict) -> str:
+            if intraday:
+                return datetime.fromtimestamp(b["time"] / 1000, _ET).isoformat()
+            return datetime.fromtimestamp(b["time"] / 1000, timezone.utc).strftime("%Y-%m-%dT00:00:00")
 
-        return {
+        support, resistance = _swing_levels([b["high"] for b in bars], [b["low"] for b in bars])
+
+        result = {
             "symbol": symbol,
             "range": range_key,
             "candles": [
@@ -130,17 +183,20 @@ class MarketService:
                     # give every candle in the same trading day an identical
                     # x-axis key. The frontend picks how much of this to
                     # actually display based on the selected range.
-                    "date": c.get_datetime().isoformat(),
-                    "open": c.open,
-                    "high": c.high,
-                    "low": c.low,
-                    "close": c.close,
+                    "date": bar_date(b),
+                    "open": b["open"],
+                    "high": b["high"],
+                    "low": b["low"],
+                    "close": b["close"],
                 }
-                for c in candles
+                for b in bars
             ],
             "support": support,
             "resistance": resistance,
         }
+        with _price_history_cache_lock:
+            _price_history_cache[cache_key] = (time.time(), result)
+        return result
 
     def get_expirations(self, symbol: str, days_ahead: int = 60):
         """
@@ -178,7 +234,7 @@ class MarketService:
         max_dte: int,
         min_otm_pct: float,
         max_otm_pct: float,
-        option_types: list[str],
+        strategy: str,
         min_abs_delta: Optional[float] = None,
         max_abs_delta: Optional[float] = None,
         limit: int = 200,
@@ -187,6 +243,15 @@ class MarketService:
         Rank every put/call across `symbols` that falls inside the DTE and
         moneyness window by how much it returns to *sell* it, best first.
         Backs the Options Screener page.
+
+        `strategy` is one of service.screener_strategies.STRATEGIES: "PUT" /
+        "CALL" rank single contracts to sell (fields below); "LONG_PUT" /
+        "LONG_CALL" rank single contracts to *buy*, by leverage — see the
+        long-option fields further down; "RATIO_PUT" /
+        "JADE_LIZARD" rank multi-leg combinations built within each
+        expiration — see screener_strategies.py for their definitions and
+        row shape. For those, every leg must sit inside the moneyness band
+        and the delta filter applies to the legs being sold.
 
         `min_abs_delta`/`max_abs_delta` filter on |delta| so one range covers
         both sides (0.15-0.30 keeps a -0.20 put and a 0.20 call). Delta only
@@ -217,11 +282,26 @@ class MarketService:
                              is the sort key.
           breakeven          put: strike - premium; call: spot - premium.
 
+        For LONG_PUT / LONG_CALL rows instead (bought at the ask; ROI's
+        "unchanged price" premise doesn't fit a long option, which loses
+        its time value if nothing moves):
+          premium            the ask — what a buy order can fill at; also
+                             the max loss.
+          leverage           lambda = |delta| * spot / ask: roughly the
+                             option's % change for a 1% move in the stock.
+                             This is the sort key (highest first); None if
+                             delta didn't come back, sorted last.
+          breakeven          call: strike + ask; put: strike - ask.
+          breakevenMovePct   % the stock must move in the option's favor by
+                             expiration to break even.
+
         A ticker that fails to load (bad symbol, no listed options, broker
         hiccup) is reported in "errors" rather than failing the whole screen
         — except a dead Schwab session, which no other ticker would survive
         either, so BrokerAuthError still propagates (-> 503).
         """
+        option_types = STRATEGY_OPTION_TYPES[strategy]
+
         def fetch(symbol: str):
             try:
                 return symbol, self.option_chain_provider.get_screener_contracts(
@@ -239,6 +319,16 @@ class MarketService:
             results = list(pool.map(fetch, symbols))
 
         delta_filter_on = min_abs_delta is not None or max_abs_delta is not None
+
+        def delta_ok(c: dict) -> bool:
+            if not delta_filter_on:
+                return True
+            return not (
+                c["delta"] is None
+                or (min_abs_delta is not None and abs(c["delta"]) < min_abs_delta)
+                or (max_abs_delta is not None and abs(c["delta"]) > max_abs_delta)
+            )
+
         rows, errors, truncated = [], [], []
         for symbol, result, error in results:
             if error is not None:
@@ -252,15 +342,28 @@ class MarketService:
                 truncated.append(symbol)
 
             spot = result["spot"]
+            if strategy in MULTI_LEG_STRATEGIES:
+                by_expiration: dict[str, list[dict]] = {}
+                for c in result["contracts"]:
+                    if c["dte"] is not None:
+                        by_expiration.setdefault(c["expirationDate"], []).append(c)
+                for contracts in by_expiration.values():
+                    rows.extend(STRATEGY_BUILDERS[strategy](symbol, spot, contracts, delta_ok))
+                if len(rows) == rows_before:
+                    errors.append({"symbol": symbol, "message": "No qualifying combinations in the selected range"
+                                   + (" and delta range" if delta_filter_on else "")})
+                continue
+
             for c in result["contracts"]:
                 bid, dte = c["bid"], c["dte"]
+                if strategy in LONG_STRATEGIES:
+                    row = self._long_option_row(c, symbol, spot)
+                    if row and delta_ok(c):
+                        rows.append(row)
+                    continue
                 if not bid or bid <= 0 or dte is None:
                     continue
-                if delta_filter_on and (
-                    c["delta"] is None
-                    or (min_abs_delta is not None and abs(c["delta"]) < min_abs_delta)
-                    or (max_abs_delta is not None and abs(c["delta"]) > max_abs_delta)
-                ):
+                if not delta_ok(c):
                     continue
                 strike = c["strike"]
                 if c["type"] == "PUT":
@@ -271,6 +374,7 @@ class MarketService:
                 ask = c["ask"]
                 rows.append({
                     **c,
+                    "strategy": c["type"],
                     "underlying": symbol,
                     "spot": spot,
                     "mid": (bid + ask) / 2 if ask else None,
@@ -285,13 +389,44 @@ class MarketService:
                     "breakeven": breakeven,
                 })
             if len(rows) == rows_before:
-                errors.append({"symbol": symbol, "message": "No contracts with a live bid matched the delta range"
-                               if delta_filter_on else "No contracts with a live bid in the selected range"})
+                errors.append({"symbol": symbol, "message": "No contracts with a live quote matched the delta range"
+                               if delta_filter_on else "No contracts with a live quote in the selected range"})
 
-        rows.sort(key=lambda r: r["annualizedRoi"], reverse=True)
+        if strategy in LONG_STRATEGIES:
+            rows.sort(key=lambda r: (r["leverage"] is not None, r["leverage"] or 0), reverse=True)
+        else:
+            rows.sort(key=lambda r: r["annualizedRoi"], reverse=True)
         return {
             "results": rows[:limit],
             "totalMatches": len(rows),
             "errors": errors,
             "truncated": truncated,
         }
+
+    @staticmethod
+    def _long_option_row(c: dict, underlying: str, spot: float) -> Optional[dict]:
+        """A screener row for *buying* contract `c` (see screen_options'
+        LONG_PUT/LONG_CALL fields), or None if it has no ask to buy at."""
+        ask, dte = c["ask"], c["dte"]
+        if not ask or ask <= 0 or dte is None:
+            return None
+        strike, bid = c["strike"], c["bid"]
+        if c["type"] == "CALL":
+            breakeven = strike + ask
+            move = (breakeven - spot) / spot * 100
+        else:
+            breakeven = strike - ask
+            move = (spot - breakeven) / spot * 100
+        return {
+            **c,
+            "strategy": f"LONG_{c['type']}",
+            "underlying": underlying,
+            "spot": spot,
+            "mid": (bid + ask) / 2 if bid else None,
+            "otmPct": otm_pct(strike, spot, c["type"]),
+            "premium": ask,
+            "leverage": abs(c["delta"]) * spot / ask if c["delta"] is not None else None,
+            "breakeven": breakeven,
+            "breakevenMovePct": move,
+        }
+

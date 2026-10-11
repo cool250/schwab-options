@@ -33,7 +33,7 @@ async function request(path, options = {}) {
 // app fixes, so callers surface it as a distinct message instead of the
 // generic "API server is down" one.
 export const BROKER_AUTH_MESSAGE =
-  'Broker authentication failed — the Schwab refresh token has expired. Please re-authenticate.'
+  'Broker authentication failed — Schwab isn\'t connected or its login has expired. Reconnect Schwab in Settings.'
 
 // The backend maps any other broker-side failure (e.g. Schwab itself
 // returning 503s after retries) to 502 — see api/app.py's BrokerError
@@ -66,14 +66,14 @@ export function getExpirationList(symbol, daysAhead = 60) {
   return request(`/market/options/expiration-list?${p}`)
 }
 
-export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyness, minDelta, maxDelta, optionTypes }) {
+export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyness, minDelta, maxDelta, strategy }) {
   const p = new URLSearchParams({
     symbols: symbols.join(','),
     min_dte: minDte,
     max_dte: maxDte,
     min_moneyness: minMoneyness,
     max_moneyness: maxMoneyness,
-    option_types: optionTypes.join(','),
+    strategy,
   })
   // Delta bounds are optional — null means "no limit on that side", so
   // leave the param off entirely rather than sending "null".
@@ -81,6 +81,15 @@ export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyn
     if (value != null) p.set(key, value)
   }
   return request(`/market/options/screener?${p}`)
+}
+
+// Schwab reconnect (Settings) — see api/auth.py's /schwab/* routes.
+export function getSchwabStatus() {
+  return request('/auth/schwab/status')
+}
+
+export function startSchwabReconnect() {
+  return request('/auth/schwab/start')
 }
 
 export function getPriceHistory(symbol, range = '1M') {

@@ -33,9 +33,28 @@ class BaseClient:
         self._token_provider: TokenProvider = token_provider or create_token_provider()
         self.base_url = base_url
 
-    def _auth_headers(self) -> dict:
+    def _current_access_token(self) -> str:
+        """The access token to send — refreshed first if it's about to
+        expire, rather than waiting for Schwab to 401 the request.
+
+        Raises BrokerAuthError when no token is stored at all (e.g. a fresh
+        deploy before Settings → Connect Schwab): a missing/unreadable
+        token.json or an empty Redis key is an auth problem, not a server
+        error, so it surfaces as app.py's 503 "reconnect" path instead of a
+        bare 500."""
+        if self._token_provider.access_token_expires_soon():
+            self._refresh_access_token(failed_token=None)
+        try:
+            token = self._token_provider.get_access_token()
+        except (OSError, ValueError) as exc:  # FileNotFoundError, JSONDecodeError, Redis "not found"
+            raise BrokerAuthError("No Schwab token found — connect Schwab in Settings.") from exc
+        if not token:
+            raise BrokerAuthError("No Schwab token found — connect Schwab in Settings.")
+        return token
+
+    def _auth_headers(self, token: str | None = None) -> dict:
         return {
-            "Authorization": f"Bearer {self._token_provider.get_access_token()}",
+            "Authorization": f"Bearer {token or self._current_access_token()}",
             "Accept": "application/json",
         }
 
@@ -43,16 +62,25 @@ class BaseClient:
     # Token management
     # ------------------------------------------------------------------
 
-    def _refresh_access_token(self) -> None:
+    def _refresh_access_token(self, failed_token: str | None) -> None:
         """
         Exchange the refresh token for a new access token via Schwab.
 
+        `failed_token` is the access token a request just got a 401 with, or
+        None for a proactive refresh (token about to expire).
+
         Thread-safe: uses a global lock so that only one thread performs the
-        HTTP refresh at a time.  If another thread already refreshed the token
-        while this one was waiting, the next _auth_headers() call will
-        automatically pick up the new token from the provider.
+        HTTP refresh at a time, and re-checks after acquiring it — a thread
+        that waited while another refreshed finds a newer token (or one no
+        longer near expiry) and skips its own, now-redundant refresh.
         """
         with _refresh_lock:
+            if failed_token is None:
+                if not self._token_provider.access_token_expires_soon():
+                    return
+            elif self._token_provider.get_access_token() != failed_token:
+                return
+
             app_key, app_secret, _ = self._token_provider.get_app_credentials()
             refresh_token = self._token_provider.get_refresh_token()
 
@@ -72,8 +100,17 @@ class BaseClient:
                     f"Token refresh failed ({response.status_code}): {response.text}"
                 )
 
-            self._token_provider.save_tokens(response.json())
-            logger.info("Access token refreshed successfully.")
+            token_data = response.json()
+            # Whether Schwab rotates the refresh token on every refresh
+            # decides how often it must be persisted and whether Settings'
+            # 7-day expiry (refresh_token_issued_at) is right — logged on
+            # every refresh until that's confirmed.
+            new_refresh = token_data.get("refresh_token")
+            if new_refresh and new_refresh != refresh_token:
+                logger.warning("Access token refreshed — Schwab issued a NEW refresh token (rotated).")
+            else:
+                logger.info("Access token refreshed — refresh token unchanged.")
+            self._token_provider.save_tokens(token_data)
 
     # ------------------------------------------------------------------
     # HTTP helper
@@ -115,8 +152,9 @@ class BaseClient:
         if url is None:
             url = self.base_url
 
+        token = self._current_access_token()
         try:
-            response = requests.get(url, headers=self._auth_headers(), params=params)
+            response = requests.get(url, headers=self._auth_headers(token), params=params)
         except requests.RequestException as exc:
             if attempt < max_retries:
                 logger.warning("Request error (attempt %d/%d): %s", attempt, max_retries, exc)
@@ -142,8 +180,12 @@ class BaseClient:
             logger.warning(
                 "401 Unauthorized — refreshing token (attempt %d/%d)…", attempt, max_retries
             )
-            self._refresh_access_token()
-            time.sleep(2 ** attempt)
+            # Reload from the store first, in case the token was replaced
+            # outside this process (e.g. Redis written by another instance).
+            self._token_provider.invalidate_cache()
+            self._refresh_access_token(failed_token=token)
+            # No backoff sleep here: a fresh token needs no wait, unlike the
+            # transient-error retries below.
             return self._fetch_data(url, params, attempt + 1, max_retries)
 
         if attempt < max_retries:

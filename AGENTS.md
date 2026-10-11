@@ -11,19 +11,19 @@ backend talking to Schwab and Tastytrade, a React (Vite) frontend, and a
 read-only AI "copilot" chat agent. No multi-tenancy, no user table — one
 hardcoded admin login (`ADMIN_USERNAME`/`ADMIN_PASSWORD`), one brokerage
 account. In production, FastAPI serves the built React SPA directly from
-`frontend/dist/` (single web process/dyno — see `Procfile`).
+`frontend/dist/` (single web process — see `Dockerfile` / `fly.toml`, deployed to Fly.io).
 
 ## Layout
 
 | Path | What lives there |
 |---|---|
-| `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, price history, option chains, positions, transactions. No order-placement code exists here at all. |
+| `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, price history (no longer used by Charts), option chains, positions, transactions. No order-placement code exists here at all. |
 | `broker/tastytrade/` | Tastytrade REST + DXLink WebSocket client — chains, live quotes/greeks via streaming. Has `place_order`/`cancel_order`/`get_orders` methods that exist in the SDK but are **never called anywhere in the app** — see Guardrails below. |
 | `service/` | Business logic: `PositionService`, `TransactionService`, `MarketService`, `option_chain_providers.py` (Schwab vs Tastytrade chain provider, selected by `CHAIN_PROVIDER` env var). This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
 | `api/` | FastAPI routers: `auth.py`, `market.py`, `market_stream.py` (WebSocket), `position.py`, `transactions.py`, `copilot.py`. Registered in `api/app.py`. |
 | `copilot/` | The read-only financial-copilot agent — see its own section below. |
-| `frontend/src/pages/` | `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Screener` (top puts/calls to sell across tickers, ranked by annualized ROI — backed by `MarketService.screen_options` + each chain provider's `get_screener_contracts`), `Login`. |
-| `frontend/src/components/` | `Navbar`, `CopilotWidget` (floating chat, mounted globally in `App.jsx`), `DataTable`, `ErrorBoundary`, `Spinner`, `ProtectedRoute`. |
+| `frontend/src/pages/` | `Landing` (public page at `/`; Log in / Register open as overlays on it, and `/login` — where `ProtectedRoute` sends logged-out visitors, remembering the page they wanted — is the same page with the login overlay open. Its screenshots in `frontend/public/landing/` are real captures of **market-data pages only**, since the page is public — never Positions/Transactions/Reports. Register only explains that accounts aren't open: the app is single-user), `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Screener` (top puts/calls to sell across tickers, ranked by annualized ROI — backed by `MarketService.screen_options` + each chain provider's `get_screener_contracts`; multi-leg Ratio Put / Jade Lizard combinations are built in `service/screener_strategies.py`), `Settings` (appearance — the light/dark theme choice lives here, not in the navbar), `Login`. |
+| `frontend/src/components/` | `Navbar`, `CopilotWidget` (floating chat, mounted globally in `App.jsx`), `DataTable`, `ErrorBoundary`, `LoginCard` (the login form, used by the landing page's overlay), `HelpTip` ("?" button + pop-up beside a form label — use it for field help text instead of a paragraph under the form), `Spinner`, `ProtectedRoute`. |
 | `frontend/src/context/` | `AuthContext`, `ThemeContext` (dark mode). |
 | `frontend/src/utils/` | Small shared helpers, not page-specific: `optionSymbol.js` (the one canonical "TICKER MM/DD/YYYY STRIKE.00 P/C" formatter — every page showing an option contract should call this, not re-derive its own), `dateFormat.js` (MM/DD/YYYY), `contractMultiplier.js` (equity=100 vs futures-root multipliers + `isFuturesRoot`), `copilotContext.js` (see Copilot section below), `symbolStore.js` (see below). |
 | `frontend/src/styles/tokens.css` | All design tokens (colors, spacing, shadows) as CSS custom properties, including the dark-theme palette under `:root[data-theme="dark"]`. Every other stylesheet should reference tokens, not hardcode colors — a hardcoded color is the single most common way a change quietly breaks dark mode. |
@@ -45,15 +45,39 @@ account. In production, FastAPI serves the built React SPA directly from
   it accepts both forms, or it'll silently return zero results for a
   perfectly valid futures query (this exact bug shipped once already).
 - **`CHAIN_PROVIDER`** env var (`"schwab"` or `"tastytrade"`, default
-  `tastytrade`) selects which broker serves *option chains*. Positions,
-  transactions, and price history always go through Schwab regardless —
-  don't assume `CHAIN_PROVIDER` gates those too.
+  `tastytrade`) selects which broker serves *option chains*. Positions and
+  transactions always go through Schwab, and Charts' price history always
+  through Tastytrade (DXLink `Candle` events via
+  `TastytradeClient.get_candles`) — don't assume `CHAIN_PROVIDER` gates
+  either. DXLink's history depth varies by bar size (monthly: decades;
+  daily: ~2 years; weekly: only months) and repeat long-history requests
+  can come back empty, which is why 5Y/MAX use monthly bars and
+  `MarketService` caches results per (symbol, range).
 
 ## Auth
 
 Custom HMAC-SHA256 signed tokens (`api/auth.py`), **not** JWT — 8-hour TTL,
 single hardcoded admin credential pair from env vars, secret from
 `SECRET_KEY`. REST routes use `Depends(require_auth)` (Bearer header).
+The Schwab OAuth reconnect (`/api/auth/schwab/start|callback|status`, used
+by Settings) is the one exception to Bearer auth on the callback: Schwab's
+browser redirect can't carry the header, so `start` (Bearer-protected)
+issues a signed, 10-minute `state` — HMAC'd with a key *derived* from
+`SECRET_KEY`, deliberately not the login-token key, so a state value (which
+lands in browser history) can never pass as a login token — and `callback`
+rejects anything without a valid one. Token saves go through
+`create_token_provider()`, which also records `refresh_token_issued_at` so
+Settings can show the 7-day expiry.
+Schwab tokens are served from a **process-wide in-memory cache**
+(`token_provider.py`, shared across every client's provider instance):
+token.json is re-read only when its mtime changes (so an external
+`main.py`/sftp replacement is picked up), saves are atomic (temp file +
+`os.replace`, mode 0600), and `BaseClient` refreshes the access token
+~60s *before* expiry, with a re-check under `_refresh_lock` so concurrent
+threads trigger one refresh. Read tokens through the provider, never by
+opening token.json directly. Each refresh logs whether Schwab rotated the
+refresh token — pending confirmation of that behavior before persisting
+the refresh token only on reconnect.
 WebSocket routes (`market_stream.py`) can't carry an `Authorization` header,
 so they pass the token as a `?token=` query param and call `verify_token()`
 manually inside the handler — follow that same pattern for any new WS route.
@@ -101,7 +125,7 @@ manually inside the handler — follow that same pattern for any new WS route.
   Tailwind, no CSS-in-JS. `.tab-row`/`.tab-item` for in-page view switchers
   (Chain/Table/Graph-style), deliberately styled differently from `.btn` so
   a tab strip doesn't read as a row of action buttons.
-- Dark mode: `ThemeContext` sets `data-theme` on `<html>`, persisted to
+- Dark mode: chosen on the Settings page (`/settings`). `ThemeContext` sets `data-theme` on `<html>`, persisted to
   `localStorage`, with an inline script in `index.html` to avoid a
   flash-of-wrong-theme on load. Any new color must go through a token —
   check both the light and dark blocks in `tokens.css` before shipping.
@@ -140,6 +164,12 @@ uv run uvicorn api.app:app --reload
 cd frontend && npm run dev
 ```
 
+The Vite dev server serves **HTTPS** on `https://127.0.0.1:3000`
+(`@vitejs/plugin-basic-ssl`, self-signed) — required for the Schwab
+reconnect callback locally (`SCHWAB_APP_CALLBACK_URL=https://127.0.0.1:3000/api/auth/schwab/callback`).
+Open the app at that exact origin; `localhost` is a different origin with its
+own sessionStorage login.
+
 - Python deps: `uv add <pkg>` / `uv remove <pkg>` (keeps `pyproject.toml`
   and `uv.lock` in sync — don't hand-edit the lock file).
 - JS deps: `npm install <pkg>` from `frontend/`.
@@ -156,4 +186,7 @@ See the README's env var table for the full deployment list. The ones most
 relevant to day-to-day agent work: `CHAIN_PROVIDER`, `SCHWAB_APP_KEY` /
 `SCHWAB_APP_SECRET` / `SCHWAB_APP_CALLBACK_URL`, `TASTY_CLIENT_ID` /
 `TASTY_CLIENT_SECRET` / `TASTY_REFRESH_TOKEN`, `OPENAI_API_KEY` /
-`OPENAI_MODEL`, `SECRET_KEY`, `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+`OPENAI_MODEL`, `SECRET_KEY`, `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Deploy-only (Fly.io, set in `fly.toml`):
+`TOKEN_FILE` (where `FileTokenProvider` keeps the Schwab token — `/data/token.json`
+on the Fly volume; defaults to `token.json` in the working dir) and
+`LOG_TO_STDOUT` (mirror `logs/api.log` to stdout so `fly logs` shows it).

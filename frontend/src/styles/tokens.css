@@ -27,6 +27,13 @@
      a near-black navy, so every table header reads as an accent band
      instead of "dark UI". */
   --header-bg: var(--primary);
+
+  /* Sidebar navbar + docked Copilot titlebar (one shared "chrome" color so
+     the two read as a single frame). A dark slate rather than --primary:
+     keeps blue for actions/active state instead of competing with every
+     button, and white text on it is 14.6:1 vs 5.2:1 on the old blue. */
+  --nav-bg: #1e293b;
+  --nav-border: transparent;
   --header-font-size: 0.93rem; /* shared by DataTable's <th> and StrikeLab's chain-table header spans */
   --label-font-size: 0.9rem; /* form field labels (.form-group label) and anything styled to match them */
 
@@ -91,6 +98,13 @@
      dark neutral, so table headers stay recognizably blue in dark mode too. */
   --header-bg: var(--primary);
 
+  /* Near-black neutral, a step darker than --bg, to match this theme's
+     neutral grays (a blue-tinted slate would cast against them) — plus a
+     hairline edge so the darker sidebar still separates from the page.
+     The old bright blue was 3.7:1 for white text here; this is ~19:1. */
+  --nav-bg: #0f0f0f;
+  --nav-border: #262626;
+
   --success:       #34d399;
   --success-rgb:   52, 211, 153;
   --success-bg:    rgba(52, 211, 153, 0.12);
@@ -114,8 +128,14 @@
 /* ─── Base reset ─────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* overflow-x: clip, not hidden — both stop sideways scrolling, but
+   `hidden` turns html/body into scroll containers that never actually
+   scroll (the window does), which silently breaks every position: sticky
+   element (e.g. the landing page's header). `hidden` stays as the fallback
+   for browsers without `clip`. */
 html {
   overflow-x: hidden;
+  overflow-x: clip;
   max-width: 100%;
 }
 
@@ -124,6 +144,7 @@ body {
   background: var(--bg);
   color: var(--text);
   overflow-x: hidden;
+  overflow-x: clip;
   max-width: 100%;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;

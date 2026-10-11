@@ -1,0 +1,24 @@
+# Secrets — never bake these into the image. On Fly they come from
+# `fly secrets set` and the Schwab token lives on the /data volume.
+.env
+.env.*
+token.json
+config.py
+
+# Rebuilt inside the image
+.venv/
+frontend/node_modules/
+frontend/dist/
+
+# Local-only / not needed at runtime
+.git/
+.claude/
+.vscode/
+logs/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.DS_Store
+test-data.json
+market-data.json
+portfolio.csv

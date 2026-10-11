@@ -8,6 +8,7 @@
 }
 .alert.error   { background: var(--error-bg);   color: var(--error);   border-color: var(--error);   }
 .alert.warning { background: var(--warning-bg); color: var(--warning); border-left-color: var(--warning); }
+.alert.success { background: var(--success-bg); color: var(--success); border-color: var(--success); }
 
 .error-boundary {
   display: flex;

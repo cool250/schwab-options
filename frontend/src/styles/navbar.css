@@ -1,10 +1,17 @@
 /* ─── Navbar ─────────────────────────────────────────── */
-/* Solid --primary blue + white text, matching the Copilot panel's titlebar
-   (see copilot.css's .copilot-panel-header) — the two are meant to read as
-   the same "title bar" treatment, so this intentionally drops the old
-   translucent glass-blur look in favor of the same flat color. */
+/* A fixed left sidebar on desktop (see the min-width: 769px block at the
+   bottom); on phones it stays the top bar with a hamburger dropdown, since a
+   sidebar would eat too much of a narrow screen. The base rules below are
+   that top bar; the desktop block converts it. */
+:root {
+  --sidebar-width: 200px;
+}
+/* Solid --nav-bg (dark slate / near-black, see tokens.css) + white text,
+   shared with the Copilot panel's titlebar (copilot.css's
+   .copilot-panel-header) — the two are meant to read as the same "frame"
+   treatment. Blue is reserved for the active link's indicator below. */
 .navbar {
-  background: var(--primary);
+  background: var(--nav-bg);
   padding: 0 28px;
   /* min-height, not height — the mobile hamburger dropdown below needs the
      bar to grow when open. It stays a stable 52px in practice because the
@@ -34,14 +41,18 @@
      logo silently stretch the whole bar taller. Capping height and
      leaving width auto means the bar's height never moves no matter how
      the logo is resized — safe up to 52px (the navbar's own min-height,
-     see .navbar); 30px (20% down again, from 38px) leaves plenty of
-     breathing room above/below rather than touching both edges exactly. */
-  height: 30px;
+     see .navbar); 36px (20% up from 30px) still leaves breathing room
+     above/below rather than touching both edges exactly. */
+  height: 36px;
   width: auto;
   object-fit: contain;
 }
 .navbar-links { display: flex; gap: 2px; }
 .nav-link {
+  /* Flex so the leading icon (NavIcons.jsx) and label sit on one line. */
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 6px 14px;
   border-radius: var(--radius-sm);
   text-decoration: none;
@@ -51,8 +62,60 @@
   transition: color 0.15s, background 0.15s;
   position: relative;
 }
-.nav-link:hover { color: var(--text-inverse); background: rgba(255, 255, 255, 0.12); }
-.nav-link.active { color: var(--text-inverse); background: rgba(255, 255, 255, 0.22); font-weight: 600; }
+.nav-link:hover { color: var(--text-inverse); background: rgba(255, 255, 255, 0.08); }
+.nav-icon { flex-shrink: 0; }
+/* "You are here": a --primary bar on the left edge plus a faint tint, rather
+   than a solid blue fill — white text on bright blue is only 3.7:1 in dark
+   mode, while the bar carries the blue without putting text on it. */
+.nav-link.active {
+  color: var(--text-inverse);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 3px 0 0 var(--primary);
+  font-weight: 600;
+}
+
+/* ─── Menu groups (Portfolio / Market) ───────────────── */
+/* A group's header toggles its pages open/closed; the pages sit indented
+   beneath it. Laid out as a column here (inside the sidebar or the mobile
+   dropdown); the top-bar base rules above never show groups side by side. */
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group + .nav-group { margin-top: 10px; }
+.nav-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 14px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  /* 10% smaller than the page links beneath (.nav-link, 1rem) — uppercase
+     at full size read as louder than the links. */
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+.nav-group-toggle:hover:not(:disabled) { color: var(--text-inverse); background: rgba(255, 255, 255, 0.08); }
+/* The group holding the current page can't collapse (see Navbar.jsx), so
+   its header drops the pointer rather than looking clickable for nothing. */
+.nav-group-toggle:disabled { cursor: default; }
+.nav-group-toggle.has-active { color: rgba(255, 255, 255, 0.85); }
+.nav-group-toggle:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4); }
+.nav-group-label { display: flex; align-items: center; gap: 10px; }
+.nav-group-chevron {
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+.nav-group-chevron.expanded { transform: rotate(90deg); }
+.nav-group-links { display: flex; flex-direction: column; gap: 2px; }
+/* Two classes so it outranks the later desktop/mobile .nav-link padding
+   rules, which would otherwise erase the indent. */
+.nav-link.nav-sublink { padding-left: 26px; }
 
 /* Hamburger button — hidden on desktop */
 .navbar-hamburger {
@@ -69,39 +132,17 @@
 /* Mobile sign-out inside the dropdown — hidden on desktop */
 .navbar-logout--mobile { display: none; }
 /* Desktop sign-out — shown on desktop */
-.navbar-logout--desktop { display: block; }
+.navbar-logout--desktop { display: flex; }
 
-/* Theme toggle — icon button on desktop, a labeled link inside the mobile dropdown */
-.navbar-theme-toggle--mobile { display: none; }
-.navbar-theme-toggle--desktop {
-  /* Anchors the right-alignment for this whole group — pushes itself (and
-     Sign out, right after it in DOM order) to the far right edge, so the
-     two sit together instead of the icon floating in the middle of the gap
-     before Sign out's own right-alignment. */
-  margin-left: auto;
-  background: none;
-  border: none;
-  font-size: 1.1rem;
-  line-height: 1;
-  cursor: pointer;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-}
-.navbar-theme-toggle--desktop:hover { background: rgba(255, 255, 255, 0.12); }
+/* Settings link — at the bottom of the desktop sidebar, or inside the
+   mobile dropdown (one copy of each, shown per breakpoint like Sign out). */
+.navbar-settings--mobile { display: none; }
 
 /* ─── Navbar logout button ───────────────────────────── */
-.navbar-logout {
-  font-size: 0.95rem;
-  letter-spacing: 0.03em;
-  color: var(--text-inverse);
-  opacity: 0.85;
-  text-decoration: none;
-  cursor: pointer;
-}
-.navbar-logout:hover {
-  opacity: 1;
-  text-decoration: underline;
-}
+/* Styled entirely by .nav-link (also on the element) so Sign out matches
+   every other menu item's size, color, padding and hover; this class only
+   adds the pointer, since it's an <a href="#"> handled in JS. */
+.navbar-logout { cursor: pointer; }
 
 /* ─── Mobile navbar (hamburger) ──────────────────────── */
 @media (max-width: 768px) {
@@ -111,13 +152,13 @@
     gap: 0;
   }
   .navbar-brand  { flex: 1; padding: 10px 0; }
-  .navbar-logo   { height: 26px; width: auto; }
+  .navbar-logo   { height: 31px; width: auto; } /* 20% up from 26px */
   .navbar-hamburger { display: block; }
 
   /* Desktop sign-out hidden; mobile one inside dropdown shown */
   .navbar-logout--desktop { display: none; }
-  .navbar-theme-toggle--desktop { display: none; }
-  .navbar-theme-toggle--mobile { display: block; }
+  .navbar-settings--desktop { display: none; }
+  .navbar-settings--mobile { display: flex; }
 
   /* Collapsed by default */
   .navbar-links {
@@ -126,7 +167,9 @@
     flex-direction: column;
     gap: 2px;
     padding: 8px 0 12px;
-    border-top: 1px solid var(--border);
+    /* --border is a light-page divider; on the dark --nav-bg it would be a
+       harsh bright line, so use a subtle white hairline instead. */
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
   }
   /* Open state */
   .navbar-links.open { display: flex; }
@@ -135,10 +178,43 @@
     padding: 10px 12px;
     font-size: 1.1rem; 
   }
+  /* 10% under the (larger, on phones) 1.1rem page links. */
+  .nav-group-toggle { font-size: 0.99rem; padding: 10px 12px; }
   .navbar-logout--mobile {
-    display: block;
+    display: flex;
     margin-top: 6px;
     width: 100%;
     text-align: left;
   }
+}
+
+/* ─── Desktop: sidebar ───────────────────────────────── */
+@media (min-width: 769px) {
+  /* Room for the fixed sidebar (App.jsx wraps the navbar + page in this). */
+  .app-shell { padding-left: var(--sidebar-width); }
+
+  .navbar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 0 12px 16px;
+    overflow-y: auto;
+    border-right: 1px solid var(--nav-border);
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+  }
+  /* Logo strip: 16px of air above the logo so it doesn't sit tight against
+     the top of the window, and 24px below it before the first menu group. */
+  .navbar-brand { min-height: 52px; padding: 16px 8px 0; margin-bottom: 24px; }
+
+  .navbar-links { flex-direction: column; gap: 2px; }
+  .nav-link { padding: 9px 14px; }
+
+  /* Settings + Sign out pinned to the bottom of the sidebar. */
+  .navbar-settings--desktop { margin-top: auto; }
 }

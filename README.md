@@ -13,6 +13,7 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 - Transaction history with FIFO-matched open/close pairs, realized P&L, and ratio-spread grouping (so a multi-leg combo shows as one row instead of loose legs).
 - Reports page: P&L broken down by symbol/week/day, with drill-through into the underlying transactions.
 - Price charts with support/resistance overlays.
+- Options Screener: scan a list of tickers for the short puts/calls, 1×2 ratio puts, or jade lizards that pay the most to sell (ranked by annualized ROI), or the long puts/calls with the most leverage to buy — filtered by moneyness, DTE, and (optionally) delta — then send the picks straight to Analyze.
 - Dark mode.
 - Copilot: a read-only chat agent (OpenAI) with tool access to your real positions, transactions, and live market data, plus built-in knowledge of common options strategies.
 - FastAPI REST layer with auto-generated OpenAPI docs at `/docs`.
@@ -25,7 +26,7 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 .
 ├── api/                  # FastAPI routers (app.py mounts all of them)
 │   ├── auth.py           # Login + session token verification
-│   ├── market.py         # /positions/... option chain / price history (REST)
+│   ├── market.py         # /market/... option chain, screener, price history (REST)
 │   ├── market_stream.py  # /market/ws/... live chain streaming (WebSocket)
 │   ├── position.py       # /positions/... routes
 │   ├── transactions.py   # /transactions/... routes
@@ -36,8 +37,8 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 │                         # definitions (tools.py), strategy knowledge docs (skills/*.md)
 ├── frontend/             # React + Vite frontend
 │   └── src/
-│       ├── pages/        # Positions, Transactions, Reports, StrikeLab, Charts
-│       ├── components/   # Navbar, CopilotWidget, DataTable, Spinner
+│       ├── pages/        # Landing, Positions, Transactions, Reports, StrikeLab, Charts, Screener, Settings
+│       ├── components/   # Navbar, CopilotWidget, DataTable, HelpTip, Spinner
 │       ├── utils/        # Small shared helpers (date/symbol formatting, cross-page stores)
 │       └── api/          # Fetch wrappers for the FastAPI endpoints
 └── main.py               # Schwab OAuth token refresh utility (run this, not the app itself)
@@ -100,7 +101,7 @@ ADMIN_PASSWORD=pick-a-password
 
 # --- Optional ---
 CHAIN_PROVIDER=tastytrade     # 'schwab' or 'tastytrade' — which broker serves option chains
-                                # (positions/transactions/price history always use Schwab regardless)
+                                # (positions/transactions always use Schwab; Charts always uses Tastytrade)
 OPENAI_API_KEY=sk-...           # only needed for the Copilot chat feature
 OPENAI_MODEL=gpt-4o             # defaults to gpt-4o if unset
 USE_DB=false                    # true = store the Schwab token in Redis instead of token.json
@@ -137,7 +138,7 @@ cd frontend
 npm run dev
 ```
 
-- URL: `http://localhost:3000`
+- URL: `https://127.0.0.1:3000` opens the public landing page; **Log in** opens the login form over it. The dev server uses HTTPS with a self-signed certificate (click through the browser's one-time warning). Schwab only accepts HTTPS callback URLs, so this is what lets **Settings → Reconnect Schwab** work locally: register `https://127.0.0.1:3000/api/auth/schwab/callback` in Schwab's developer portal and set it as `SCHWAB_APP_CALLBACK_URL` in `.env`. Use `127.0.0.1`, not `localhost` — the app login is stored per address, and that's where Schwab sends you back.
 - Log in with the `ADMIN_USERNAME`/`ADMIN_PASSWORD` you set in `.env`.
 
 ### 8. You're in
@@ -147,7 +148,47 @@ npm run dev
 - **Reports** — P&L breakdown by symbol/week/day.
 - **Analyze** (StrikeLab) — option chain browser and payoff builder.
 - **Charts** — price charts with support/resistance.
+- **Screener** — top short puts/calls, ratio puts, or jade lizards to sell, or long puts/calls to buy, across a list of tickers (see [Options Screener](#options-screener) below).
+- **Settings** (bottom of the menu) — appearance, including the light/dark theme.
 - **Copilot** (chat icon, bottom-right) — only appears functional if `OPENAI_API_KEY` is set.
+
+---
+
+## Options Screener
+
+The **Screener** page ranks single puts or calls — or two multi-leg credit strategies — across a list of tickers by how much they return to *sell*, or long puts/calls by how much leverage they give to *buy*.
+
+**Search criteria** (all on one row):
+
+| Field | Notes |
+|---|---|
+| Tickers | Comma- or space-separated, up to 25. Futures roots (`/ES`) work too. |
+| Option Type | One per scan: **Short Puts**, **Short Calls**, **Long Puts**, **Long Calls**, **Ratio Put (1×2)**, or **Jade Lizard** (see below). Default Short Puts. |
+| Moneyness (% OTM) | Required min–max. Measured from spot toward worthless: below spot for puts, above for calls. A negative min reaches into ITM strikes. Default 0–3. |
+| DTE | Min–max days to expiration, 0–365. Default 0–7. |
+| Delta (optional) | Min–max **absolute** delta, so 0.15–0.30 matches a −0.20 put and a 0.20 call. Leave either side blank for no limit. Narrows the moneyness range rather than replacing it. For strategies it applies to the legs you sell. |
+
+**Strategies** (built within each expiration; every leg must sit inside the moneyness range):
+
+- **Ratio Put (1×2)** — buy 1 put, sell 2 puts at a strictly lower strike. Only combinations that open for a net credit (`2 × short bid − long ask > 0`), matching the copilot's rules in `copilot/skills/put_ratio_spread.md`.
+- **Jade Lizard** — sell 1 put, plus a call spread above it (sell 1 call, buy 1 call up to 5 strikes higher), with total credit ≥ the call spread's width, so there's no upside risk.
+
+**How results are ranked:**
+
+- **Premium** is the **bid** — what a sell order can actually fill at — not the mid. Contracts with no bid are skipped.
+- **ROI** = (bid − intrinsic) ÷ capital, i.e. the return if the underlying is unchanged at expiration. Capital is the strike for a cash-secured put and spot for a covered call. Intrinsic is subtracted so deep-ITM contracts don't top the list with premium that's handed straight back on assignment.
+- **Strategies** price sold legs at the bid and bought legs at the ask. ROI is the P&L if the underlying is unchanged at expiration ÷ capital, where capital is the **max loss if the stock went to zero** (both strategies carry naked-put-style downside). The table shows credit, max profit, breakeven(s), and capital per share.
+- **Ann. ROI** = ROI × 365 ÷ DTE — the default sort, so a weekly and a 45-DTE contract are comparable. The top 200 matches are returned.
+- **Long Puts / Long Calls** are bought at the **ask** (also the max loss) and ranked by **leverage (λ)** = |delta| × spot ÷ ask — roughly the option's % change for a 1% move in the stock — instead of ROI, whose "price unchanged" premise doesn't fit a long option. The table also shows breakeven and **BE Move %** (how far the stock must move in your favor by expiration to break even). λ naturally favors cheap far-OTM contracts; use the delta range to focus on more realistic strikes.
+
+**Analyze Selected:** tick one or more rows and click **Analyze Selected** to open them in Analyze (StrikeLab) — a short contract as a short 1-lot leg priced at the bid, a long contract as a long 1-lot leg at the ask, a strategy row as all of its legs at the prices above — with the Range ± slider widened to fit every strike and breakeven. Selected rows must share one ticker and expiration — same rule as on Positions.
+
+**Limits worth knowing:**
+
+- Each ticker is capped at 600 contracts per scan so one live-quote snapshot fills reliably. Over the cap, the strikes nearest the money are kept and the page shows a warning — narrow the DTE or moneyness range to see everything.
+- A ticker that fails (bad symbol, no listed options) is reported as a per-ticker warning; the rest of the scan still returns.
+- Option chains come from whichever broker `CHAIN_PROVIDER` selects. A scan of several tickers typically takes ~10–15 s.
+- For futures options, ROI is still premium ÷ strike, which doesn't reflect the margin actually tied up.
 
 ---
 
@@ -158,7 +199,7 @@ Rather than a hand-maintained list here (which drifts fast), the full live endpo
 | Prefix | Covers |
 |---|---|
 | `/api/auth` | Login, session verification |
-| `/api/market` | Option chains, expirations, price history (REST) |
+| `/api/market` | Option chains, expirations, options screener, price history (REST) |
 | `/api/market/ws` | Live option chain streaming (WebSocket) |
 | `/api/positions` | Balances, stocks, options, futures, futures options |
 | `/api/transactions` | Raw history, matched option transactions, equity transactions |
@@ -166,112 +207,161 @@ Rather than a hand-maintained list here (which drifts fast), the full live endpo
 
 ---
 
-## Deploying to Heroku
+## Deploying to Fly.io
 
-The app uses a **single web dyno**: FastAPI serves both the REST API and the pre-built React frontend from `frontend/dist/`.
-
-### Prerequisites
-
-- [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli) installed and logged in
-- Git repo initialised
+The app runs as **one small Fly machine** (shared-cpu-1x, 512MB — about $3.69/month if always on, less with the auto-stop below) from the repo's `Dockerfile` and `fly.toml`. The Docker build compiles the React app and FastAPI serves it alongside the API, same single-process layout as local. The Schwab token lives in `token.json` on a **1GB Fly volume** mounted at `/data`, so it survives restarts and redeploys — no Redis needed.
 
 ### One-time setup
 
 ```bash
-# Create the app
-heroku create your-app-name
+# 1. Install the CLI and log in
+brew install flyctl
+fly auth login
 
-# Two buildpacks: Node (builds React) then Python (runs FastAPI)
-heroku buildpacks:add --index 1 heroku/nodejs
-heroku buildpacks:add --index 2 heroku/python
+# 2. Create the app. App names are global on Fly — pick your own. This keeps
+#    the repo's fly.toml and just writes your app name into it.
+fly launch --no-deploy --copy-config --name your-app-name
+
+# 3. Create the volume for token.json (same region as fly.toml's primary_region)
+fly volumes create data --size 1 --region iad
+
+# 4. Set secrets from your local .env (see the note below)
+{
+  grep -E '^(SCHWAB_APP_KEY|SCHWAB_APP_SECRET|TASTY_CLIENT_ID|TASTY_CLIENT_SECRET|TASTY_REFRESH_TOKEN|OPENAI_API_KEY|OPENAI_MODEL|ACCOUNT_BROKER_PROVIDER|ADMIN_USERNAME|ADMIN_PASSWORD|SECRET_KEY)=' .env \
+    | sed -E "s/^([A-Z_]+)=[\"'](.*)[\"']$/\1=\2/"
+  echo "SCHWAB_APP_CALLBACK_URL=https://your-app-name.fly.dev/api/auth/schwab/callback"
+} | fly secrets import
+fly secrets list    # should list all 12 names
+
+# 5. Deploy as a single machine (a volume attaches to exactly one machine)
+fly deploy --ha=false
 ```
 
-### Set environment variables
+About step 4:
+- It copies the needed keys from `.env` without printing them, strips surrounding quotes (`fly secrets import` would otherwise keep them as part of the value), and swaps in the Fly callback URL.
+- It deliberately leaves out `USE_DB`, `REDIS_URL`, `TOKEN_JSON` (unused on Fly — the token is on the volume) and `CHAIN_PROVIDER` (already in `fly.toml`).
+- Prefer this over a long multi-line `fly secrets set … \` command: one broken line continuation there silently sets only the first secret, which leaves login failing with 401.
+- To use a different `SECRET_KEY` in production than locally, drop it from the `grep` list and add `echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"`.
 
-Same variables as the local `.env` above, plus `TOKEN_JSON` (Heroku has no local `token.json` file to read from):
+Non-secret settings (`PORT`, `TOKEN_FILE=/data/token.json`, `LOG_TO_STDOUT`, `CHAIN_PROVIDER`) are in `fly.toml`'s `[env]` block — edit them there.
 
-| Variable | Required | Description |
-|---|---|---|
-| `SCHWAB_APP_KEY` | Yes | Schwab API app key |
-| `SCHWAB_APP_SECRET` | Yes | Schwab API app secret |
-| `SCHWAB_APP_CALLBACK_URL` | Yes | OAuth redirect URI registered in Schwab developer portal |
-| `TASTY_CLIENT_ID` | Yes | Tastytrade OAuth client ID |
-| `TASTY_CLIENT_SECRET` | Yes | Tastytrade OAuth client secret |
-| `TASTY_REFRESH_TOKEN` | Yes | Tastytrade OAuth refresh token |
-| `SECRET_KEY` | Yes | Secret key for signing session tokens |
-| `ADMIN_USERNAME` | Yes | Login username for the dashboard |
-| `ADMIN_PASSWORD` | Yes | Login password for the dashboard |
-| `USE_DB` | **Effectively yes, on Heroku** | See warning below — without this, the Schwab token doesn't survive a dyno restart. |
-| `REDIS_URL` | If `USE_DB=true` | Redis connection URL (set automatically by the Heroku Redis addon) |
-| `TOKEN_JSON` | If `USE_DB=true` | Full Schwab OAuth token as a single-line JSON string — used **only** to re-seed Redis if the stored token there ever expires/is missing. Has no effect at all when `USE_DB` isn't `true` (see warning below). |
-| `CHAIN_PROVIDER` | No | `schwab` or `tastytrade` — which broker serves option chains. Defaults to `tastytrade` |
-| `OPENAI_API_KEY` | For the Copilot feature | OpenAI API key powering the read-only financial copilot chat |
-| `OPENAI_MODEL` | No | Model used by the Copilot chat — defaults to `gpt-4o` |
+### Connect Schwab (and reconnect every 7 days)
 
-> **Redis is effectively required on Heroku, not optional.** Without `USE_DB=true`, the token is stored in a local `token.json` file (`FileTokenProvider`) — but Heroku's filesystem is ephemeral and gets wiped on every dyno restart, redeploy, or the automatic daily dyno cycle. `TOKEN_JSON` is **only** read by the Redis-backed provider as a re-seed fallback (`broker/schwab/auth/token_provider.py`); there's no code path that seeds `token.json` from it. So setting `TOKEN_JSON` alone, without also setting `USE_DB=true` and provisioning Redis, does nothing — the app will work until the first dyno restart, then every Schwab-dependent endpoint breaks until you re-authenticate. See [Token Storage](#token-storage) below for the Redis setup.
+Schwab's refresh token lasts **7 days** and can only be renewed by logging in again — the app renews the short-lived access token on its own, but not that. The app runs this login itself:
+
+1. **One-time:** in Schwab's developer portal, add `https://your-app-name.fly.dev/api/auth/schwab/callback` to your app's callback URLs (keep your local one too, if Schwab lets you list several), and make sure `SCHWAB_APP_CALLBACK_URL` on Fly is set to it (step 4 above).
+2. In the app, open **Settings → Schwab Connection** and click **Connect Schwab** (later: **Reconnect Schwab**). You're sent to Schwab to log in and approve, then back to Settings, which shows when the new login expires — it turns amber in the last day. The token is saved straight to the volume.
+
+Do step 2 whenever it's due (or when pages show "Broker authentication failed") — from any device, no CLI needed.
+
+**Fallback** (e.g. before the callback URL is registered): generate the token locally with `uv run python main.py` and copy it onto the volume:
 
 ```bash
-heroku config:set SCHWAB_APP_KEY=...
-heroku config:set SCHWAB_APP_SECRET=...
-heroku config:set SCHWAB_APP_CALLBACK_URL=https://your-app.herokuapp.com/callback
-heroku config:set TASTY_CLIENT_ID=...
-heroku config:set TASTY_CLIENT_SECRET=...
-heroku config:set TASTY_REFRESH_TOKEN=...
-heroku config:set SECRET_KEY=...
-heroku config:set ADMIN_USERNAME=...
-heroku config:set ADMIN_PASSWORD=...
-
-# Required for the token to actually persist on Heroku — see warning above
-heroku addons:create heroku-redis:mini --app your-app-name
-heroku config:set USE_DB=true
-
-# Paste the full token.json contents as a single-line JSON string —
-# only takes effect because USE_DB=true was set above
-heroku config:set TOKEN_JSON="$(python -c "import json; print(json.dumps(json.load(open('token.json'))))")"
+fly machine start                              # in case it's auto-stopped
+fly ssh console -C "rm -f /data/token.json"    # sftp won't overwrite an existing file
+fly ssh sftp shell
+» put token.json /data/token.json
 ```
 
-> **Token expiry**: Schwab tokens expire every 7 days. Re-run `uv run python main.py` locally, then update `TOKEN_JSON` on Heroku with the command above.
+### Pushing new code
 
-### Updating the Schwab token on Heroku manually
-
-Schwab's OAuth tokens must be refreshed before they expire (every 7 days).
-
-**Step 1 — Refresh locally**
-```bash
-uv run python main.py
-```
-
-**Step 2 — Push the new token to Heroku**
-```bash
-heroku config:set TOKEN_JSON="$(python -c "import json; print(json.dumps(json.load(open('token.json'))))")" --app your-app-name
-```
-
-Heroku restarts the dyno automatically after the config var is updated.
-
-**Verify it was set:**
-```bash
-heroku config:get TOKEN_JSON --app your-app-name
-```
-
-**Check the token expiry locally:**
-```bash
-python -c "import json; d=json.load(open('token.json')); print(d.get('expires_in'), 'seconds')"
-```
-
-### Deploy
+From the repo root (the app name comes from `fly.toml`, so no `-a` needed):
 
 ```bash
-git push heroku main
+fly deploy
 ```
 
-Heroku will:
-1. Run `npm install && npm run build` inside `frontend/` (Node.js buildpack → `heroku-postbuild`).
-2. Install Python dependencies from `requirements.txt` (Python buildpack).
-3. Start the web dyno via `Procfile`: `uvicorn api.app:app --host 0.0.0.0 --port $PORT`.
+That's the whole deploy. What it does:
 
-- API: `https://your-app.herokuapp.com/api/...`
-- OpenAPI docs: `https://your-app.herokuapp.com/docs`
-- React app: `https://your-app.herokuapp.com/`
+1. Uploads the working directory to Fly's remote builder — **uncommitted changes included**, so commit first if you want the deployed version to match git. Files in `.dockerignore` (`.env`, `token.json`, `config.py`, `node_modules`, `.venv`, …) are never uploaded.
+2. Builds the `Dockerfile`: `npm ci && npm run build` for the frontend, `uv sync --frozen` for Python (from `uv.lock` — run `uv lock` locally first if you changed `pyproject.toml`).
+3. Replaces the machine with the new image. The `/data` volume (Schwab token) and secrets carry over — no need to reconnect Schwab.
+
+Then check it:
+
+```bash
+fly status          # machine "started", health check "passing"
+fly logs            # watch startup; Ctrl+C to stop
+```
+
+and open `https://your-app-name.fly.dev`. A hard refresh (Cmd+Shift+R) makes sure the browser loads the new frontend bundle.
+
+**What needs a deploy vs. not:**
+
+| Change | How to apply |
+|---|---|
+| Code (Python or React) | `fly deploy` |
+| `fly.toml` (`[env]`, VM size, auto-stop, …) | `fly deploy` |
+| A secret | `fly secrets set NAME=value` — restarts the machine on its own, no deploy |
+| Python dependencies | `uv add <pkg>` locally (updates `uv.lock`), then `fly deploy` |
+| JS dependencies | `npm install <pkg>` in `frontend/` (updates `package-lock.json`), then `fly deploy` |
+
+**Roll back** a bad deploy to the previous image:
+
+```bash
+fly releases --image                                  # list releases with their image tags
+fly deploy --image registry.fly.io/your-app-name:<previous-image-tag>
+```
+
+### Day to day
+
+- **Open:** `https://your-app-name.fly.dev` (log in with `ADMIN_USERNAME`/`ADMIN_PASSWORD`).
+- **Weekly:** Settings → **Reconnect Schwab** when it turns amber or expires.
+- **Logs:** `fly logs` (the app mirrors its log to stdout on Fly via `LOG_TO_STDOUT`).
+- **Auto-stop:** the machine stops when nothing is connected and starts on the next request, so you mostly pay for hours actually used — the first page load after idle takes a few seconds. An open Analyze chain stream counts as a connection and keeps it running. Set `min_machines_running = 1` in `fly.toml` (then `fly deploy`) to keep it always on instead.
+- **Shell into the machine:** `fly ssh console` (start it first with `fly machine start` if it's auto-stopped).
+
+### Troubleshooting
+
+**Login fails (wrong username/password, `401` in `fly logs`)**
+Usually missing secrets — with no `ADMIN_USERNAME`/`ADMIN_PASSWORD` set, no login can ever match. Run `fly secrets list`; if names are missing, re-run step 4 of the one-time setup.
+
+**Checking a secret's value**
+`fly secrets list` shows names and digests only, never values. To read one: `fly ssh console -C "printenv ADMIN_USERNAME"`. To confirm it matches `.env` without printing it, compare fingerprints:
+```bash
+fly ssh console -C "sh -c 'printf %s \"\$SECRET_KEY\" | sha256sum'"
+grep '^SECRET_KEY=' .env | cut -d= -f2- | tr -d "\"'\n" | shasum -a 256
+```
+
+**Pages say "Broker authentication failed — … Reconnect Schwab in Settings"**
+Schwab isn't connected yet on this deploy, or its 7-day login expired. Settings → **Connect / Reconnect Schwab**. Charts, Screener and Analyze don't depend on Schwab (they use Tastytrade), so they keep working meanwhile.
+
+**Schwab shows "We are unable to complete your request. Please contact customer support…"**
+Schwab rejected the `redirect_uri` — it must match a callback URL registered in Schwab's developer portal **exactly** (`https`, host, port, path, no trailing slash). Check:
+- the portal lists `https://your-app-name.fly.dev/api/auth/schwab/callback` (Schwab can take a while to apply portal changes);
+- `fly ssh console -C "printenv SCHWAB_APP_CALLBACK_URL"` prints that same URL.
+
+Locally the same error usually means a **stale backend**: `.env` changes are only read at startup — `--reload` and the VS Code debugger keep the old value — so fully stop and restart the backend.
+
+**After Schwab login you land on `/login` instead of Settings**
+The Schwab connection itself still succeeded (check `fly logs` for `Schwab reconnected via the in-app flow`); only the app login was lost on the way back. Log in again — Settings shows the new expiry. (The app hands its login across the redirect; if this keeps happening, the app login itself may have expired — it lasts 8 hours.)
+
+**Deploy fails: volume / mount error**
+The `data` volume doesn't exist in the machine's region: `fly volumes list`, then `fly volumes create data --size 1 --region iad`. Deploy with `--ha=false` the first time — a volume attaches to only one machine.
+
+**Health check failing / site not loading after a deploy**
+`fly logs` shows the startup error (a Python traceback, or the build failing). Common causes: `uv.lock` out of date with `pyproject.toml` (run `uv lock`, redeploy), or a new required env var that isn't set as a secret. Roll back with `fly deploy --image …` (above) while you fix it. A few failed checks right after a deploy or a cold start are normal while the machine boots.
+
+**First load is slow**
+The machine was auto-stopped and is booting (a few seconds). Expected with `min_machines_running = 0`.
+
+**Charts show "No price history" for 5Y / MAX**
+These use monthly bars from Tastytrade's DXLink feed, which sometimes returns nothing for a *repeated* long-history request. Successful results are cached in memory for 12 hours, so it's usually a first-request-after-restart issue — try again shortly.
+
+**Is Schwab rotating the refresh token?**
+Each access-token refresh logs either `refresh token unchanged` or `Schwab issued a NEW refresh token (rotated)`: `fly logs | grep "refresh token"`.
+
+**Making sure `.env` never ships**
+`.dockerignore` excludes `.env`, `.env.*`, `token.json` and `config.py` from the upload, and the app gets credentials only from `fly secrets`. Verify on the live machine:
+```bash
+fly ssh console -C "ls -la /app/.env /app/token.json"    # want: No such file or directory (both)
+```
+Keep those lines in `.dockerignore`, and add any new secret file you create.
+
+**Local development**
+- Open `https://127.0.0.1:3000` (not `localhost`) and accept the self-signed certificate warning once.
+- Changed `.env`? Restart the backend fully (see the Schwab error above).
+- Odd frontend behavior after dependency changes: stop Vite, `rm -rf frontend/node_modules/.vite`, start it again.
 
 ---
 
@@ -281,12 +371,12 @@ The app supports two backends for storing the Schwab OAuth token, controlled by 
 
 | `USE_DB` | Backend | When to use |
 |---|---|---|
-| `false` / unset | `token.json` file only — `TOKEN_JSON` env var is not read at all in this mode | Local development (persistent filesystem) |
-| `true` | Redis (`REDIS_URL`), re-seeded from `TOKEN_JSON` if the Redis copy ever expires | Production / Heroku (ephemeral filesystem — required there, see the Heroku section above) |
+| `false` / unset | `token.json` file — at `TOKEN_FILE` if set, else `./token.json`. `TOKEN_JSON` isn't read in this mode | Local development, and Fly.io (`TOKEN_FILE=/data/token.json` on its volume) |
+| `true` | Redis (`REDIS_URL`), re-seeded from `TOKEN_JSON` if the Redis copy ever expires | A host with no persistent disk |
 
-### Local development (default — no Redis needed)
+### File (default — no Redis needed)
 
-Token is read from `token.json` in the project root. No extra configuration required.
+Token is read from `token.json` in the project root locally, or wherever `TOKEN_FILE` points (Fly.io sets `/data/token.json`). No extra configuration required.
 
 ### Local development with Redis
 
@@ -309,23 +399,4 @@ USE_DB=true
 REDIS_URL=redis://localhost:6379
 ```
 
-### Heroku (Redis)
-
-```bash
-# Add the Redis addon (sets REDIS_URL automatically)
-heroku addons:create heroku-redis:mini --app your-app-name
-
-# Enable Redis storage
-heroku config:set USE_DB=true --app your-app-name
-
-# Seed the token into Redis (one-time / after each 7-day Schwab expiry)
-heroku run python3 -c "
-import json, os, redis
-r = redis.from_url(os.environ['REDIS_URL'], decode_responses=True)
-token = os.environ['TOKEN_JSON']
-r.set('schwab_token', token)
-print('Token seeded')
-" --app your-app-name
-```
-
-After seeding, tokens are automatically refreshed in Redis on every `401` response — no manual re-seeding needed until the refresh token itself expires (~7 days).
+Either way, the access token is refreshed automatically on every `401` response and written back to the store. The refresh token itself expires after 7 days — reconnect from **Settings → Schwab Connection** (or re-run `main.py`).

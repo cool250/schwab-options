@@ -34,7 +34,6 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   border: none;
   background: var(--primary);
   color: #fff;
-  font-size: 1.4rem;
   line-height: 1;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
@@ -92,14 +91,14 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   font-weight: 700;
   font-size: 1.093rem; /* 0.95rem + 15% */
   /* Bleed past the card's own padding so the titlebar spans edge-to-edge,
-     then re-pad internally. Same blue as an active expiration pill in
-     StrikeLab (--primary), not a one-off color. min-height matches the
-     navbar's 52px (see navbar.css's .navbar) so the two title bars line up
-     as one continuous strip when the panel is docked open. */
+     then re-pad internally. Same --nav-bg as the sidebar navbar (see
+     tokens.css), not a one-off color, so the two read as one frame.
+     min-height matches the navbar's 52px logo strip (see navbar.css) so the
+     two line up when the panel is docked open. */
   margin: -24px -24px 0;
   padding: 14px 20px;
   min-height: 52px;
-  background: var(--primary);
+  background: var(--nav-bg);
   color: var(--text-inverse);
   border-radius: 0;
   flex-shrink: 0;

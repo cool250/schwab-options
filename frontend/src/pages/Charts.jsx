@@ -49,7 +49,7 @@ const RANGE_CAPTION = {
   "6M": "Last 6 months · daily candles",
   YTD: "Year to date · daily candles",
   "1Y": "Last year · daily candles",
-  "5Y": "Last 5 years · weekly candles",
+  "5Y": "Last 5 years · monthly candles",
   MAX: "Full history · monthly candles",
 };
 
@@ -465,11 +465,11 @@ function Candle({ x, y, width, height, payload }) {
   );
 }
 
-/** Last-30-days daily candlesticks with swing support/resistance levels
- *  (see service/market.py's _swing_levels) drawn as horizontal reference
- *  lines. Backed by Schwab regardless of CHAIN_PROVIDER — Tastytrade has
- *  no REST daily-bar endpoint — so this may come back empty for a futures
- *  root like "/NQ" even when the option chain elsewhere is working fine. */
+/** Candlesticks for the selected range with swing support/resistance
+ *  levels (see service/market.py's _swing_levels) drawn as horizontal
+ *  reference lines. Backed by Tastytrade's DXLink Candle feed regardless of
+ *  CHAIN_PROVIDER (MarketService.get_price_history) — no Schwab login
+ *  needed. A futures root like "/NQ" charts its active-month contract. */
 function PriceHistoryChart({ history, loading, error, noSymbol }) {
   if (noSymbol) {
     return <div className="chain-empty">Enter a symbol to get started</div>;

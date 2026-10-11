@@ -1,0 +1,38 @@
+# fly.toml app configuration file generated for nutrade on 2026-10-11T09:58:57-07:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'nutrade'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  CHAIN_PROVIDER = 'tastytrade'
+  LOG_TO_STDOUT = 'true'
+  PORT = '8080'
+  TOKEN_FILE = '/data/token.json'
+
+[[mounts]]
+  source = 'data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '15s'
+    method = 'GET'
+    path = '/'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
