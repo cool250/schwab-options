@@ -17,7 +17,7 @@ const FEATURES = [
   {
     Icon: PositionsIcon,
     title: 'Positions',
-    text: 'Balances, stocks and options from Schwab, plus futures and futures options rebuilt from your trade history — with live P&L.',
+    text: 'Balances, stocks and options from your brokerage account, plus futures and futures options rebuilt from your trade history — with live P&L.',
   },
   {
     Icon: TransactionsIcon,
@@ -77,7 +77,7 @@ const SHOWCASES = [
     img: '/landing/analyze.jpg',
     alt: 'NuTrade Analyze showing a short AAPL 335 put with its payoff graph, net credit, max loss and breakeven',
     points: [
-      'Live option chain streamed from Tastytrade',
+      'Live, streaming option chain',
       'Net credit, max profit and loss, and breakevens update as you edit legs',
       'Payoff graph plus a strike-by-date table of time decay',
     ],
@@ -186,8 +186,8 @@ export default function Landing({ initialOverlay = null }) {
               <p className="landing-eyebrow">Options strategy dashboard</p>
               <h1>Run your options strategy with every number in one place.</h1>
               <p className="landing-lede">
-                NuTrade brings your Schwab positions and trade history, live Tastytrade option chains, a strike
-                analyzer and an options screener into one read-only dashboard — with an AI copilot that knows
+                NuTrade brings your positions and trade history, live option chains, a strike analyzer and an
+                options screener into one read-only dashboard — with an AI copilot that knows
                 what you're looking at.
               </p>
               <div className="landing-hero-actions">
@@ -260,7 +260,7 @@ export default function Landing({ initialOverlay = null }) {
       <footer className="landing-footer">
         <div className="landing-container landing-footer-inner">
           <img src="/nutrade_icon.svg" alt="NuTrade" className="landing-footer-logo" />
-          <p>Read-only by design · Market data from Tastytrade · Account data from Schwab</p>
+          <p>Read-only by design · Live market data · Never places an order</p>
         </div>
       </footer>
 

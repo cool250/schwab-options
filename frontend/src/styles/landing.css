@@ -125,6 +125,9 @@
 
 /* ─── Sections ─── */
 .landing-section { padding: 88px 0; }
+/* Header links (#features, #screener, …) stop each section just below the
+   sticky header instead of underneath it. */
+.landing-section[id] { scroll-margin-top: 88px; }
 .landing-section-title {
   margin: 0 0 8px;
   font-size: clamp(1.6rem, 3vw, 2.1rem);
