@@ -63,6 +63,16 @@ lands in browser history) can never pass as a login token — and `callback`
 rejects anything without a valid one. Token saves go through
 `create_token_provider()`, which also records `refresh_token_issued_at` so
 Settings can show the 7-day expiry.
+Schwab tokens are served from a **process-wide in-memory cache**
+(`token_provider.py`, shared across every client's provider instance):
+token.json is re-read only when its mtime changes (so an external
+`main.py`/sftp replacement is picked up), saves are atomic (temp file +
+`os.replace`, mode 0600), and `BaseClient` refreshes the access token
+~60s *before* expiry, with a re-check under `_refresh_lock` so concurrent
+threads trigger one refresh. Read tokens through the provider, never by
+opening token.json directly. Each refresh logs whether Schwab rotated the
+refresh token — pending confirmation of that behavior before persisting
+the refresh token only on reconnect.
 WebSocket routes (`market_stream.py`) can't carry an `Authorization` header,
 so they pass the token as a `?token=` query param and call `verify_token()`
 manually inside the handler — follow that same pattern for any new WS route.

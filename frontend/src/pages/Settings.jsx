@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
 import { getSchwabStatus, startSchwabReconnect } from '../api/client'
+import { stashTokenForRedirect } from '../context/AuthContext'
 
 const THEMES = [
   { value: 'light', label: 'Light' },
@@ -61,7 +62,10 @@ export default function Settings() {
     try {
       const { url } = await startSchwabReconnect()
       // Full-page navigation to Schwab's login; it redirects back to
-      // /api/auth/schwab/callback, which lands on this page again.
+      // /api/auth/schwab/callback, which lands on this page again — with
+      // the app login handed off in case the browser drops sessionStorage
+      // on the way (see AuthContext).
+      stashTokenForRedirect()
       window.location.assign(url)
     } catch (err) {
       setSchwabError(err.message || 'Could not start the Schwab reconnect.')

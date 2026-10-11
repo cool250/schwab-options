@@ -42,6 +42,7 @@ import base64
 import json
 import logging
 import os
+import threading
 import time
 from abc import ABC, abstractmethod
 
@@ -51,6 +52,13 @@ import requests
 logger = logging.getLogger(__name__)
 
 _SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
+
+# Process-wide token cache, keyed by store (see TokenProvider._cached). Every
+# Schwab client builds its own provider instance (BaseClient →
+# create_token_provider()), so the cache lives at module level for all of
+# them to share; values are (store_version, token_data).
+_cache_lock = threading.RLock()
+_token_cache: dict[str, tuple[object, dict]] = {}
 
 # Schwab refresh tokens can't be renewed through the API — they last 7 days
 # from the interactive login that issued them, after which the user has to
@@ -103,6 +111,51 @@ class TokenProvider(ABC):
     def _with_expiry(self, token_data: dict) -> dict:
         return {**token_data, "expires_at": time.time() + token_data.get("expires_in", 1800)}
 
+    # ─── In-memory cache ─────────────────────────────────────────────
+    # Tokens are read from the store once and then served from memory, so a
+    # Schwab call doesn't re-read token.json/Redis every time — and can't
+    # catch a save half-written. Subclasses identify their store and, where
+    # cheap, a version stamp that changes when something *outside* this
+    # process rewrites it (e.g. main.py or an sftp upload replacing
+    # token.json), which triggers a reload. A provider without a version
+    # stamp (None) relies on invalidate_cache(), which BaseClient calls on a
+    # 401 before refreshing.
+
+    def _store_id(self) -> str:
+        return f"{type(self).__name__}:{id(self)}"
+
+    def _store_version(self) -> object:
+        return None
+
+    def _cached(self) -> dict:
+        store_id = self._store_id()
+        with _cache_lock:
+            hit = _token_cache.get(store_id)
+            if hit is not None and (hit[0] is None or hit[0] == self._store_version()):
+                return hit[1]
+            data = self._read()  # type: ignore[attr-defined]
+            _token_cache[store_id] = (self._store_version(), data)
+            return data
+
+    def _remember(self, data: dict) -> None:
+        with _cache_lock:
+            _token_cache[self._store_id()] = (self._store_version(), data)
+
+    def invalidate_cache(self) -> None:
+        with _cache_lock:
+            _token_cache.pop(self._store_id(), None)
+
+    def access_token_expires_soon(self, margin: float = 60) -> bool:
+        """True if the stored access token expires within `margin` seconds,
+        so BaseClient can refresh it *before* a request instead of after a
+        401. False when the expiry is unknown (an older token without
+        ``expires_at``) — the 401 path still covers that."""
+        try:
+            expires_at = self._cached().get("expires_at")
+        except Exception:
+            return False
+        return expires_at is not None and expires_at - margin <= time.time()
+
     def _stamped(self, token_data: dict) -> dict:
         """_with_expiry plus ``refresh_token_issued_at`` — when Schwab issued
         this refresh token, which sets when it dies (REFRESH_TOKEN_LIFETIME).
@@ -113,7 +166,7 @@ class TokenProvider(ABC):
         before this tracking existed has no recorded issue time, which stays
         unknown (None) rather than being guessed."""
         try:
-            previous = self._read()  # type: ignore[attr-defined]
+            previous = self._cached()
         except Exception:
             previous = None
         if previous and previous.get("refresh_token") == token_data.get("refresh_token"):
@@ -126,14 +179,14 @@ class TokenProvider(ABC):
         """Unix time the stored refresh token expires, or None if unknown
         (no token stored, or saved before issue times were tracked)."""
         try:
-            issued_at = self._read().get("refresh_token_issued_at")  # type: ignore[attr-defined]
+            issued_at = self._cached().get("refresh_token_issued_at")
         except Exception:
             return None
         return issued_at + REFRESH_TOKEN_LIFETIME if issued_at else None
 
     def has_tokens(self) -> bool:
         try:
-            return bool(self._read().get("refresh_token"))  # type: ignore[attr-defined]
+            return bool(self._cached().get("refresh_token"))
         except Exception:
             return False
 
@@ -190,20 +243,37 @@ class FileTokenProvider(TokenProvider):
         with open(self._file_path, "r") as f:
             return json.load(f)
 
+    def _store_id(self) -> str:
+        return f"file:{os.path.abspath(self._file_path)}"
+
+    def _store_version(self) -> object:
+        # mtime changes whenever the file is replaced — by this process
+        # (save_tokens, which records the new mtime) or by anything else.
+        try:
+            return os.stat(self._file_path).st_mtime_ns
+        except OSError:
+            return -1  # missing: never matches a cached version, so the read below raises
+
     def get_access_token(self) -> str:
-        token = self._read().get("access_token", "")
-        logger.debug("access_token read from file")
-        return token
+        return self._cached().get("access_token", "")
 
     def get_refresh_token(self) -> str:
-        token = self._read().get("refresh_token", "")
-        logger.debug("refresh_token read from file")
-        return token
+        return self._cached().get("refresh_token", "")
 
     def save_tokens(self, token_data: dict) -> None:
         stamped = self._stamped(token_data)
-        with open(self._file_path, "w") as f:
+        # Atomic replace: write a temp file, then swap it in, so a reader in
+        # another process (or this one, on a cache miss) only ever sees the
+        # old or the new file — never a truncated, half-written one. 0600:
+        # the file grants access to the brokerage account.
+        tmp_path = f"{self._file_path}.tmp"
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             json.dump(stamped, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, self._file_path)
+        self._remember(stamped)
         logger.debug("Tokens saved to %s", self._file_path)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
@@ -259,18 +329,19 @@ class RedisTokenProvider(TokenProvider):
             return data
         raise ValueError("Token not found in Redis and TOKEN_JSON env var is not set.")
 
+    def _store_id(self) -> str:
+        return f"redis:{self._REDIS_TOKEN_KEY}"
+
     def get_access_token(self) -> str:
-        token = self._read().get("access_token", "")
-        logger.debug("access_token read from Redis")
-        return token
+        return self._cached().get("access_token", "")
 
     def get_refresh_token(self) -> str:
-        token = self._read().get("refresh_token", "")
-        logger.debug("refresh_token read from Redis")
-        return token
+        return self._cached().get("refresh_token", "")
 
     def save_tokens(self, token_data: dict) -> None:
-        self._redis.set(self._REDIS_TOKEN_KEY, json.dumps(self._stamped(token_data)))
+        stamped = self._stamped(token_data)
+        self._redis.set(self._REDIS_TOKEN_KEY, json.dumps(stamped))
+        self._remember(stamped)
         logger.debug("Tokens saved to Redis key '%s'", self._REDIS_TOKEN_KEY)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
