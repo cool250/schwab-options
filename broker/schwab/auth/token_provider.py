@@ -44,6 +44,8 @@ import logging
 import os
 import threading
 import time
+from contextvars import ContextVar, Token
+from typing import Optional
 from abc import ABC, abstractmethod
 
 import redis
@@ -267,6 +269,8 @@ class FileTokenProvider(TokenProvider):
         # old or the new file — never a truncated, half-written one. 0600:
         # the file grants access to the brokerage account.
         tmp_path = f"{self._file_path}.tmp"
+        parent = os.path.dirname(os.path.abspath(self._file_path))
+        os.makedirs(parent, mode=0o700, exist_ok=True)
         fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             json.dump(stamped, f, indent=4)
@@ -301,7 +305,11 @@ class RedisTokenProvider(TokenProvider):
         app_key: str | None = None,
         app_secret: str | None = None,
         callback_url: str | None = None,
+        key: str | None = None,
     ) -> None:
+        # Per-user key in the multi-user app (see create_token_provider); the
+        # TOKEN_JSON env re-seed below only ever applies to the default key.
+        self._key = key or self._REDIS_TOKEN_KEY
         url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
         if url.startswith("rediss://"):
             # Managed Redis over TLS (rediss://) often uses self-signed certs; skip verification.
@@ -315,22 +323,22 @@ class RedisTokenProvider(TokenProvider):
         )
 
     def _read(self) -> dict:
-        raw = self._redis.get(self._REDIS_TOKEN_KEY)
+        raw = self._redis.get(self._key)
         if raw:
             data = json.loads(str(raw))
             if time.time() < data.get("expires_at", 0):
                 return data
             # Token has expired — fall back to TOKEN_JSON env var.
             logger.info("Redis token has expired; re-seeding from TOKEN_JSON env var.")
-        env_token = os.getenv("TOKEN_JSON")
+        env_token = os.getenv("TOKEN_JSON") if self._key == self._REDIS_TOKEN_KEY else None
         if env_token:
             data = json.loads(env_token)
-            self._redis.set(self._REDIS_TOKEN_KEY, json.dumps(self._with_expiry(data)))
+            self._redis.set(self._key, json.dumps(self._with_expiry(data)))
             return data
         raise ValueError("Token not found in Redis and TOKEN_JSON env var is not set.")
 
     def _store_id(self) -> str:
-        return f"redis:{self._REDIS_TOKEN_KEY}"
+        return f"redis:{self._key}"
 
     def get_access_token(self) -> str:
         return self._cached().get("access_token", "")
@@ -340,22 +348,92 @@ class RedisTokenProvider(TokenProvider):
 
     def save_tokens(self, token_data: dict) -> None:
         stamped = self._stamped(token_data)
-        self._redis.set(self._REDIS_TOKEN_KEY, json.dumps(stamped))
+        self._redis.set(self._key, json.dumps(stamped))
         self._remember(stamped)
-        logger.debug("Tokens saved to Redis key '%s'", self._REDIS_TOKEN_KEY)
+        logger.debug("Tokens saved to Redis key '%s'", self._key)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
         return self._credentials or get_app_credentials()
 
 
-def create_token_provider() -> TokenProvider:
+# ─── Per-user token selection (multi-user web app) ──────────────────────
+# Each app user has their own Schwab login. The web layer (api/auth.py's
+# require_auth) records whose request is running via set_token_owner(), and
+# create_token_provider() — which every Schwab client calls — picks that
+# user's token store. Being a ContextVar, the owner follows the request into
+# FastAPI's handler thread, but NOT into threads a service starts itself
+# (e.g. a ThreadPoolExecutor): those must run tasks under
+# contextvars.copy_context(), as MarketService.screen_options does.
+#
+# User LEGACY_OWNER_ID (the bootstrap admin) keeps the original token store
+# (TOKEN_FILE / token.json, or the plain TOKEN_JSON Redis key), so the
+# single-user setup carries over unchanged; everyone else gets their own.
+LEGACY_OWNER_ID = 1
+_token_owner: ContextVar[Optional[int]] = ContextVar("schwab_token_owner", default=None)
+# Set by the web app at startup: a Schwab call with no owner is then a bug
+# (it would otherwise silently use the admin's token — another user's
+# account), so it fails closed. CLI use (main.py) leaves it off and gets the
+# legacy store, as before.
+_owner_required = False
+
+
+def set_token_owner(user_id: Optional[int]) -> Token:
+    return _token_owner.set(user_id)
+
+
+def require_token_owner() -> None:
+    global _owner_required
+    _owner_required = True
+
+
+def user_token_path(user_id: int) -> str:
+    """token.json path for `user_id`: the legacy TOKEN_FILE for the
+    bootstrap admin, else schwab_tokens/user_<id>.json next to it (so on
+    Fly every user's token is on the same /data volume)."""
+    base = os.getenv("TOKEN_FILE") or FileTokenProvider._DEFAULT_TOKEN_FILE
+    if user_id == LEGACY_OWNER_ID:
+        return base
+    return os.path.join(os.path.dirname(os.path.abspath(base)), "schwab_tokens", f"user_{user_id}.json")
+
+
+def _redis_key(user_id: int) -> str:
+    return RedisTokenProvider._REDIS_TOKEN_KEY if user_id == LEGACY_OWNER_ID else f"TOKEN_JSON:user:{user_id}"
+
+
+def delete_user_tokens(user_id: int) -> None:
+    """Remove a user's stored Schwab token (admin deleting the user)."""
+    if user_id == LEGACY_OWNER_ID:
+        raise ValueError("Refusing to delete the bootstrap admin's token store")
+    provider = create_token_provider(user_id)
+    provider.invalidate_cache()
+    if isinstance(provider, RedisTokenProvider):
+        provider._redis.delete(provider._key)
+    else:
+        try:
+            os.remove(user_token_path(user_id))
+        except FileNotFoundError:
+            pass
+
+
+def create_token_provider(user_id: Optional[int] = None) -> TokenProvider:
     """
-    Factory that returns the appropriate :class:`TokenProvider` based on env vars.
+    The Schwab token store for `user_id`, or for the user whose request is
+    running (set_token_owner) when not given.
 
     Returns :class:`RedisTokenProvider` when ``USE_DB`` is set to a truthy value
     (``1``, ``true``, or ``yes``); otherwise returns :class:`FileTokenProvider`.
     """
+    owner = user_id if user_id is not None else _token_owner.get()
+    if owner is None:
+        if _owner_required:
+            raise RuntimeError(
+                "Schwab call with no user context — refusing to fall back to the admin's token. "
+                "Run thread-pool work under contextvars.copy_context()."
+            )
+        owner = LEGACY_OWNER_ID
     use_db = os.getenv("USE_DB", "").lower() in ("1", "true", "yes")
-    provider = RedisTokenProvider() if use_db else FileTokenProvider()
-    logger.debug("Token provider: %s", type(provider).__name__)
+    provider = (
+        RedisTokenProvider(key=_redis_key(owner)) if use_db else FileTokenProvider(user_token_path(owner))
+    )
+    logger.debug("Token provider: %s (user %s)", type(provider).__name__, owner)
     return provider

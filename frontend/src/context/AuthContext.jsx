@@ -1,4 +1,5 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
+import { getMe } from '../api/client'
 
 const AuthContext = createContext(null)
 
@@ -38,19 +39,33 @@ function initialToken() {
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(initialToken)
+  // {id, username, isAdmin} — from the login response, or fetched via
+  // /auth/me when a session is restored (page reload, Schwab round trip).
+  const [user, setUser] = useState(null)
 
-  function login(t) {
+  useEffect(() => {
+    if (!token || user) return
+    let cancelled = false
+    getMe()
+      .then((me) => { if (!cancelled) setUser(me) })
+      .catch(() => {}) // a 401 is handled by request() (→ /login)
+    return () => { cancelled = true }
+  }, [token, user])
+
+  function login(t, u = null) {
     sessionStorage.setItem('auth_token', t)
     setToken(t)
+    setUser(u)
   }
 
   function logout() {
     sessionStorage.removeItem('auth_token')
     setToken(null)
+    setUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ token, login, logout }}>
+    <AuthContext.Provider value={{ token, user, login, logout }}>
       {children}
     </AuthContext.Provider>
   )

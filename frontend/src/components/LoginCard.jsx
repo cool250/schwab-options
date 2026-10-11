@@ -25,8 +25,8 @@ export function LoginCard({ onSuccess, onClose }) {
         setError('Invalid username or password.')
         return
       }
-      const { token } = await res.json()
-      login(token)
+      const { token, user } = await res.json()
+      login(token, user)
       onSuccess?.()
     } catch {
       setError('Could not reach the server. Please try again.')

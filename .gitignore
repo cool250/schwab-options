@@ -78,3 +78,7 @@ portfolio.csv
 
 logs/
 sample_tasty_client.py
+
+# ─── App user database (api/users.py) ────────────────
+nutrade.db
+nutrade.db-*

@@ -14,6 +14,7 @@ primary_region = 'iad'
   LOG_TO_STDOUT = 'true'
   PORT = '8080'
   TOKEN_FILE = '/data/token.json'
+  DB_PATH = '/data/nutrade.db'
 
 [[mounts]]
   source = 'data'

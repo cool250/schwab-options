@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { AuthProvider } from './context/AuthContext'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -14,6 +14,13 @@ import StrikeLab from './pages/StrikeLab'
 import Charts from './pages/Charts'
 import Screener from './pages/Screener'
 import Settings from './pages/Settings'
+
+// The Copilot is admin-only (it's billed to the admin's OpenAI key; the API
+// enforces this too — api/app.py mounts it behind require_admin).
+function AdminCopilot() {
+  const { user } = useAuth()
+  return user?.isAdmin ? <CopilotWidget /> : null
+}
 
 export default function App() {
   return (
@@ -48,7 +55,7 @@ export default function App() {
                     </ErrorBoundary>
                   </main>
                 </div>
-                <CopilotWidget />
+                <AdminCopilot />
               </ProtectedRoute>
             }
           />

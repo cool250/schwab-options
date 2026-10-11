@@ -125,12 +125,12 @@ function RegisterCard({ onClose, onLogin }) {
         <img src="/nutrade_icon.svg" alt="NuTrade" className="login-logo" />
         <p className="login-subtitle" id="register-title">Create an account</p>
       </div>
-      {/* NuTrade is a single-user app today: one admin login configured on
-          the server, no user accounts to create — so this explains that
-          rather than showing a sign-up form that can't do anything. */}
+      {/* No self-service sign-up: the admin creates accounts (Settings →
+          Users, api/admin.py), so this explains that rather than showing a
+          form that can't do anything. */}
       <p className="landing-register-text">
-        NuTrade is invite-only for now — new accounts can't be created yet. If you already have access, log in
-        with the credentials you were given.
+        NuTrade is invite-only. Accounts are created by the admin — ask them for a username and password, then
+        log in. You can change your password in Settings after you sign in.
       </p>
       <button type="button" className="btn btn-primary login-btn" onClick={onLogin}>Log in instead</button>
     </div>

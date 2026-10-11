@@ -1,3 +1,4 @@
+import contextvars
 import logging
 import threading
 import time
@@ -315,8 +316,14 @@ class MarketService:
                     return symbol, None, "Symbol not found, or it has no listed options"
                 return symbol, None, str(e) or e.__class__.__name__
 
+        # Each task runs in a copy of this request's context so it keeps the
+        # current user (broker/schwab/auth/token_provider.py) — a plain
+        # executor thread starts with an empty context, which matters if
+        # CHAIN_PROVIDER=schwab puts Schwab calls in these threads. One copy
+        # per task: a Context can't be entered by two threads at once.
         with ThreadPoolExecutor(max_workers=min(_SCREENER_WORKERS, len(symbols) or 1)) as pool:
-            results = list(pool.map(fetch, symbols))
+            futures = [pool.submit(contextvars.copy_context().run, fetch, s) for s in symbols]
+            results = [f.result() for f in futures]
 
         delta_filter_on = min_abs_delta is not None or max_abs_delta is not None
 

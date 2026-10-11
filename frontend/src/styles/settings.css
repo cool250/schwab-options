@@ -28,3 +28,28 @@
 .settings-status--warning { color: var(--warning); }
 .settings-status--error   { color: var(--error); }
 .settings-status--muted   { color: var(--text-muted); font-weight: 500; }
+
+/* Account → change password: three fields side by side, wrapping on narrow screens. */
+.settings-password-form,
+.settings-user-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px 24px;
+}
+.settings-password-form .form-group { flex: 1 1 200px; }
+.settings-user-form .form-group { flex: 1 1 220px; }
+.settings-reset-form {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.settings-password-row { display: flex; align-items: center; gap: 10px; }
+.settings-password-row .input { flex: 1; min-width: 0; }
+
+/* Users table actions */
+.settings-user-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.settings-btn-sm { padding: 5px 12px; font-size: 0.8rem; white-space: nowrap; }
+.settings-btn-danger { color: var(--error); }
+.settings-btn-danger:hover:not(:disabled) { border-color: var(--error); }

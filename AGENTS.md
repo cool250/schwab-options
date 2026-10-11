@@ -6,11 +6,13 @@ actually look for.)
 
 ## What this is
 
-A personal, **single-user** options-wheel trading dashboard: a FastAPI
-backend talking to Schwab and Tastytrade, a React (Vite) frontend, and a
-read-only AI "copilot" chat agent. No multi-tenancy, no user table — one
-hardcoded admin login (`ADMIN_USERNAME`/`ADMIN_PASSWORD`), one brokerage
-account. In production, FastAPI serves the built React SPA directly from
+A small **multi-user** (admin + friends) options trading dashboard: a
+FastAPI backend talking to Schwab and Tastytrade, a React (Vite) frontend,
+and a read-only AI "copilot" chat agent. Accounts are admin-managed (no
+self-service sign-up) and live in SQLite (`api/users.py`). **Each user has
+their own Schwab connection** (positions/transactions are per-user);
+**market data is shared** through the one Tastytrade account in env
+(`TASTY_*`); the **Copilot is admin-only**. In production, FastAPI serves the built React SPA directly from
 `frontend/dist/` (single web process — see `Dockerfile` / `fly.toml`, deployed to Fly.io).
 
 ## Layout
@@ -22,7 +24,7 @@ account. In production, FastAPI serves the built React SPA directly from
 | `service/` | Business logic: `PositionService`, `TransactionService`, `MarketService`, `option_chain_providers.py` (Schwab vs Tastytrade chain provider, selected by `CHAIN_PROVIDER` env var). This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
 | `api/` | FastAPI routers: `auth.py`, `market.py`, `market_stream.py` (WebSocket), `position.py`, `transactions.py`, `copilot.py`. Registered in `api/app.py`. |
 | `copilot/` | The read-only financial-copilot agent — see its own section below. |
-| `frontend/src/pages/` | `Landing` (public page at `/`; Log in / Register open as overlays on it, and `/login` — where `ProtectedRoute` sends logged-out visitors, remembering the page they wanted — is the same page with the login overlay open. Its screenshots in `frontend/public/landing/` are real captures of **market-data pages only**, since the page is public — never Positions/Transactions/Reports. Register only explains that accounts aren't open: the app is single-user), `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Screener` (top puts/calls to sell across tickers, ranked by annualized ROI — backed by `MarketService.screen_options` + each chain provider's `get_screener_contracts`; multi-leg Ratio Put / Jade Lizard combinations are built in `service/screener_strategies.py`), `Settings` (appearance — the light/dark theme choice lives here, not in the navbar), `Login`. |
+| `frontend/src/pages/` | `Landing` (public page at `/`; Log in / Register open as overlays on it, and `/login` — where `ProtectedRoute` sends logged-out visitors, remembering the page they wanted — is the same page with the login overlay open. Its screenshots in `frontend/public/landing/` are real captures of **market-data pages only**, since the page is public — never Positions/Transactions/Reports. Register only explains that the admin creates accounts — there's no self-service sign-up), `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Screener` (top puts/calls to sell across tickers, ranked by annualized ROI — backed by `MarketService.screen_options` + each chain provider's `get_screener_contracts`; multi-leg Ratio Put / Jade Lizard combinations are built in `service/screener_strategies.py`), `Settings` (account/change password, Schwab connection, light/dark theme — not in the navbar — and the admin-only Users card, `components/AccountSettings.jsx`), `Login`. |
 | `frontend/src/components/` | `Navbar`, `CopilotWidget` (floating chat, mounted globally in `App.jsx`), `DataTable`, `ErrorBoundary`, `LoginCard` (the login form, used by the landing page's overlay), `HelpTip` ("?" button + pop-up beside a form label — use it for field help text instead of a paragraph under the form), `Spinner`, `ProtectedRoute`. |
 | `frontend/src/context/` | `AuthContext`, `ThemeContext` (dark mode). |
 | `frontend/src/utils/` | Small shared helpers, not page-specific: `optionSymbol.js` (the one canonical "TICKER MM/DD/YYYY STRIKE.00 P/C" formatter — every page showing an option contract should call this, not re-derive its own), `dateFormat.js` (MM/DD/YYYY), `contractMultiplier.js` (equity=100 vs futures-root multipliers + `isFuturesRoot`), `copilotContext.js` (see Copilot section below), `symbolStore.js` (see below). |
@@ -57,12 +59,35 @@ account. In production, FastAPI serves the built React SPA directly from
 ## Auth
 
 Custom HMAC-SHA256 signed tokens (`api/auth.py`), **not** JWT — 8-hour TTL,
-single hardcoded admin credential pair from env vars, secret from
-`SECRET_KEY`. REST routes use `Depends(require_auth)` (Bearer header).
+secret from `SECRET_KEY`, payload `u<user id>:<issued ms>`. A token is only
+valid while its user exists, is enabled, and hasn't changed password since
+it was issued (so disable/reset signs them out). Users are in SQLite
+(`api/users.py`, `DB_PATH`, default next to `TOKEN_FILE` — on Fly the /data
+volume); passwords are scrypt-hashed; the first admin is bootstrapped from
+`ADMIN_USERNAME`/`ADMIN_PASSWORD` only when the table is empty, after which
+the DB is authoritative (recovery: `uv run python -m api.users
+reset-password <name>`). Admin user management is `api/admin.py`
+(`require_admin`); the Copilot router is also `require_admin`.
+
+**Per-user Schwab tokens — the guardrail that matters most.**
+`require_auth` (deliberately `async`, so its ContextVar reaches the route
+handler) calls `set_token_owner(user.id)`, and `create_token_provider()` —
+which every Schwab client uses — picks that user's store: user 1 (the
+bootstrap admin) keeps the legacy `TOKEN_FILE`; everyone else gets
+`schwab_tokens/user_<id>.json` next to it. The web app calls
+`require_token_owner()` at startup, so a Schwab call with **no** user
+context raises instead of silently falling back to the admin's token
+(another person's account). ContextVars don't flow into threads a service
+starts itself: any ThreadPoolExecutor that could reach Schwab must submit
+work via `contextvars.copy_context().run` (one copy per task), as
+`MarketService.screen_options` does. Never cache account data at module
+level — services are built per request, and that's what keeps users apart.
+
+REST routes use `Depends(require_auth)` (Bearer header).
 The Schwab OAuth reconnect (`/api/auth/schwab/start|callback|status`, used
 by Settings) is the one exception to Bearer auth on the callback: Schwab's
 browser redirect can't carry the header, so `start` (Bearer-protected)
-issues a signed, 10-minute `state` — HMAC'd with a key *derived* from
+issues a signed, 10-minute `state` carrying the user id — HMAC'd with a key *derived* from
 `SECRET_KEY`, deliberately not the login-token key, so a state value (which
 lands in browser history) can never pass as a login token — and `callback`
 rejects anything without a valid one. Token saves go through
@@ -96,7 +121,7 @@ manually inside the handler — follow that same pattern for any new WS route.
   before assuming that default is still right; it's been bumped before.
 - `skills/*.md` — options-strategy reference docs, loaded in full into the
   system prompt (no RAG — the set is small enough that retrieval would be
-  pure overhead for a single-user app). Adding a new strategy = adding a new
+  pure overhead for an app this size). Adding a new strategy = adding a new
   `.md` file here; nothing else needs to change to pick it up.
 - `TransactionService.group_ratio_spreads()` (closed/historical trades) and
   `.group_open_ratio_spreads()` (currently-open legs, used by the Positions

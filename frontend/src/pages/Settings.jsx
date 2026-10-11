@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
 import { getSchwabStatus, startSchwabReconnect } from '../api/client'
-import { stashTokenForRedirect } from '../context/AuthContext'
+import { stashTokenForRedirect, useAuth } from '../context/AuthContext'
+import { AccountCard, UsersCard } from '../components/AccountSettings'
 
 const THEMES = [
   { value: 'light', label: 'Light' },
@@ -36,6 +37,7 @@ function statusLine(status) {
 
 export default function Settings() {
   const { theme, setTheme } = useTheme()
+  const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [schwab, setSchwab] = useState(null)
   const [schwabError, setSchwabError] = useState(null)
@@ -82,6 +84,8 @@ export default function Settings() {
         <div className="alert error">Schwab reconnect failed: {result.reason || 'unknown error'}</div>
       )}
 
+      <AccountCard />
+
       <div className="card">
         <h3 className="section-title">Schwab Connection</h3>
         {/* Schwab's refresh token lasts 7 days and can only be renewed by
@@ -124,6 +128,8 @@ export default function Settings() {
           </div>
         </fieldset>
       </div>
+
+      {user?.isAdmin && <UsersCard />}
     </div>
   )
 }

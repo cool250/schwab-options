@@ -83,6 +83,52 @@ export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyn
   return request(`/market/options/screener?${p}`)
 }
 
+// Current user / own password — see api/auth.py.
+export function getMe() {
+  return request('/auth/me')
+}
+
+export function changePassword(currentPassword, newPassword) {
+  return request('/auth/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+}
+
+// Admin user management (Settings → Users) — see api/admin.py.
+export function listUsers() {
+  return request('/admin/users')
+}
+
+export function createUser(username, password, isAdmin = false) {
+  return request('/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, isAdmin }),
+  })
+}
+
+export function resetUserPassword(userId, password) {
+  return request(`/admin/users/${userId}/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+}
+
+export function setUserDisabled(userId, disabled) {
+  return request(`/admin/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ disabled }),
+  })
+}
+
+export function deleteUser(userId) {
+  return request(`/admin/users/${userId}`, { method: 'DELETE' })
+}
+
 // Schwab reconnect (Settings) — see api/auth.py's /schwab/* routes.
 export function getSchwabStatus() {
   return request('/auth/schwab/status')
