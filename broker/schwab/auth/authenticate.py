@@ -2,6 +2,7 @@ import base64
 import requests
 import webbrowser
 import logging
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,37 @@ def construct_headers_and_payload(
     }
 
     return headers, payload
+
+
+def build_authorize_url(state: str) -> str:
+    """Schwab's login/consent URL for the in-app reconnect flow
+    (api/auth.py), carrying `state` so the callback can prove the request
+    started from a logged-in session. Same URL shape as
+    construct_init_auth_url(), which main.py's CLI flow uses."""
+    app_key, _, app_callback_url = get_app_credentials()
+    return (
+        f"https://api.schwabapi.com/v1/oauth/authorize?response_type=code&client_id={app_key}"
+        f"&redirect_uri={app_callback_url}&state={quote(state, safe='')}"
+    )
+
+
+def exchange_authorization_code(code: str) -> dict:
+    """Trade the `code` from Schwab's redirect for an access/refresh token
+    pair. `code` is the already-URL-decoded value (it ends in "@"), as a web
+    framework hands over the query param — main.py's CLI flow instead slices
+    it out of the raw pasted URL in construct_headers_and_payload().
+
+    Raises RuntimeError if Schwab doesn't return tokens."""
+    app_key, app_secret, app_callback_url = get_app_credentials()
+    credentials = base64.b64encode(f"{app_key}:{app_secret}".encode()).decode()
+    tokens = retrieve_tokens(
+        headers={"Authorization": f"Basic {credentials}", "Content-Type": "application/x-www-form-urlencoded"},
+        payload={"grant_type": "authorization_code", "code": code, "redirect_uri": app_callback_url},
+    )
+    if not tokens.get("access_token") or not tokens.get("refresh_token"):
+        logger.error("Schwab code exchange returned no tokens: %s", tokens)
+        raise RuntimeError(tokens.get("error_description") or tokens.get("error") or "Schwab returned no tokens")
+    return tokens
 
 
 def retrieve_tokens(headers: dict[str, str], payload: dict[str, str]) -> dict[str, str]:

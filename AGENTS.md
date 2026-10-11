@@ -54,6 +54,15 @@ account. In production, FastAPI serves the built React SPA directly from
 Custom HMAC-SHA256 signed tokens (`api/auth.py`), **not** JWT — 8-hour TTL,
 single hardcoded admin credential pair from env vars, secret from
 `SECRET_KEY`. REST routes use `Depends(require_auth)` (Bearer header).
+The Schwab OAuth reconnect (`/api/auth/schwab/start|callback|status`, used
+by Settings) is the one exception to Bearer auth on the callback: Schwab's
+browser redirect can't carry the header, so `start` (Bearer-protected)
+issues a signed, 10-minute `state` — HMAC'd with a key *derived* from
+`SECRET_KEY`, deliberately not the login-token key, so a state value (which
+lands in browser history) can never pass as a login token — and `callback`
+rejects anything without a valid one. Token saves go through
+`create_token_provider()`, which also records `refresh_token_issued_at` so
+Settings can show the 7-day expiry.
 WebSocket routes (`market_stream.py`) can't carry an `Authorization` header,
 so they pass the token as a `?token=` query param and call `verify_token()`
 manually inside the handler — follow that same pattern for any new WS route.
@@ -140,6 +149,12 @@ uv run uvicorn api.app:app --reload
 cd frontend && npm run dev
 ```
 
+The Vite dev server serves **HTTPS** on `https://127.0.0.1:3000`
+(`@vitejs/plugin-basic-ssl`, self-signed) — required for the Schwab
+reconnect callback locally (`SCHWAB_APP_CALLBACK_URL=https://127.0.0.1:3000/api/auth/schwab/callback`).
+Open the app at that exact origin; `localhost` is a different origin with its
+own sessionStorage login.
+
 - Python deps: `uv add <pkg>` / `uv remove <pkg>` (keeps `pyproject.toml`
   and `uv.lock` in sync — don't hand-edit the lock file).
 - JS deps: `npm install <pkg>` from `frontend/`.
@@ -156,4 +171,7 @@ See the README's env var table for the full deployment list. The ones most
 relevant to day-to-day agent work: `CHAIN_PROVIDER`, `SCHWAB_APP_KEY` /
 `SCHWAB_APP_SECRET` / `SCHWAB_APP_CALLBACK_URL`, `TASTY_CLIENT_ID` /
 `TASTY_CLIENT_SECRET` / `TASTY_REFRESH_TOKEN`, `OPENAI_API_KEY` /
-`OPENAI_MODEL`, `SECRET_KEY`, `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+`OPENAI_MODEL`, `SECRET_KEY`, `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Deploy-only (Fly.io, set in `fly.toml`):
+`TOKEN_FILE` (where `FileTokenProvider` keeps the Schwab token — `/data/token.json`
+on the Fly volume; defaults to `token.json` in the working dir) and
+`LOG_TO_STDOUT` (mirror `logs/api.log` to stdout so `fly logs` shows it).

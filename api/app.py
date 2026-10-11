@@ -3,6 +3,7 @@ load_dotenv()
 
 import logging
 import logging.handlers
+import os
 import sys
 from pathlib import Path
 
@@ -19,16 +20,22 @@ def _resolve_log_level() -> int:
 
 _log_level = _resolve_log_level()
 
+_log_handlers: list[logging.Handler] = [
+    logging.handlers.RotatingFileHandler(
+        _log_dir / "api.log",
+        maxBytes=5 * 1024 * 1024,  # 5 MB
+        backupCount=5,
+    ),
+]
+# On a container host (Fly.io) the log file lives inside the machine, while
+# `fly logs` only shows stdout — LOG_TO_STDOUT mirrors every record there too.
+if os.getenv("LOG_TO_STDOUT", "").lower() in ("1", "true", "yes"):
+    _log_handlers.append(logging.StreamHandler(sys.stdout))
+
 logging.basicConfig(
     level=_log_level,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.handlers.RotatingFileHandler(
-            _log_dir / "api.log",
-            maxBytes=5 * 1024 * 1024,  # 5 MB
-            backupCount=5,
-        ),
-    ],
+    handlers=_log_handlers,
 )
 
 logging.getLogger(__name__).info("Log level: %s", logging.getLevelName(_log_level))

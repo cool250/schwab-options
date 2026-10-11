@@ -21,3 +21,10 @@
   flex-wrap: wrap;
   gap: 12px 28px;
 }
+
+/* Schwab connection status line — tone set by Settings.jsx statusLine(). */
+.settings-status { margin: 0; font-size: 0.9rem; font-weight: 600; }
+.settings-status--ok      { color: var(--success); }
+.settings-status--warning { color: var(--warning); }
+.settings-status--error   { color: var(--error); }
+.settings-status--muted   { color: var(--text-muted); font-weight: 500; }

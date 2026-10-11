@@ -138,7 +138,7 @@ cd frontend
 npm run dev
 ```
 
-- URL: `http://localhost:3000`
+- URL: `https://127.0.0.1:3000` — the dev server uses HTTPS with a self-signed certificate (click through the browser's one-time warning). Schwab only accepts HTTPS callback URLs, so this is what lets **Settings → Reconnect Schwab** work locally: register `https://127.0.0.1:3000/api/auth/schwab/callback` in Schwab's developer portal and set it as `SCHWAB_APP_CALLBACK_URL` in `.env`. Use `127.0.0.1`, not `localhost` — the app login is stored per address, and that's where Schwab sends you back.
 - Log in with the `ADMIN_USERNAME`/`ADMIN_PASSWORD` you set in `.env`.
 
 ### 8. You're in
@@ -204,6 +204,67 @@ Rather than a hand-maintained list here (which drifts fast), the full live endpo
 | `/api/positions` | Balances, stocks, options, futures, futures options |
 | `/api/transactions` | Raw history, matched option transactions, equity transactions |
 | `/api/copilot` | The Copilot chat endpoint |
+
+---
+
+## Deploying to Fly.io
+
+The app runs as **one small Fly machine** (shared-cpu-1x, 512MB — about $3.69/month if always on, less with the auto-stop below) from the repo's `Dockerfile` and `fly.toml`. The Docker build compiles the React app and FastAPI serves it alongside the API, same single-process layout as local. The Schwab token lives in `token.json` on a **1GB Fly volume** mounted at `/data`, so it survives restarts and redeploys — no Redis needed.
+
+### One-time setup
+
+```bash
+# 1. Install the CLI and log in
+brew install flyctl
+fly auth login
+
+# 2. Create the app. App names are global on Fly — pick your own. This keeps
+#    the repo's fly.toml and just writes your app name into it.
+fly launch --no-deploy --copy-config --name your-app-name
+
+# 3. Create the volume for token.json (same region as fly.toml's primary_region)
+fly volumes create data --size 1 --region iad
+
+# 4. Set secrets (same values as your local .env, except the callback URL —
+#    see "Connect Schwab" below). Don't set USE_DB — the token is stored on
+#    the volume, not Redis.
+fly secrets set \
+  SCHWAB_APP_KEY=... SCHWAB_APP_SECRET=... \
+  SCHWAB_APP_CALLBACK_URL=https://your-app-name.fly.dev/api/auth/schwab/callback \
+  TASTY_CLIENT_ID=... TASTY_CLIENT_SECRET=... TASTY_REFRESH_TOKEN=... \
+  SECRET_KEY=... ADMIN_USERNAME=... ADMIN_PASSWORD=... \
+  OPENAI_API_KEY=...        # optional — only for the Copilot
+
+# 5. Deploy as a single machine (a volume attaches to exactly one machine)
+fly deploy --ha=false
+```
+
+Non-secret settings (`PORT`, `TOKEN_FILE=/data/token.json`, `LOG_TO_STDOUT`, `CHAIN_PROVIDER`) are in `fly.toml`'s `[env]` block — edit them there.
+
+### Connect Schwab (and reconnect every 7 days)
+
+Schwab's refresh token lasts **7 days** and can only be renewed by logging in again — the app renews the short-lived access token on its own, but not that. The app runs this login itself:
+
+1. **One-time:** in Schwab's developer portal, add `https://your-app-name.fly.dev/api/auth/schwab/callback` to your app's callback URLs (keep your local one too, if Schwab lets you list several), and make sure `SCHWAB_APP_CALLBACK_URL` on Fly is set to it (step 4 above).
+2. In the app, open **Settings → Schwab Connection** and click **Connect Schwab** (later: **Reconnect Schwab**). You're sent to Schwab to log in and approve, then back to Settings, which shows when the new login expires — it turns amber in the last day. The token is saved straight to the volume.
+
+Do step 2 whenever it's due (or when pages show "Broker authentication failed") — from any device, no CLI needed.
+
+**Fallback** (e.g. before the callback URL is registered): generate the token locally with `uv run python main.py` and copy it onto the volume:
+
+```bash
+fly machine start                              # in case it's auto-stopped
+fly ssh console -C "rm -f /data/token.json"    # sftp won't overwrite an existing file
+fly ssh sftp shell
+» put token.json /data/token.json
+```
+
+### Day to day
+
+- **Open:** `https://your-app-name.fly.dev` (log in with `ADMIN_USERNAME`/`ADMIN_PASSWORD`).
+- **Redeploy** after changes: `fly deploy`.
+- **Logs:** `fly logs` (the app mirrors its log to stdout on Fly via `LOG_TO_STDOUT`).
+- **Auto-stop:** the machine stops when nothing is connected and starts on the next request, so you mostly pay for hours actually used — the first page load after idle takes a few seconds. An open Analyze chain stream counts as a connection and keeps it running. Set `min_machines_running = 1` in `fly.toml` to keep it always on instead.
 
 ---
 

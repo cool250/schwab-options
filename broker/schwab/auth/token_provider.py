@@ -52,6 +52,11 @@ logger = logging.getLogger(__name__)
 
 _SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
 
+# Schwab refresh tokens can't be renewed through the API — they last 7 days
+# from the interactive login that issued them, after which the user has to
+# log in again (main.py locally, or Settings → Reconnect Schwab in the app).
+REFRESH_TOKEN_LIFETIME = 7 * 24 * 3600
+
 
 def get_app_credentials() -> tuple[str, str, str]:
     """Return (app_key, app_secret, app_callback_url) from environment variables."""
@@ -98,6 +103,40 @@ class TokenProvider(ABC):
     def _with_expiry(self, token_data: dict) -> dict:
         return {**token_data, "expires_at": time.time() + token_data.get("expires_in", 1800)}
 
+    def _stamped(self, token_data: dict) -> dict:
+        """_with_expiry plus ``refresh_token_issued_at`` — when Schwab issued
+        this refresh token, which sets when it dies (REFRESH_TOKEN_LIFETIME).
+
+        Every 30-minute access-token refresh returns the *same* refresh token,
+        so its issue time is carried over from what's stored; only a genuinely
+        new refresh token (a fresh login) gets stamped with now. A token saved
+        before this tracking existed has no recorded issue time, which stays
+        unknown (None) rather than being guessed."""
+        try:
+            previous = self._read()  # type: ignore[attr-defined]
+        except Exception:
+            previous = None
+        if previous and previous.get("refresh_token") == token_data.get("refresh_token"):
+            issued_at = previous.get("refresh_token_issued_at")
+        else:
+            issued_at = time.time()
+        return {**self._with_expiry(token_data), "refresh_token_issued_at": issued_at}
+
+    def refresh_token_expires_at(self) -> float | None:
+        """Unix time the stored refresh token expires, or None if unknown
+        (no token stored, or saved before issue times were tracked)."""
+        try:
+            issued_at = self._read().get("refresh_token_issued_at")  # type: ignore[attr-defined]
+        except Exception:
+            return None
+        return issued_at + REFRESH_TOKEN_LIFETIME if issued_at else None
+
+    def has_tokens(self) -> bool:
+        try:
+            return bool(self._read().get("refresh_token"))  # type: ignore[attr-defined]
+        except Exception:
+            return False
+
     def refresh_tokens(self) -> None:
         """Exchange the stored refresh token for a new access/refresh token pair."""
         app_key, app_secret, _ = self.get_app_credentials()
@@ -126,19 +165,21 @@ class FileTokenProvider(TokenProvider):
     """
     Token provider backed by a local JSON file.
 
-    Reads and writes tokens from/to *file_path* (defaults to ``token.json``
-    in the project root).
+    Reads and writes tokens from/to *file_path* — defaults to the
+    ``TOKEN_FILE`` env var if set (e.g. ``/data/token.json`` on a Fly.io
+    volume, so the token survives restarts/redeploys), otherwise
+    ``token.json`` in the working directory (the project root locally).
     """
     _DEFAULT_TOKEN_FILE = "token.json"
 
     def __init__(
         self,
-        file_path: str = _DEFAULT_TOKEN_FILE,
+        file_path: str | None = None,
         app_key: str | None = None,
         app_secret: str | None = None,
         callback_url: str | None = None,
     ) -> None:
-        self._file_path = file_path
+        self._file_path = file_path or os.getenv("TOKEN_FILE") or self._DEFAULT_TOKEN_FILE
         self._credentials: tuple[str, str, str] | None = (
             (app_key, app_secret, callback_url)  # type: ignore[assignment]
             if app_key and app_secret and callback_url
@@ -160,8 +201,9 @@ class FileTokenProvider(TokenProvider):
         return token
 
     def save_tokens(self, token_data: dict) -> None:
+        stamped = self._stamped(token_data)
         with open(self._file_path, "w") as f:
-            json.dump(self._with_expiry(token_data), f, indent=4)
+            json.dump(stamped, f, indent=4)
         logger.debug("Tokens saved to %s", self._file_path)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
@@ -228,7 +270,7 @@ class RedisTokenProvider(TokenProvider):
         return token
 
     def save_tokens(self, token_data: dict) -> None:
-        self._redis.set(self._REDIS_TOKEN_KEY, json.dumps(self._with_expiry(token_data)))
+        self._redis.set(self._REDIS_TOKEN_KEY, json.dumps(self._stamped(token_data)))
         logger.debug("Tokens saved to Redis key '%s'", self._REDIS_TOKEN_KEY)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
