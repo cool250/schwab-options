@@ -5,7 +5,7 @@ Concrete implementations:
 
 * :class:`FileTokenProvider` — persists tokens to a local ``token.json`` file.
 * :class:`RedisTokenProvider` — persists tokens in Redis (suitable for
-  ephemeral/cloud environments such as Heroku).
+  ephemeral/cloud environments with no persistent disk).
 
 The :func:`create_token_provider` factory selects the backend automatically:
 it returns :class:`RedisTokenProvider` when the ``USE_DB`` environment variable
@@ -214,7 +214,7 @@ class RedisTokenProvider(TokenProvider):
     """
     Token provider backed by Redis.
 
-    Suitable for cloud/ephemeral environments (e.g. Heroku) where the local
+    Suitable for cloud/ephemeral environments where the local
     filesystem is not durable.  Reads the Redis URL from the ``REDIS_URL``
     environment variable (defaults to ``redis://localhost:6379``).
 
@@ -234,7 +234,7 @@ class RedisTokenProvider(TokenProvider):
     ) -> None:
         url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
         if url.startswith("rediss://"):
-            # Heroku Redis uses TLS; skip cert verification for self-signed certs.
+            # Managed Redis over TLS (rediss://) often uses self-signed certs; skip verification.
             self._redis = redis.from_url(url, decode_responses=True, ssl_cert_reqs="none")
         else:
             self._redis = redis.from_url(url, decode_responses=True)

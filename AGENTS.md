@@ -11,7 +11,7 @@ backend talking to Schwab and Tastytrade, a React (Vite) frontend, and a
 read-only AI "copilot" chat agent. No multi-tenancy, no user table — one
 hardcoded admin login (`ADMIN_USERNAME`/`ADMIN_PASSWORD`), one brokerage
 account. In production, FastAPI serves the built React SPA directly from
-`frontend/dist/` (single web process/dyno — see `Procfile`).
+`frontend/dist/` (single web process — see `Dockerfile` / `fly.toml`, deployed to Fly.io).
 
 ## Layout
 

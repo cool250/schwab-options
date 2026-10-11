@@ -268,127 +268,18 @@ fly ssh sftp shell
 
 ---
 
-## Deploying to Heroku
-
-The app uses a **single web dyno**: FastAPI serves both the REST API and the pre-built React frontend from `frontend/dist/`.
-
-### Prerequisites
-
-- [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli) installed and logged in
-- Git repo initialised
-
-### One-time setup
-
-```bash
-# Create the app
-heroku create your-app-name
-
-# Two buildpacks: Node (builds React) then Python (runs FastAPI)
-heroku buildpacks:add --index 1 heroku/nodejs
-heroku buildpacks:add --index 2 heroku/python
-```
-
-### Set environment variables
-
-Same variables as the local `.env` above, plus `TOKEN_JSON` (Heroku has no local `token.json` file to read from):
-
-| Variable | Required | Description |
-|---|---|---|
-| `SCHWAB_APP_KEY` | Yes | Schwab API app key |
-| `SCHWAB_APP_SECRET` | Yes | Schwab API app secret |
-| `SCHWAB_APP_CALLBACK_URL` | Yes | OAuth redirect URI registered in Schwab developer portal |
-| `TASTY_CLIENT_ID` | Yes | Tastytrade OAuth client ID |
-| `TASTY_CLIENT_SECRET` | Yes | Tastytrade OAuth client secret |
-| `TASTY_REFRESH_TOKEN` | Yes | Tastytrade OAuth refresh token |
-| `SECRET_KEY` | Yes | Secret key for signing session tokens |
-| `ADMIN_USERNAME` | Yes | Login username for the dashboard |
-| `ADMIN_PASSWORD` | Yes | Login password for the dashboard |
-| `USE_DB` | **Effectively yes, on Heroku** | See warning below — without this, the Schwab token doesn't survive a dyno restart. |
-| `REDIS_URL` | If `USE_DB=true` | Redis connection URL (set automatically by the Heroku Redis addon) |
-| `TOKEN_JSON` | If `USE_DB=true` | Full Schwab OAuth token as a single-line JSON string — used **only** to re-seed Redis if the stored token there ever expires/is missing. Has no effect at all when `USE_DB` isn't `true` (see warning below). |
-| `CHAIN_PROVIDER` | No | `schwab` or `tastytrade` — which broker serves option chains. Defaults to `tastytrade` |
-| `OPENAI_API_KEY` | For the Copilot feature | OpenAI API key powering the read-only financial copilot chat |
-| `OPENAI_MODEL` | No | Model used by the Copilot chat — defaults to `gpt-4o` |
-
-> **Redis is effectively required on Heroku, not optional.** Without `USE_DB=true`, the token is stored in a local `token.json` file (`FileTokenProvider`) — but Heroku's filesystem is ephemeral and gets wiped on every dyno restart, redeploy, or the automatic daily dyno cycle. `TOKEN_JSON` is **only** read by the Redis-backed provider as a re-seed fallback (`broker/schwab/auth/token_provider.py`); there's no code path that seeds `token.json` from it. So setting `TOKEN_JSON` alone, without also setting `USE_DB=true` and provisioning Redis, does nothing — the app will work until the first dyno restart, then every Schwab-dependent endpoint breaks until you re-authenticate. See [Token Storage](#token-storage) below for the Redis setup.
-
-```bash
-heroku config:set SCHWAB_APP_KEY=...
-heroku config:set SCHWAB_APP_SECRET=...
-heroku config:set SCHWAB_APP_CALLBACK_URL=https://your-app.herokuapp.com/callback
-heroku config:set TASTY_CLIENT_ID=...
-heroku config:set TASTY_CLIENT_SECRET=...
-heroku config:set TASTY_REFRESH_TOKEN=...
-heroku config:set SECRET_KEY=...
-heroku config:set ADMIN_USERNAME=...
-heroku config:set ADMIN_PASSWORD=...
-
-# Required for the token to actually persist on Heroku — see warning above
-heroku addons:create heroku-redis:mini --app your-app-name
-heroku config:set USE_DB=true
-
-# Paste the full token.json contents as a single-line JSON string —
-# only takes effect because USE_DB=true was set above
-heroku config:set TOKEN_JSON="$(python -c "import json; print(json.dumps(json.load(open('token.json'))))")"
-```
-
-> **Token expiry**: Schwab tokens expire every 7 days. Re-run `uv run python main.py` locally, then update `TOKEN_JSON` on Heroku with the command above.
-
-### Updating the Schwab token on Heroku manually
-
-Schwab's OAuth tokens must be refreshed before they expire (every 7 days).
-
-**Step 1 — Refresh locally**
-```bash
-uv run python main.py
-```
-
-**Step 2 — Push the new token to Heroku**
-```bash
-heroku config:set TOKEN_JSON="$(python -c "import json; print(json.dumps(json.load(open('token.json'))))")" --app your-app-name
-```
-
-Heroku restarts the dyno automatically after the config var is updated.
-
-**Verify it was set:**
-```bash
-heroku config:get TOKEN_JSON --app your-app-name
-```
-
-**Check the token expiry locally:**
-```bash
-python -c "import json; d=json.load(open('token.json')); print(d.get('expires_in'), 'seconds')"
-```
-
-### Deploy
-
-```bash
-git push heroku main
-```
-
-Heroku will:
-1. Run `npm install && npm run build` inside `frontend/` (Node.js buildpack → `heroku-postbuild`).
-2. Install Python dependencies from `requirements.txt` (Python buildpack).
-3. Start the web dyno via `Procfile`: `uvicorn api.app:app --host 0.0.0.0 --port $PORT`.
-
-- API: `https://your-app.herokuapp.com/api/...`
-- OpenAPI docs: `https://your-app.herokuapp.com/docs`
-- React app: `https://your-app.herokuapp.com/`
-
----
-
 ## Token Storage
 
 The app supports two backends for storing the Schwab OAuth token, controlled by the `USE_DB` environment variable.
 
 | `USE_DB` | Backend | When to use |
 |---|---|---|
-| `false` / unset | `token.json` file only — `TOKEN_JSON` env var is not read at all in this mode | Local development (persistent filesystem) |
-| `true` | Redis (`REDIS_URL`), re-seeded from `TOKEN_JSON` if the Redis copy ever expires | Production / Heroku (ephemeral filesystem — required there, see the Heroku section above) |
+| `false` / unset | `token.json` file — at `TOKEN_FILE` if set, else `./token.json`. `TOKEN_JSON` isn't read in this mode | Local development, and Fly.io (`TOKEN_FILE=/data/token.json` on its volume) |
+| `true` | Redis (`REDIS_URL`), re-seeded from `TOKEN_JSON` if the Redis copy ever expires | A host with no persistent disk |
 
-### Local development (default — no Redis needed)
+### File (default — no Redis needed)
 
-Token is read from `token.json` in the project root. No extra configuration required.
+Token is read from `token.json` in the project root locally, or wherever `TOKEN_FILE` points (Fly.io sets `/data/token.json`). No extra configuration required.
 
 ### Local development with Redis
 
@@ -411,23 +302,4 @@ USE_DB=true
 REDIS_URL=redis://localhost:6379
 ```
 
-### Heroku (Redis)
-
-```bash
-# Add the Redis addon (sets REDIS_URL automatically)
-heroku addons:create heroku-redis:mini --app your-app-name
-
-# Enable Redis storage
-heroku config:set USE_DB=true --app your-app-name
-
-# Seed the token into Redis (one-time / after each 7-day Schwab expiry)
-heroku run python3 -c "
-import json, os, redis
-r = redis.from_url(os.environ['REDIS_URL'], decode_responses=True)
-token = os.environ['TOKEN_JSON']
-r.set('schwab_token', token)
-print('Token seeded')
-" --app your-app-name
-```
-
-After seeding, tokens are automatically refreshed in Redis on every `401` response — no manual re-seeding needed until the refresh token itself expires (~7 days).
+Either way, the access token is refreshed automatically on every `401` response and written back to the store. The refresh token itself expires after 7 days — reconnect from **Settings → Schwab Connection** (or re-run `main.py`).
