@@ -37,7 +37,7 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 │                         # definitions (tools.py), strategy knowledge docs (skills/*.md)
 ├── frontend/             # React + Vite frontend
 │   └── src/
-│       ├── pages/        # Positions, Transactions, Reports, StrikeLab, Charts, Screener, Settings
+│       ├── pages/        # Landing, Positions, Transactions, Reports, StrikeLab, Charts, Screener, Settings
 │       ├── components/   # Navbar, CopilotWidget, DataTable, HelpTip, Spinner
 │       ├── utils/        # Small shared helpers (date/symbol formatting, cross-page stores)
 │       └── api/          # Fetch wrappers for the FastAPI endpoints
@@ -138,7 +138,7 @@ cd frontend
 npm run dev
 ```
 
-- URL: `https://127.0.0.1:3000` — the dev server uses HTTPS with a self-signed certificate (click through the browser's one-time warning). Schwab only accepts HTTPS callback URLs, so this is what lets **Settings → Reconnect Schwab** work locally: register `https://127.0.0.1:3000/api/auth/schwab/callback` in Schwab's developer portal and set it as `SCHWAB_APP_CALLBACK_URL` in `.env`. Use `127.0.0.1`, not `localhost` — the app login is stored per address, and that's where Schwab sends you back.
+- URL: `https://127.0.0.1:3000` opens the public landing page; **Log in** opens the login form over it. The dev server uses HTTPS with a self-signed certificate (click through the browser's one-time warning). Schwab only accepts HTTPS callback URLs, so this is what lets **Settings → Reconnect Schwab** work locally: register `https://127.0.0.1:3000/api/auth/schwab/callback` in Schwab's developer portal and set it as `SCHWAB_APP_CALLBACK_URL` in `.env`. Use `127.0.0.1`, not `localhost` — the app login is stored per address, and that's where Schwab sends you back.
 - Log in with the `ADMIN_USERNAME`/`ADMIN_PASSWORD` you set in `.env`.
 
 ### 8. You're in
@@ -225,19 +225,23 @@ fly launch --no-deploy --copy-config --name your-app-name
 # 3. Create the volume for token.json (same region as fly.toml's primary_region)
 fly volumes create data --size 1 --region iad
 
-# 4. Set secrets (same values as your local .env, except the callback URL —
-#    see "Connect Schwab" below). Don't set USE_DB — the token is stored on
-#    the volume, not Redis.
-fly secrets set \
-  SCHWAB_APP_KEY=... SCHWAB_APP_SECRET=... \
-  SCHWAB_APP_CALLBACK_URL=https://your-app-name.fly.dev/api/auth/schwab/callback \
-  TASTY_CLIENT_ID=... TASTY_CLIENT_SECRET=... TASTY_REFRESH_TOKEN=... \
-  SECRET_KEY=... ADMIN_USERNAME=... ADMIN_PASSWORD=... \
-  OPENAI_API_KEY=...        # optional — only for the Copilot
+# 4. Set secrets from your local .env (see the note below)
+{
+  grep -E '^(SCHWAB_APP_KEY|SCHWAB_APP_SECRET|TASTY_CLIENT_ID|TASTY_CLIENT_SECRET|TASTY_REFRESH_TOKEN|OPENAI_API_KEY|OPENAI_MODEL|ACCOUNT_BROKER_PROVIDER|ADMIN_USERNAME|ADMIN_PASSWORD|SECRET_KEY)=' .env \
+    | sed -E "s/^([A-Z_]+)=[\"'](.*)[\"']$/\1=\2/"
+  echo "SCHWAB_APP_CALLBACK_URL=https://your-app-name.fly.dev/api/auth/schwab/callback"
+} | fly secrets import
+fly secrets list    # should list all 12 names
 
 # 5. Deploy as a single machine (a volume attaches to exactly one machine)
 fly deploy --ha=false
 ```
+
+About step 4:
+- It copies the needed keys from `.env` without printing them, strips surrounding quotes (`fly secrets import` would otherwise keep them as part of the value), and swaps in the Fly callback URL.
+- It deliberately leaves out `USE_DB`, `REDIS_URL`, `TOKEN_JSON` (unused on Fly — the token is on the volume) and `CHAIN_PROVIDER` (already in `fly.toml`).
+- Prefer this over a long multi-line `fly secrets set … \` command: one broken line continuation there silently sets only the first secret, which leaves login failing with 401.
+- To use a different `SECRET_KEY` in production than locally, drop it from the `grep` list and add `echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"`.
 
 Non-secret settings (`PORT`, `TOKEN_FILE=/data/token.json`, `LOG_TO_STDOUT`, `CHAIN_PROVIDER`) are in `fly.toml`'s `[env]` block — edit them there.
 
@@ -259,12 +263,105 @@ fly ssh sftp shell
 » put token.json /data/token.json
 ```
 
+### Pushing new code
+
+From the repo root (the app name comes from `fly.toml`, so no `-a` needed):
+
+```bash
+fly deploy
+```
+
+That's the whole deploy. What it does:
+
+1. Uploads the working directory to Fly's remote builder — **uncommitted changes included**, so commit first if you want the deployed version to match git. Files in `.dockerignore` (`.env`, `token.json`, `config.py`, `node_modules`, `.venv`, …) are never uploaded.
+2. Builds the `Dockerfile`: `npm ci && npm run build` for the frontend, `uv sync --frozen` for Python (from `uv.lock` — run `uv lock` locally first if you changed `pyproject.toml`).
+3. Replaces the machine with the new image. The `/data` volume (Schwab token) and secrets carry over — no need to reconnect Schwab.
+
+Then check it:
+
+```bash
+fly status          # machine "started", health check "passing"
+fly logs            # watch startup; Ctrl+C to stop
+```
+
+and open `https://your-app-name.fly.dev`. A hard refresh (Cmd+Shift+R) makes sure the browser loads the new frontend bundle.
+
+**What needs a deploy vs. not:**
+
+| Change | How to apply |
+|---|---|
+| Code (Python or React) | `fly deploy` |
+| `fly.toml` (`[env]`, VM size, auto-stop, …) | `fly deploy` |
+| A secret | `fly secrets set NAME=value` — restarts the machine on its own, no deploy |
+| Python dependencies | `uv add <pkg>` locally (updates `uv.lock`), then `fly deploy` |
+| JS dependencies | `npm install <pkg>` in `frontend/` (updates `package-lock.json`), then `fly deploy` |
+
+**Roll back** a bad deploy to the previous image:
+
+```bash
+fly releases --image                                  # list releases with their image tags
+fly deploy --image registry.fly.io/your-app-name:<previous-image-tag>
+```
+
 ### Day to day
 
 - **Open:** `https://your-app-name.fly.dev` (log in with `ADMIN_USERNAME`/`ADMIN_PASSWORD`).
-- **Redeploy** after changes: `fly deploy`.
+- **Weekly:** Settings → **Reconnect Schwab** when it turns amber or expires.
 - **Logs:** `fly logs` (the app mirrors its log to stdout on Fly via `LOG_TO_STDOUT`).
-- **Auto-stop:** the machine stops when nothing is connected and starts on the next request, so you mostly pay for hours actually used — the first page load after idle takes a few seconds. An open Analyze chain stream counts as a connection and keeps it running. Set `min_machines_running = 1` in `fly.toml` to keep it always on instead.
+- **Auto-stop:** the machine stops when nothing is connected and starts on the next request, so you mostly pay for hours actually used — the first page load after idle takes a few seconds. An open Analyze chain stream counts as a connection and keeps it running. Set `min_machines_running = 1` in `fly.toml` (then `fly deploy`) to keep it always on instead.
+- **Shell into the machine:** `fly ssh console` (start it first with `fly machine start` if it's auto-stopped).
+
+### Troubleshooting
+
+**Login fails (wrong username/password, `401` in `fly logs`)**
+Usually missing secrets — with no `ADMIN_USERNAME`/`ADMIN_PASSWORD` set, no login can ever match. Run `fly secrets list`; if names are missing, re-run step 4 of the one-time setup.
+
+**Checking a secret's value**
+`fly secrets list` shows names and digests only, never values. To read one: `fly ssh console -C "printenv ADMIN_USERNAME"`. To confirm it matches `.env` without printing it, compare fingerprints:
+```bash
+fly ssh console -C "sh -c 'printf %s \"\$SECRET_KEY\" | sha256sum'"
+grep '^SECRET_KEY=' .env | cut -d= -f2- | tr -d "\"'\n" | shasum -a 256
+```
+
+**Pages say "Broker authentication failed — … Reconnect Schwab in Settings"**
+Schwab isn't connected yet on this deploy, or its 7-day login expired. Settings → **Connect / Reconnect Schwab**. Charts, Screener and Analyze don't depend on Schwab (they use Tastytrade), so they keep working meanwhile.
+
+**Schwab shows "We are unable to complete your request. Please contact customer support…"**
+Schwab rejected the `redirect_uri` — it must match a callback URL registered in Schwab's developer portal **exactly** (`https`, host, port, path, no trailing slash). Check:
+- the portal lists `https://your-app-name.fly.dev/api/auth/schwab/callback` (Schwab can take a while to apply portal changes);
+- `fly ssh console -C "printenv SCHWAB_APP_CALLBACK_URL"` prints that same URL.
+
+Locally the same error usually means a **stale backend**: `.env` changes are only read at startup — `--reload` and the VS Code debugger keep the old value — so fully stop and restart the backend.
+
+**After Schwab login you land on `/login` instead of Settings**
+The Schwab connection itself still succeeded (check `fly logs` for `Schwab reconnected via the in-app flow`); only the app login was lost on the way back. Log in again — Settings shows the new expiry. (The app hands its login across the redirect; if this keeps happening, the app login itself may have expired — it lasts 8 hours.)
+
+**Deploy fails: volume / mount error**
+The `data` volume doesn't exist in the machine's region: `fly volumes list`, then `fly volumes create data --size 1 --region iad`. Deploy with `--ha=false` the first time — a volume attaches to only one machine.
+
+**Health check failing / site not loading after a deploy**
+`fly logs` shows the startup error (a Python traceback, or the build failing). Common causes: `uv.lock` out of date with `pyproject.toml` (run `uv lock`, redeploy), or a new required env var that isn't set as a secret. Roll back with `fly deploy --image …` (above) while you fix it. A few failed checks right after a deploy or a cold start are normal while the machine boots.
+
+**First load is slow**
+The machine was auto-stopped and is booting (a few seconds). Expected with `min_machines_running = 0`.
+
+**Charts show "No price history" for 5Y / MAX**
+These use monthly bars from Tastytrade's DXLink feed, which sometimes returns nothing for a *repeated* long-history request. Successful results are cached in memory for 12 hours, so it's usually a first-request-after-restart issue — try again shortly.
+
+**Is Schwab rotating the refresh token?**
+Each access-token refresh logs either `refresh token unchanged` or `Schwab issued a NEW refresh token (rotated)`: `fly logs | grep "refresh token"`.
+
+**Making sure `.env` never ships**
+`.dockerignore` excludes `.env`, `.env.*`, `token.json` and `config.py` from the upload, and the app gets credentials only from `fly secrets`. Verify on the live machine:
+```bash
+fly ssh console -C "ls -la /app/.env /app/token.json"    # want: No such file or directory (both)
+```
+Keep those lines in `.dockerignore`, and add any new secret file you create.
+
+**Local development**
+- Open `https://127.0.0.1:3000` (not `localhost`) and accept the self-signed certificate warning once.
+- Changed `.env`? Restart the backend fully (see the Schwab error above).
+- Odd frontend behavior after dependency changes: stop Vite, `rm -rf frontend/node_modules/.vite`, start it again.
 
 ---
 

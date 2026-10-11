@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -6,6 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import Navbar from './components/Navbar'
 import CopilotWidget from './components/CopilotWidget'
 import Login from './pages/Login'
+import Landing from './pages/Landing'
 import Positions from './pages/Positions'
 import Transactions from './pages/Transactions'
 import Reports from './pages/Reports'
@@ -20,6 +21,9 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* Public: landing page (Log in / Register open as overlays on it);
+              /login is the same page with the login overlay already open. */}
+          <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route
             path="/*"
@@ -33,7 +37,6 @@ export default function App() {
                   <main className="main-content">
                     <ErrorBoundary>
                       <Routes>
-                        <Route path="/" element={<Navigate to="/positions" replace={true} />} />
                         <Route path="/positions" element={<Positions />} />
                         <Route path="/transactions" element={<Transactions />} />
                         <Route path="/allocation" element={<Reports />} />

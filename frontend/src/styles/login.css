@@ -37,7 +37,25 @@
   display: flex;
   flex-direction: column;
   gap: 28px;
+  position: relative; /* anchors .login-close when shown as an overlay */
 }
+/* Close (×) — only rendered when the card is an overlay on the landing page. */
+.login-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.login-close:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.login-close:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .login-header {
   display: flex;
   flex-direction: column;

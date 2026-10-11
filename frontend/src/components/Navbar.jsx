@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   PortfolioIcon, MarketIcon, PositionsIcon, ReportsIcon, TransactionsIcon,
@@ -44,6 +44,13 @@ function loadCollapsed() {
 
 export default function Navbar() {
   const { logout } = useAuth()
+  const navigate = useNavigate()
+  // Sign out lands on the public landing page rather than letting
+  // ProtectedRoute bounce to /login, which would open the login overlay.
+  const signOut = () => {
+    navigate('/', { replace: true })
+    logout()
+  }
   const { pathname } = useLocation()
   const [open, setOpen] = useState(false)
   const close = () => setOpen(false)
@@ -133,7 +140,7 @@ export default function Navbar() {
           <SettingsIcon />
           Settings
         </NavLink>
-        <a href="#" onClick={(e) => { e.preventDefault(); logout(); close() }} className="nav-link navbar-logout navbar-logout--mobile">
+        <a href="#" onClick={(e) => { e.preventDefault(); signOut(); close() }} className="nav-link navbar-logout navbar-logout--mobile">
           <SignOutIcon />
           Sign out
         </a>
@@ -150,7 +157,7 @@ export default function Navbar() {
         Settings
       </NavLink>
 
-      <a href="#" onClick={(e) => { e.preventDefault(); logout() }} className="nav-link navbar-logout navbar-logout--desktop">
+      <a href="#" onClick={(e) => { e.preventDefault(); signOut() }} className="nav-link navbar-logout navbar-logout--desktop">
         <SignOutIcon />
         Sign out
       </a>

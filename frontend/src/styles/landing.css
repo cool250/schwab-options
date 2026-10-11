@@ -1,0 +1,255 @@
+/* ─── Landing page (pages/Landing.jsx) ───────────────── */
+/* Header + hero sit on --nav-bg (the same dark "frame" color as the app's
+   sidebar and Copilot titlebar, in both themes) because they host the
+   light-text logo; everything below follows the page theme via tokens.
+   rgba(255,255,255,…) text on that band mirrors navbar.css's own approach. */
+
+.landing {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+}
+.landing-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ─── Header ─── */
+.landing-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--nav-bg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.landing-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  min-height: 64px;
+}
+.landing-logo { height: 34px; width: auto; }
+.landing-nav { display: flex; gap: 4px; }
+.landing-nav a {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  color: rgba(255, 255, 255, 0.72);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+.landing-nav a:hover { color: var(--text-inverse); background: rgba(255, 255, 255, 0.08); }
+.landing-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.landing-header .btn-primary,
+.landing-cta-band .btn-primary { text-decoration: none; }
+.landing-link-btn {
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-inverse);
+  cursor: pointer;
+}
+.landing-link-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.landing-link-btn:focus-visible,
+.landing-nav a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ─── Hero ─── */
+.landing-hero {
+  background: var(--nav-bg);
+  color: var(--text-inverse);
+  padding: 72px 0 88px;
+}
+.landing-hero-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 56px;
+  align-items: center;
+}
+.landing-eyebrow {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--primary-hover);
+}
+.landing-eyebrow--muted { color: var(--primary); }
+.landing-hero h1 {
+  margin: 0 0 20px;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+.landing-lede {
+  margin: 0 0 32px;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.75);
+}
+.landing-hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.landing-cta { padding: 12px 26px; font-size: 1rem; text-decoration: none; }
+.landing-cta--ghost {
+  background: transparent;
+  color: var(--text-inverse);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.landing-cta--ghost:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.6); }
+
+/* Screenshot frame: a subtle window-like border + shadow so dark app
+   captures don't melt into a dark section background. */
+.landing-shot {
+  margin: 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-md);
+  background: var(--card-bg);
+}
+.landing-shot img { display: block; width: 100%; height: auto; }
+.landing-shot--hero {
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+/* ─── Sections ─── */
+.landing-section { padding: 88px 0; }
+.landing-section-title {
+  margin: 0 0 8px;
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  text-align: center;
+}
+.landing-section-sub {
+  margin: 0 0 48px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 1.05rem;
+}
+
+.landing-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+.landing-feature {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-xs);
+}
+.landing-feature-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  background: var(--primary-light);
+  color: var(--primary);
+  margin-bottom: 16px;
+}
+.landing-feature-icon svg { width: 22px; height: 22px; }
+.landing-feature h3 { margin: 0 0 8px; font-size: 1.05rem; font-weight: 700; }
+.landing-feature p { margin: 0; font-size: 0.92rem; line-height: 1.55; color: var(--text-muted); }
+
+/* Alternating screenshot + copy rows */
+.landing-showcase + .landing-showcase { padding-top: 0; }
+.landing-showcase-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 56px;
+  align-items: center;
+}
+/* Flipped rows put the screenshot first — mirror the columns too, so the
+   screenshot always gets the wider 7fr track. */
+.landing-showcase--flip .landing-showcase-inner { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.landing-showcase--flip .landing-showcase-copy { order: 2; }
+.landing-showcase-copy h2 {
+  margin: 0 0 20px;
+  font-size: clamp(1.5rem, 2.6vw, 1.9rem);
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+.landing-showcase-copy ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.landing-showcase-copy li { line-height: 1.55; color: var(--text-muted); }
+.landing-showcase-copy li::marker { color: var(--primary); }
+
+/* ─── Closing CTA + footer ─── */
+.landing-cta-band { background: var(--nav-bg); color: var(--text-inverse); padding: 64px 0; }
+.landing-cta-band-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.landing-cta-band h2 { margin: 0; font-size: clamp(1.4rem, 2.6vw, 1.9rem); font-weight: 800; }
+.landing-cta-band .landing-link-btn { color: var(--text-inverse); }
+
+.landing-footer {
+  background: var(--nav-bg);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 28px 0;
+}
+.landing-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.landing-footer-logo { height: 28px; width: auto; }
+.landing-footer p { margin: 0; font-size: 0.85rem; color: rgba(255, 255, 255, 0.6); }
+
+/* ─── Overlay (login / register) ─── */
+.landing-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  overflow-y: auto;
+}
+.landing-overlay > [role="dialog"] { width: 100%; max-width: 400px; }
+.landing-register-text { margin: 0; font-size: 0.92rem; line-height: 1.55; color: var(--text-muted); }
+
+/* ─── Responsive ─── */
+@media (max-width: 1024px) {
+  .landing-features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .landing-nav { display: none; }
+  .landing-hero { padding: 48px 0 56px; }
+  .landing-hero-inner,
+  .landing-showcase-inner,
+  .landing-showcase--flip .landing-showcase-inner { grid-template-columns: 1fr; gap: 32px; }
+  .landing-showcase--flip .landing-showcase-copy { order: 0; }
+  .landing-section { padding: 56px 0; }
+}
+@media (max-width: 560px) {
+  .landing-container { padding: 0 16px; }
+  .landing-features { grid-template-columns: 1fr; }
+  .landing-header-actions .btn-primary { padding: 8px 14px; }
+  .landing-logo { height: 28px; }
+}

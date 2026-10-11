@@ -13,7 +13,7 @@ const WIDTH_STORAGE_KEY = "copilot-width";
 // Sparkle mark — the copilot's icon everywhere (title bar, message avatar,
 // launcher). Same line style as the menu icons (NavIcons.jsx: 24×24 grid,
 // stroke 2, currentColor); `size` defaults to their 18px.
-function CopilotIcon({ size = 18 }) {
+export function CopilotIcon({ size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
       <path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z" />
