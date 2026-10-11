@@ -14,7 +14,7 @@ import HelpTip from '../components/HelpTip'
 const DEFAULT_CRITERIA = {
   tickers: '',
   minMoneyness: 0,
-  maxMoneyness: 10,
+  maxMoneyness: 3,
   minDte: 0,
   maxDte: 7,
   minDelta: '',

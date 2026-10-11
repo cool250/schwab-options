@@ -34,7 +34,6 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   border: none;
   background: var(--primary);
   color: #fff;
-  font-size: 1.4rem;
   line-height: 1;
   cursor: pointer;
   box-shadow: var(--shadow-sm);

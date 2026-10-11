@@ -164,7 +164,7 @@ The **Screener** page ranks single puts or calls — or two multi-leg credit str
 |---|---|
 | Tickers | Comma- or space-separated, up to 25. Futures roots (`/ES`) work too. |
 | Option Type | One per scan: **Short Puts**, **Short Calls**, **Long Puts**, **Long Calls**, **Ratio Put (1×2)**, or **Jade Lizard** (see below). Default Short Puts. |
-| Moneyness (% OTM) | Required min–max. Measured from spot toward worthless: below spot for puts, above for calls. A negative min reaches into ITM strikes. Default 0–10. |
+| Moneyness (% OTM) | Required min–max. Measured from spot toward worthless: below spot for puts, above for calls. A negative min reaches into ITM strikes. Default 0–3. |
 | DTE | Min–max days to expiration, 0–365. Default 0–7. |
 | Delta (optional) | Min–max **absolute** delta, so 0.15–0.30 matches a −0.20 put and a 0.20 call. Leave either side blank for no limit. Narrows the moneyness range rather than replacing it. For strategies it applies to the legs you sell. |
 

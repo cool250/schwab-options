@@ -10,12 +10,15 @@ const MIN_WIDTH = 320;
 const MAX_WIDTH = 1200;
 const WIDTH_STORAGE_KEY = "copilot-width";
 
-function CopilotIcon() {
+// Sparkle mark — the copilot's icon everywhere (title bar, message avatar,
+// launcher). Same line style as the menu icons (NavIcons.jsx: 24×24 grid,
+// stroke 2, currentColor); `size` defaults to their 18px.
+function CopilotIcon({ size = 18 }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
-      <path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5Z" />
-      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z" />
+      <path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z" />
+      <path d="M18 3v4M16 5h4" />
     </svg>
   )
 }
@@ -230,7 +233,7 @@ export default function CopilotWidget() {
                 <div key={i} className={`copilot-msg ${m.role}`}>
                   <div className="copilot-msg-row">
                     {m.role === "assistant" && (
-                      <span className="copilot-msg-icon" aria-hidden="true"><CopilotIcon /></span>
+                      <span className="copilot-msg-icon" aria-hidden="true"><CopilotIcon size={14} /></span>
                     )}
                     <div className="copilot-bubble">
                       {m.role === "assistant" ? (
@@ -265,7 +268,7 @@ export default function CopilotWidget() {
             {loading && (
               <div className="copilot-msg assistant">
                 <div className="copilot-msg-row">
-                  <span className="copilot-msg-icon" aria-hidden="true"><CopilotIcon /></span>
+                  <span className="copilot-msg-icon" aria-hidden="true"><CopilotIcon size={14} /></span>
                   <div className="copilot-bubble">
                     <span className="copilot-typing" title="Thinking…">
                       <span />
@@ -301,7 +304,7 @@ export default function CopilotWidget() {
         onClick={() => setOpen(true)}
         aria-label="Open copilot"
       >
-        💬
+        <CopilotIcon size={22} />
       </button>
       )}
     </div>
