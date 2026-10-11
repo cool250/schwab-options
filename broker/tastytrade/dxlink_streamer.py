@@ -74,7 +74,19 @@ EVENT_FIELDS: dict[str, list[str]] = {
         "prevDayClosePriceType", "openInterest", "dayOpenPrice", "dayHighPrice",
         "dayLowPrice", "dayClosePrice", "prevDayClosePrice", "prevDayVolume",
     ],
+    # OHLC bars — subscribed as "<symbol>{=<period>}" (e.g. "AAPL{=1d}")
+    # with a fromTime, which makes dxFeed replay history from that time as
+    # a snapshot before streaming live updates (TastytradeClient.get_candles).
+    "Candle": [
+        "eventSymbol", "eventTime", "eventFlags", "index", "time", "sequence",
+        "count", "open", "high", "low", "close", "volume", "vwap",
+    ],
 }
+
+# Candle eventFlags bits (dxFeed indexed-event snapshot protocol).
+EVENT_FLAG_REMOVE = 0x02
+EVENT_FLAG_SNAPSHOT_END = 0x08
+EVENT_FLAG_SNAPSHOT_SNIP = 0x10
 
 
 class DXLinkError(Exception):
@@ -103,6 +115,9 @@ class DXLinkStreamer:
         self._channel_opened: dict[str, asyncio.Event] = {}
         self._next_channel = 1
         self._queues: dict[str, asyncio.Queue] = {}  # event type -> parsed-event queue
+        # Field order the server confirmed per event type (FEED_CONFIG) —
+        # authoritative over EVENT_FIELDS for decoding COMPACT frames.
+        self._configured_fields: dict[str, list[str]] = {}
 
     async def __aenter__(self) -> "DXLinkStreamer":
         self._ws = await websockets.connect(self._url)
@@ -152,6 +167,12 @@ class DXLinkStreamer:
             elif msg_type == "CHANNEL_OPENED":
                 event_type = self._event_type_for_channel(message["channel"])
                 self._channel_opened[event_type].set()
+            elif msg_type == "FEED_CONFIG":
+                # The server's reply to FEED_SETUP states the field order it
+                # will actually send; decode by that rather than assuming it
+                # echoes acceptEventFields exactly.
+                for event_type, fields in (message.get("eventFields") or {}).items():
+                    self._configured_fields[event_type] = fields
             elif msg_type == "ERROR":
                 raise DXLinkError(message.get("message", message))
             # SETUP / KEEPALIVE / FEED_CONFIG / CHANNEL_CLOSED: nothing to do.
@@ -161,7 +182,7 @@ class DXLinkStreamer:
 
     def _handle_feed_data(self, channel: int, data: list) -> None:
         event_type = self._event_type_for_channel(channel)
-        fields = EVENT_FIELDS[event_type]
+        fields = self._configured_fields.get(event_type) or EVENT_FIELDS[event_type]
         queue = self._queues[event_type]
 
         if data and isinstance(data[0], dict):
@@ -205,12 +226,18 @@ class DXLinkStreamer:
         )
 
     async def subscribe(
-        self, event_type: str, symbols: str | Iterable[str], refresh_interval: float = 0.1
+        self,
+        event_type: str,
+        symbols: str | Iterable[str],
+        refresh_interval: float = 0.1,
+        from_time: Optional[int] = None,
     ) -> None:
         """Subscribe to `event_type` events for the given symbols, opening
         a channel for that event type on first use.
 
-        event_type: one of 'Quote', 'Trade', 'Greeks', 'Summary'.
+        event_type: one of 'Quote', 'Trade', 'Greeks', 'Summary', 'Candle'.
+        from_time: epoch milliseconds — for 'Candle', replay history from
+            this time before live updates (ignored for other types).
         symbols: dxFeed streamer-symbol(s), e.g. './ESZ4 EW4U4 240920P4700'
             — see TastytradeClient.get_future_option_chain()'s
             'streamer-symbol' field.
@@ -229,7 +256,10 @@ class DXLinkStreamer:
             {
                 "type": "FEED_SUBSCRIPTION",
                 "channel": self._channels[event_type],
-                "add": [{"symbol": s, "type": event_type} for s in symbols],
+                "add": [
+                    {"symbol": s, "type": event_type, **({"fromTime": from_time} if from_time is not None else {})}
+                    for s in symbols
+                ],
             }
         )
 

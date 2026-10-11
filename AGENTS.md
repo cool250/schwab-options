@@ -17,7 +17,7 @@ account. In production, FastAPI serves the built React SPA directly from
 
 | Path | What lives there |
 |---|---|
-| `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, price history, option chains, positions, transactions. No order-placement code exists here at all. |
+| `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, price history (no longer used by Charts), option chains, positions, transactions. No order-placement code exists here at all. |
 | `broker/tastytrade/` | Tastytrade REST + DXLink WebSocket client — chains, live quotes/greeks via streaming. Has `place_order`/`cancel_order`/`get_orders` methods that exist in the SDK but are **never called anywhere in the app** — see Guardrails below. |
 | `service/` | Business logic: `PositionService`, `TransactionService`, `MarketService`, `option_chain_providers.py` (Schwab vs Tastytrade chain provider, selected by `CHAIN_PROVIDER` env var). This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
 | `api/` | FastAPI routers: `auth.py`, `market.py`, `market_stream.py` (WebSocket), `position.py`, `transactions.py`, `copilot.py`. Registered in `api/app.py`. |
@@ -45,9 +45,14 @@ account. In production, FastAPI serves the built React SPA directly from
   it accepts both forms, or it'll silently return zero results for a
   perfectly valid futures query (this exact bug shipped once already).
 - **`CHAIN_PROVIDER`** env var (`"schwab"` or `"tastytrade"`, default
-  `tastytrade`) selects which broker serves *option chains*. Positions,
-  transactions, and price history always go through Schwab regardless —
-  don't assume `CHAIN_PROVIDER` gates those too.
+  `tastytrade`) selects which broker serves *option chains*. Positions and
+  transactions always go through Schwab, and Charts' price history always
+  through Tastytrade (DXLink `Candle` events via
+  `TastytradeClient.get_candles`) — don't assume `CHAIN_PROVIDER` gates
+  either. DXLink's history depth varies by bar size (monthly: decades;
+  daily: ~2 years; weekly: only months) and repeat long-history requests
+  can come back empty, which is why 5Y/MAX use monthly bars and
+  `MarketService` caches results per (symbol, range).
 
 ## Auth
 

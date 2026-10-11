@@ -101,7 +101,7 @@ ADMIN_PASSWORD=pick-a-password
 
 # --- Optional ---
 CHAIN_PROVIDER=tastytrade     # 'schwab' or 'tastytrade' — which broker serves option chains
-                                # (positions/transactions/price history always use Schwab regardless)
+                                # (positions/transactions always use Schwab; Charts always uses Tastytrade)
 OPENAI_API_KEY=sk-...           # only needed for the Copilot chat feature
 OPENAI_MODEL=gpt-4o             # defaults to gpt-4o if unset
 USE_DB=false                    # true = store the Schwab token in Redis instead of token.json

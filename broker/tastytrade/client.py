@@ -442,6 +442,82 @@ class TastytradeClient:
 
         return asyncio.run(_fetch())
 
+    def get_candles(
+        self,
+        ticker: str,
+        interval: str,
+        from_time_ms: int,
+        regular_hours_only: bool = False,
+        timeout: float = 15.0,
+        quiet: float = 1.5,
+    ) -> list[dict]:
+        """Historical OHLC bars for `ticker` (equity ticker or futures root,
+        e.g. '/ES' — resolved to its active-month contract) over DXLink.
+
+        Subscribes to dxFeed's Candle event as "<streamer-symbol>{=<interval>}"
+        (interval e.g. "5m", "30m", "1d", "1w", "1mo") with fromTime, which
+        makes the feed replay every bar since `from_time_ms` as a snapshot.
+        `regular_hours_only` adds dxFeed's "tho=true" attribute so intraday
+        bars cover the regular session only.
+
+        Collection stops at whichever comes first: the snapshot-end flag,
+        `quiet` seconds with no new bars once some have arrived, or
+        `timeout` overall. Bars are keyed by their open time, so a live
+        update to the current bar replaces the snapshot's copy.
+
+        Returns [{"time": epoch_ms, "open", "high", "low", "close",
+        "volume"}, ...] sorted by time; empty if none arrived.
+        """
+        from .dxlink_streamer import (  # lazy: only needed here
+            DXLinkStreamer, EVENT_FLAG_REMOVE, EVENT_FLAG_SNAPSHOT_END, EVENT_FLAG_SNAPSHOT_SNIP,
+        )
+
+        attrs = f"={interval}" + (",tho=true" if regular_hours_only else "")
+        candle_symbol = f"{self.resolve_underlying_streamer_symbol(ticker)}{{{attrs}}}"
+        quote_token = self.get_quote_token()
+
+        def num(value: Any) -> Optional[float]:
+            try:
+                f = float(value)
+            except (TypeError, ValueError):
+                return None
+            return None if math.isnan(f) else f
+
+        async def _fetch() -> dict[int, dict]:
+            bars: dict[int, dict] = {}
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + timeout
+            async with DXLinkStreamer(quote_token) as streamer:
+                await streamer.subscribe("Candle", candle_symbol, from_time=from_time_ms)
+                while True:
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        break
+                    try:
+                        event = await asyncio.wait_for(
+                            streamer.get_event("Candle"), timeout=min(remaining, quiet) if bars else remaining
+                        )
+                    except asyncio.TimeoutError:
+                        break
+                    flags = int(num(event.get("eventFlags")) or 0)
+                    t = num(event.get("time"))
+                    if t is not None and t >= from_time_ms:
+                        if flags & EVENT_FLAG_REMOVE:
+                            bars.pop(int(t), None)
+                        else:
+                            o, h, l, c = (num(event.get(k)) for k in ("open", "high", "low", "close"))
+                            if None not in (o, h, l, c):
+                                bars[int(t)] = {
+                                    "time": int(t), "open": o, "high": h, "low": l, "close": c,
+                                    "volume": num(event.get("volume")),
+                                }
+                    if flags & (EVENT_FLAG_SNAPSHOT_END | EVENT_FLAG_SNAPSHOT_SNIP):
+                        break
+            return bars
+
+        bars = asyncio.run(_fetch())
+        return [bars[t] for t in sorted(bars)]
+
     def get_chain_quotes(self, chain: list[dict], timeout: float = 5.0) -> dict[str, dict]:
         """Fetch live bid/ask for every contract in an options chain (as
         returned by get_options_chain() / get_option_chain() /
