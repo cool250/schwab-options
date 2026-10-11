@@ -33,7 +33,7 @@ async function request(path, options = {}) {
 // app fixes, so callers surface it as a distinct message instead of the
 // generic "API server is down" one.
 export const BROKER_AUTH_MESSAGE =
-  'Broker authentication failed — the Schwab refresh token has expired. Reconnect Schwab in Settings.'
+  'Broker authentication failed — Schwab isn\'t connected or its login has expired. Reconnect Schwab in Settings.'
 
 // The backend maps any other broker-side failure (e.g. Schwab itself
 // returning 503s after retries) to 502 — see api/app.py's BrokerError

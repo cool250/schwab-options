@@ -35,10 +35,22 @@ class BaseClient:
 
     def _current_access_token(self) -> str:
         """The access token to send — refreshed first if it's about to
-        expire, rather than waiting for Schwab to 401 the request."""
+        expire, rather than waiting for Schwab to 401 the request.
+
+        Raises BrokerAuthError when no token is stored at all (e.g. a fresh
+        deploy before Settings → Connect Schwab): a missing/unreadable
+        token.json or an empty Redis key is an auth problem, not a server
+        error, so it surfaces as app.py's 503 "reconnect" path instead of a
+        bare 500."""
         if self._token_provider.access_token_expires_soon():
             self._refresh_access_token(failed_token=None)
-        return self._token_provider.get_access_token()
+        try:
+            token = self._token_provider.get_access_token()
+        except (OSError, ValueError) as exc:  # FileNotFoundError, JSONDecodeError, Redis "not found"
+            raise BrokerAuthError("No Schwab token found — connect Schwab in Settings.") from exc
+        if not token:
+            raise BrokerAuthError("No Schwab token found — connect Schwab in Settings.")
+        return token
 
     def _auth_headers(self, token: str | None = None) -> dict:
         return {

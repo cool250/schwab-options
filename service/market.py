@@ -111,6 +111,11 @@ class MarketService:
                     frequency_type=params["frequency_type"],
                     frequency=params["frequency"],
                 )
+            except BrokerAuthError:
+                # No/expired Schwab login isn't "no history for this symbol" —
+                # let it reach app.py's 503 handler so the page says to
+                # reconnect Schwab instead of showing an empty chart.
+                raise
             except Exception as e:
                 logger.error("Failed to fetch price history for %s (%s): %s", symbol, range_key, e)
                 return None

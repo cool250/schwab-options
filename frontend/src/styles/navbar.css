@@ -209,8 +209,8 @@
     box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
   }
   /* Logo strip: 16px of air above the logo so it doesn't sit tight against
-     the top of the window. */
-  .navbar-brand { min-height: 52px; padding: 16px 8px 0; margin-bottom: 8px; }
+     the top of the window, and 24px below it before the first menu group. */
+  .navbar-brand { min-height: 52px; padding: 16px 8px 0; margin-bottom: 24px; }
 
   .navbar-links { flex-direction: column; gap: 2px; }
   .nav-link { padding: 9px 14px; }
