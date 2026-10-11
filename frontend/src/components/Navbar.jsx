@@ -1,25 +1,31 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import {
+  PortfolioIcon, MarketIcon, PositionsIcon, ReportsIcon, TransactionsIcon,
+  AnalyzeIcon, ChartsIcon, ScreenerIcon, SettingsIcon, SignOutIcon,
+} from './NavIcons'
 
 // Menu structure: each group is a collapsible parent with its pages beneath.
 const NAV_GROUPS = [
   {
     id: 'portfolio',
     label: 'Portfolio',
+    Icon: PortfolioIcon,
     links: [
-      { to: '/positions', label: 'Positions' },
-      { to: '/allocation', label: 'Reports' },
-      { to: '/transactions', label: 'Transactions' },
+      { to: '/positions', label: 'Positions', Icon: PositionsIcon },
+      { to: '/allocation', label: 'Reports', Icon: ReportsIcon },
+      { to: '/transactions', label: 'Transactions', Icon: TransactionsIcon },
     ],
   },
   {
     id: 'market',
     label: 'Market',
+    Icon: MarketIcon,
     links: [
-      { to: '/analyze', label: 'Analyze' },
-      { to: '/charts', label: 'Charts' },
-      { to: '/screener', label: 'Screener' },
+      { to: '/analyze', label: 'Analyze', Icon: AnalyzeIcon },
+      { to: '/charts', label: 'Charts', Icon: ChartsIcon },
+      { to: '/screener', label: 'Screener', Icon: ScreenerIcon },
     ],
   },
 ]
@@ -95,7 +101,10 @@ export default function Navbar() {
                 disabled={hasActive}
                 title={hasActive ? undefined : expanded ? `Collapse ${group.label}` : `Expand ${group.label}`}
               >
-                <span>{group.label}</span>
+                <span className="nav-group-label">
+                  <group.Icon />
+                  {group.label}
+                </span>
                 <span className={`nav-group-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">›</span>
               </button>
               {expanded && (
@@ -107,6 +116,7 @@ export default function Navbar() {
                       className={({ isActive }) => `nav-link nav-sublink${isActive ? ' active' : ''}`}
                       onClick={close}
                     >
+                      <link.Icon />
                       {link.label}
                     </NavLink>
                   ))}
@@ -120,9 +130,11 @@ export default function Navbar() {
           className={({ isActive }) => `nav-link navbar-settings--mobile${isActive ? ' active' : ''}`}
           onClick={close}
         >
+          <SettingsIcon />
           Settings
         </NavLink>
         <a href="#" onClick={(e) => { e.preventDefault(); logout(); close() }} className="nav-link navbar-logout navbar-logout--mobile">
+          <SignOutIcon />
           Sign out
         </a>
       </div>
@@ -134,10 +146,12 @@ export default function Navbar() {
         to="/settings"
         className={({ isActive }) => `nav-link navbar-settings--desktop${isActive ? ' active' : ''}`}
       >
+        <SettingsIcon />
         Settings
       </NavLink>
 
       <a href="#" onClick={(e) => { e.preventDefault(); logout() }} className="nav-link navbar-logout navbar-logout--desktop">
+        <SignOutIcon />
         Sign out
       </a>
     </nav>
