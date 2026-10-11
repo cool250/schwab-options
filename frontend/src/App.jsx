@@ -12,6 +12,7 @@ import Reports from './pages/Reports'
 import StrikeLab from './pages/StrikeLab'
 import Charts from './pages/Charts'
 import Screener from './pages/Screener'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -24,20 +25,26 @@ export default function App() {
             path="/*"
             element={
               <ProtectedRoute>
-                <Navbar />
-                <main className="main-content">
-                  <ErrorBoundary>
-                    <Routes>
-                      <Route path="/" element={<Navigate to="/positions" replace={true} />} />
-                      <Route path="/positions" element={<Positions />} />
-                      <Route path="/transactions" element={<Transactions />} />
-                      <Route path="/allocation" element={<Reports />} />
-                      <Route path="/analyze" element={<StrikeLab />} />
-                      <Route path="/charts" element={<Charts />} />
-                      <Route path="/screener" element={<Screener />} />
-                    </Routes>
-                  </ErrorBoundary>
-                </main>
+                {/* app-shell reserves room for the fixed sidebar navbar on
+                    desktop (see navbar.css) — the same way body.copilot-open
+                    reserves room for the docked Copilot panel on the right. */}
+                <div className="app-shell">
+                  <Navbar />
+                  <main className="main-content">
+                    <ErrorBoundary>
+                      <Routes>
+                        <Route path="/" element={<Navigate to="/positions" replace={true} />} />
+                        <Route path="/positions" element={<Positions />} />
+                        <Route path="/transactions" element={<Transactions />} />
+                        <Route path="/allocation" element={<Reports />} />
+                        <Route path="/analyze" element={<StrikeLab />} />
+                        <Route path="/charts" element={<Charts />} />
+                        <Route path="/screener" element={<Screener />} />
+                        <Route path="/settings" element={<Settings />} />
+                      </Routes>
+                    </ErrorBoundary>
+                  </main>
+                </div>
                 <CopilotWidget />
               </ProtectedRoute>
             }

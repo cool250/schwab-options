@@ -6,6 +6,7 @@ from typing import Optional
 from broker.schwab import Client as SchwabClient
 from broker.schwab.exceptions import BrokerAuthError
 from service.option_chain_providers import get_option_chain_provider, otm_pct
+from service.screener_strategies import MULTI_LEG_STRATEGIES, STRATEGY_BUILDERS, STRATEGY_OPTION_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ class MarketService:
         max_dte: int,
         min_otm_pct: float,
         max_otm_pct: float,
-        option_types: list[str],
+        strategy: str,
         min_abs_delta: Optional[float] = None,
         max_abs_delta: Optional[float] = None,
         limit: int = 200,
@@ -187,6 +188,13 @@ class MarketService:
         Rank every put/call across `symbols` that falls inside the DTE and
         moneyness window by how much it returns to *sell* it, best first.
         Backs the Options Screener page.
+
+        `strategy` is one of service.screener_strategies.STRATEGIES: "PUT" /
+        "CALL" rank single contracts (fields below); "RATIO_PUT" /
+        "JADE_LIZARD" rank multi-leg combinations built within each
+        expiration — see screener_strategies.py for their definitions and
+        row shape. For those, every leg must sit inside the moneyness band
+        and the delta filter applies to the legs being sold.
 
         `min_abs_delta`/`max_abs_delta` filter on |delta| so one range covers
         both sides (0.15-0.30 keeps a -0.20 put and a 0.20 call). Delta only
@@ -222,6 +230,8 @@ class MarketService:
         — except a dead Schwab session, which no other ticker would survive
         either, so BrokerAuthError still propagates (-> 503).
         """
+        option_types = STRATEGY_OPTION_TYPES[strategy]
+
         def fetch(symbol: str):
             try:
                 return symbol, self.option_chain_provider.get_screener_contracts(
@@ -239,6 +249,16 @@ class MarketService:
             results = list(pool.map(fetch, symbols))
 
         delta_filter_on = min_abs_delta is not None or max_abs_delta is not None
+
+        def delta_ok(c: dict) -> bool:
+            if not delta_filter_on:
+                return True
+            return not (
+                c["delta"] is None
+                or (min_abs_delta is not None and abs(c["delta"]) < min_abs_delta)
+                or (max_abs_delta is not None and abs(c["delta"]) > max_abs_delta)
+            )
+
         rows, errors, truncated = [], [], []
         for symbol, result, error in results:
             if error is not None:
@@ -252,15 +272,23 @@ class MarketService:
                 truncated.append(symbol)
 
             spot = result["spot"]
+            if strategy in MULTI_LEG_STRATEGIES:
+                by_expiration: dict[str, list[dict]] = {}
+                for c in result["contracts"]:
+                    if c["dte"] is not None:
+                        by_expiration.setdefault(c["expirationDate"], []).append(c)
+                for contracts in by_expiration.values():
+                    rows.extend(STRATEGY_BUILDERS[strategy](symbol, spot, contracts, delta_ok))
+                if len(rows) == rows_before:
+                    errors.append({"symbol": symbol, "message": "No qualifying combinations in the selected range"
+                                   + (" and delta range" if delta_filter_on else "")})
+                continue
+
             for c in result["contracts"]:
                 bid, dte = c["bid"], c["dte"]
                 if not bid or bid <= 0 or dte is None:
                     continue
-                if delta_filter_on and (
-                    c["delta"] is None
-                    or (min_abs_delta is not None and abs(c["delta"]) < min_abs_delta)
-                    or (max_abs_delta is not None and abs(c["delta"]) > max_abs_delta)
-                ):
+                if not delta_ok(c):
                     continue
                 strike = c["strike"]
                 if c["type"] == "PUT":
@@ -271,6 +299,7 @@ class MarketService:
                 ask = c["ask"]
                 rows.append({
                     **c,
+                    "strategy": c["type"],
                     "underlying": symbol,
                     "spot": spot,
                     "mid": (bid + ask) / 2 if ask else None,

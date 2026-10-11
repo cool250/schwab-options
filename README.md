@@ -13,6 +13,7 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 - Transaction history with FIFO-matched open/close pairs, realized P&L, and ratio-spread grouping (so a multi-leg combo shows as one row instead of loose legs).
 - Reports page: P&L broken down by symbol/week/day, with drill-through into the underlying transactions.
 - Price charts with support/resistance overlays.
+- Options Screener: scan a list of tickers for the puts, calls, 1×2 ratio puts, or jade lizards that pay the most to sell, ranked by annualized ROI, filtered by moneyness, DTE, and (optionally) delta — then send the picks straight to Analyze.
 - Dark mode.
 - Copilot: a read-only chat agent (OpenAI) with tool access to your real positions, transactions, and live market data, plus built-in knowledge of common options strategies.
 - FastAPI REST layer with auto-generated OpenAPI docs at `/docs`.
@@ -25,7 +26,7 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 .
 ├── api/                  # FastAPI routers (app.py mounts all of them)
 │   ├── auth.py           # Login + session token verification
-│   ├── market.py         # /positions/... option chain / price history (REST)
+│   ├── market.py         # /market/... option chain, screener, price history (REST)
 │   ├── market_stream.py  # /market/ws/... live chain streaming (WebSocket)
 │   ├── position.py       # /positions/... routes
 │   ├── transactions.py   # /transactions/... routes
@@ -36,8 +37,8 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 │                         # definitions (tools.py), strategy knowledge docs (skills/*.md)
 ├── frontend/             # React + Vite frontend
 │   └── src/
-│       ├── pages/        # Positions, Transactions, Reports, StrikeLab, Charts
-│       ├── components/   # Navbar, CopilotWidget, DataTable, Spinner
+│       ├── pages/        # Positions, Transactions, Reports, StrikeLab, Charts, Screener, Settings
+│       ├── components/   # Navbar, CopilotWidget, DataTable, HelpTip, Spinner
 │       ├── utils/        # Small shared helpers (date/symbol formatting, cross-page stores)
 │       └── api/          # Fetch wrappers for the FastAPI endpoints
 └── main.py               # Schwab OAuth token refresh utility (run this, not the app itself)
@@ -147,7 +148,46 @@ npm run dev
 - **Reports** — P&L breakdown by symbol/week/day.
 - **Analyze** (StrikeLab) — option chain browser and payoff builder.
 - **Charts** — price charts with support/resistance.
+- **Screener** — top puts, calls, ratio puts, or jade lizards to sell across a list of tickers (see [Options Screener](#options-screener) below).
+- **Settings** (bottom of the menu) — appearance, including the light/dark theme.
 - **Copilot** (chat icon, bottom-right) — only appears functional if `OPENAI_API_KEY` is set.
+
+---
+
+## Options Screener
+
+The **Screener** page ranks single puts or calls — or two multi-leg credit strategies — across a list of tickers by how much they return to *sell*.
+
+**Search criteria** (all on one row):
+
+| Field | Notes |
+|---|---|
+| Tickers | Comma- or space-separated, up to 25. Futures roots (`/ES`) work too. |
+| Option Type | One per scan: **Puts**, **Calls**, **Ratio Put (1×2)**, or **Jade Lizard** (see below). Default Puts. |
+| Moneyness (% OTM) | Required min–max. Measured from spot toward worthless: below spot for puts, above for calls. A negative min reaches into ITM strikes. Default 0–10. |
+| DTE | Min–max days to expiration, 0–365. Default 0–7. |
+| Delta (optional) | Min–max **absolute** delta, so 0.15–0.30 matches a −0.20 put and a 0.20 call. Leave either side blank for no limit. Narrows the moneyness range rather than replacing it. For strategies it applies to the legs you sell. |
+
+**Strategies** (built within each expiration; every leg must sit inside the moneyness range):
+
+- **Ratio Put (1×2)** — buy 1 put, sell 2 puts at a strictly lower strike. Only combinations that open for a net credit (`2 × short bid − long ask > 0`), matching the copilot's rules in `copilot/skills/put_ratio_spread.md`.
+- **Jade Lizard** — sell 1 put, plus a call spread above it (sell 1 call, buy 1 call up to 5 strikes higher), with total credit ≥ the call spread's width, so there's no upside risk.
+
+**How results are ranked:**
+
+- **Premium** is the **bid** — what a sell order can actually fill at — not the mid. Contracts with no bid are skipped.
+- **ROI** = (bid − intrinsic) ÷ capital, i.e. the return if the underlying is unchanged at expiration. Capital is the strike for a cash-secured put and spot for a covered call. Intrinsic is subtracted so deep-ITM contracts don't top the list with premium that's handed straight back on assignment.
+- **Strategies** price sold legs at the bid and bought legs at the ask. ROI is the P&L if the underlying is unchanged at expiration ÷ capital, where capital is the **max loss if the stock went to zero** (both strategies carry naked-put-style downside). The table shows credit, max profit, breakeven(s), and capital per share.
+- **Ann. ROI** = ROI × 365 ÷ DTE — the default sort, so a weekly and a 45-DTE contract are comparable. The top 200 matches are returned.
+
+**Analyze Selected:** tick one or more rows and click **Analyze Selected** to open them in Analyze (StrikeLab) — a single contract as a short 1-lot leg priced at the bid, a strategy row as all of its legs at the prices above — with the Range ± slider widened to fit every strike and breakeven. Selected rows must share one ticker and expiration — same rule as on Positions.
+
+**Limits worth knowing:**
+
+- Each ticker is capped at 600 contracts per scan so one live-quote snapshot fills reliably. Over the cap, the strikes nearest the money are kept and the page shows a warning — narrow the DTE or moneyness range to see everything.
+- A ticker that fails (bad symbol, no listed options) is reported as a per-ticker warning; the rest of the scan still returns.
+- Option chains come from whichever broker `CHAIN_PROVIDER` selects. A scan of several tickers typically takes ~10–15 s.
+- For futures options, ROI is still premium ÷ strike, which doesn't reflect the margin actually tied up.
 
 ---
 
@@ -158,7 +198,7 @@ Rather than a hand-maintained list here (which drifts fast), the full live endpo
 | Prefix | Covers |
 |---|---|
 | `/api/auth` | Login, session verification |
-| `/api/market` | Option chains, expirations, price history (REST) |
+| `/api/market` | Option chains, expirations, options screener, price history (REST) |
 | `/api/market/ws` | Live option chain streaming (WebSocket) |
 | `/api/positions` | Balances, stocks, options, futures, futures options |
 | `/api/transactions` | Raw history, matched option transactions, equity transactions |

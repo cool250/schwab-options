@@ -1,0 +1,23 @@
+/* ─── Settings ───────────────────────────────────────── */
+/* Fieldset reset so a settings group reads like any other .form-group,
+   with its legend styled as that group's label (same as forms.css). */
+.settings-field {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.settings-field legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: var(--label-font-size);
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.settings-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+}

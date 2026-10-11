@@ -22,8 +22,8 @@ account. In production, FastAPI serves the built React SPA directly from
 | `service/` | Business logic: `PositionService`, `TransactionService`, `MarketService`, `option_chain_providers.py` (Schwab vs Tastytrade chain provider, selected by `CHAIN_PROVIDER` env var). This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
 | `api/` | FastAPI routers: `auth.py`, `market.py`, `market_stream.py` (WebSocket), `position.py`, `transactions.py`, `copilot.py`. Registered in `api/app.py`. |
 | `copilot/` | The read-only financial-copilot agent — see its own section below. |
-| `frontend/src/pages/` | `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Screener` (top puts/calls to sell across tickers, ranked by annualized ROI — backed by `MarketService.screen_options` + each chain provider's `get_screener_contracts`), `Login`. |
-| `frontend/src/components/` | `Navbar`, `CopilotWidget` (floating chat, mounted globally in `App.jsx`), `DataTable`, `ErrorBoundary`, `Spinner`, `ProtectedRoute`. |
+| `frontend/src/pages/` | `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Screener` (top puts/calls to sell across tickers, ranked by annualized ROI — backed by `MarketService.screen_options` + each chain provider's `get_screener_contracts`; multi-leg Ratio Put / Jade Lizard combinations are built in `service/screener_strategies.py`), `Settings` (appearance — the light/dark theme choice lives here, not in the navbar), `Login`. |
+| `frontend/src/components/` | `Navbar`, `CopilotWidget` (floating chat, mounted globally in `App.jsx`), `DataTable`, `ErrorBoundary`, `HelpTip` ("?" button + pop-up beside a form label — use it for field help text instead of a paragraph under the form), `Spinner`, `ProtectedRoute`. |
 | `frontend/src/context/` | `AuthContext`, `ThemeContext` (dark mode). |
 | `frontend/src/utils/` | Small shared helpers, not page-specific: `optionSymbol.js` (the one canonical "TICKER MM/DD/YYYY STRIKE.00 P/C" formatter — every page showing an option contract should call this, not re-derive its own), `dateFormat.js` (MM/DD/YYYY), `contractMultiplier.js` (equity=100 vs futures-root multipliers + `isFuturesRoot`), `copilotContext.js` (see Copilot section below), `symbolStore.js` (see below). |
 | `frontend/src/styles/tokens.css` | All design tokens (colors, spacing, shadows) as CSS custom properties, including the dark-theme palette under `:root[data-theme="dark"]`. Every other stylesheet should reference tokens, not hardcode colors — a hardcoded color is the single most common way a change quietly breaks dark mode. |
@@ -101,7 +101,7 @@ manually inside the handler — follow that same pattern for any new WS route.
   Tailwind, no CSS-in-JS. `.tab-row`/`.tab-item` for in-page view switchers
   (Chain/Table/Graph-style), deliberately styled differently from `.btn` so
   a tab strip doesn't read as a row of action buttons.
-- Dark mode: `ThemeContext` sets `data-theme` on `<html>`, persisted to
+- Dark mode: chosen on the Settings page (`/settings`). `ThemeContext` sets `data-theme` on `<html>`, persisted to
   `localStorage`, with an inline script in `index.html` to avoid a
   flash-of-wrong-theme on load. Any new color must go through a token —
   check both the light and dark blocks in `tokens.css` before shipping.

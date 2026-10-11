@@ -11,18 +11,11 @@
 }
 /* Fields stretch to fill the whole row: Tickers takes the biggest share
    (a list of symbols benefits most from width), each range grows evenly
-   after it, and Option Type stays at its natural checkbox width. */
+   after it, and the Option Type dropdown stays wide enough for its longest
+   choice ("Ratio Put (1×2)") without growing. */
 .screener-tickers { flex: 2 1 220px; min-width: 0; }
-.screener-fields > .screener-range:not(.screener-option-types) { flex: 1 1 170px; }
-.screener-option-types { flex-shrink: 0; }
-.screener-option-type-inputs {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  /* Match the ticker input's height (10px vertical padding + 2px underline)
-     so the checkboxes line up with the text, not the label above it. */
-  padding: 10px 0 12px;
-}
+.screener-fields > .screener-range { flex: 1 1 170px; }
+.screener-option-types { flex: 0 0 170px; }
 
 /* Reset the browser's default fieldset box so a range reads like any other
    .form-group, with the legend styled as that group's label. */
@@ -64,6 +57,10 @@
 
 .screener-ann-roi { font-weight: 700; }
 
+/* Strategy rows: ticker, then the leg list in a quieter tone. */
+.screener-position { white-space: nowrap; }
+.screener-legs { color: var(--text-muted); }
+
 /* Title, match count and Analyze Selected share one row on desktop; let
    them wrap on narrow screens instead of overflowing the card. */
 .screener-results-header { flex-wrap: wrap; row-gap: 10px; margin-bottom: 12px; }
@@ -78,7 +75,8 @@
 @media (max-width: 600px) {
   .screener-fields { flex-direction: column; align-items: stretch; }
   .screener-tickers,
-  .screener-fields > .screener-range:not(.screener-option-types) { flex-basis: auto; }
+  .screener-option-types,
+  .screener-fields > .screener-range { flex-basis: auto; }
   /* The "?" sits partway along the legend, so a pop-up anchored to it can
      run off the right edge of a phone screen — span the whole fieldset. */
   .screener-range .help-tip { position: static; }

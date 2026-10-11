@@ -19,9 +19,19 @@ const DEFAULT_CRITERIA = {
   maxDte: 7,
   minDelta: '',
   maxDelta: '',
-  puts: true,
-  calls: true,
+  optionType: 'PUT', // one of OPTION_TYPES' values
 }
+
+// Dropdown choices — values match the API's `strategy` param
+// (service/screener_strategies.py STRATEGIES).
+const OPTION_TYPES = [
+  { value: 'PUT', label: 'Puts' },
+  { value: 'CALL', label: 'Calls' },
+  { value: 'RATIO_PUT', label: 'Ratio Put (1×2)' },
+  { value: 'JADE_LIZARD', label: 'Jade Lizard' },
+]
+const MULTI_LEG = ['RATIO_PUT', 'JADE_LIZARD']
+const OPTION_TYPE_LABELS = Object.fromEntries(OPTION_TYPES.map((o) => [o.value, o.label]))
 
 const screenerCache = {
   criteria: DEFAULT_CRITERIA,
@@ -50,20 +60,32 @@ const pct = (v, digits = 2) => (v == null ? '—' : `${num(v, digits)}%`)
 const int = (v) => (v == null ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 }))
 
 // Same router-state handoff as Positions' "Analyze Selected" (StrikeLab
-// reads location.state.analyzePositions on mount): each selected contract
-// arrives as a 1-lot short leg — negative quantity = sold — priced at the
-// bid, the same premium the ROI columns assume.
-function toAnalyzePosition(row) {
-  return {
-    symbol: row.underlying,
-    strike: row.strike,
-    optionType: row.type,
-    quantity: -1,
-    premium: row.bid,
-    dte: row.dte,
-    ticker: row.underlying,
-    expirationDate: row.expirationDate,
+// reads location.state.analyzePositions on mount; negative quantity =
+// sold). A single contract arrives as a 1-lot short leg priced at the bid;
+// a strategy row arrives as all of its legs, each at the price the ROI
+// columns assume (bid for a short leg, ask for a long one).
+function toAnalyzePositions(row) {
+  const common = { symbol: row.underlying, ticker: row.underlying, dte: row.dte, expirationDate: row.expirationDate }
+  if (row.legs) {
+    return row.legs.map((leg) => ({
+      ...common, strike: leg.strike, optionType: leg.type, quantity: leg.qty, premium: leg.price,
+    }))
   }
+  return [{ ...common, strike: row.strike, optionType: row.type, quantity: -1, premium: row.bid }]
+}
+
+// "+1 335P −2 325P" — compact leg list for a strategy row (strike trailing
+// zeros dropped the same way formatOptionSymbol does).
+function legsLabel(legs) {
+  return legs
+    .map((l) => `${l.qty > 0 ? '+' : '−'}${Math.abs(l.qty)} ${l.strike.toFixed(2).replace(/\.?0+$/, '')}${l.type === 'PUT' ? 'P' : 'C'}`)
+    .join(' ')
+}
+
+function rowLabel(r) {
+  return r.legs
+    ? `${r.underlying} ${formatDate(r.expirationDate)} ${legsLabel(r.legs)}`
+    : formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol
 }
 
 const COLUMNS = [
@@ -94,11 +116,52 @@ const COLUMNS = [
   },
 ]
 
+// Ratio Put / Jade Lizard rows — one row per combination. Credit, max
+// profit, breakeven and capital are per share, like the single-contract
+// columns.
+const STRATEGY_COLUMNS = [
+  {
+    key: 'symbol',
+    label: 'Position',
+    render: (r) => (
+      <span className="screener-position">
+        <span>{r.underlying}</span> <span className="screener-legs">{legsLabel(r.legs)}</span>
+      </span>
+    ),
+  },
+  { key: 'expirationDate', label: 'Expiration', render: (r) => formatDate(r.expirationDate) },
+  { key: 'dte', label: 'DTE', align: 'right' },
+  { key: 'spot', label: 'Spot', align: 'right', render: (r) => num(r.spot) },
+  { key: 'shortDelta', label: 'Short Δ', align: 'right', render: (r) => num(r.shortDelta) },
+  { key: 'credit', label: 'Credit', align: 'right', render: (r) => num(r.credit) },
+  { key: 'maxProfit', label: 'Max Profit', align: 'right', render: (r) => num(r.maxProfit) },
+  {
+    key: 'lowerBreakeven',
+    label: 'Breakeven',
+    align: 'right',
+    render: (r) => (r.breakevens?.length ? r.breakevens.map((b) => num(b)).join(' / ') : '—'),
+  },
+  { key: 'capital', label: 'Capital', align: 'right', render: (r) => num(r.capital) },
+  { key: 'roi', label: 'ROI', align: 'right', render: (r) => <span className="cell-positive">{pct(r.roi)}</span> },
+  {
+    key: 'annualizedRoi',
+    label: 'Ann. ROI',
+    align: 'right',
+    render: (r) => <span className="cell-positive screener-ann-roi">{pct(r.annualizedRoi, 1)}</span>,
+  },
+]
+
 export default function Screener() {
   const navigate = useNavigate()
   // Defaults first, so a field added since the cached criteria were saved
   // starts at its default instead of undefined.
-  const [criteria, setCriteria] = useState(() => ({ ...DEFAULT_CRITERIA, ...screenerCache.criteria }))
+  const [criteria, setCriteria] = useState(() => {
+    const merged = { ...DEFAULT_CRITERIA, ...screenerCache.criteria }
+    // A value from an older version of this page (e.g. the removed 'BOTH')
+    // falls back to the default rather than leaving the dropdown blank.
+    if (!OPTION_TYPE_LABELS[merged.optionType]) merged.optionType = DEFAULT_CRITERIA.optionType
+    return merged
+  })
   const [result, setResult] = useState(screenerCache.result)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -129,7 +192,8 @@ export default function Screener() {
   // Same rule as Positions: StrikeLab's payoff graph prices one spot for one
   // underlying at one point in time, so legs must share both — checked up
   // front rather than letting Analyze plot a nonsensical mix. A put and a
-  // call on the same ticker/expiration (e.g. a short strangle) is fine.
+  // call on the same ticker/expiration (e.g. a short strangle) is fine, and
+  // a strategy row's legs always share both already.
   function handleAnalyzeSelected() {
     const rows = Array.from(selected.values())
     const tickers = new Set(rows.map((r) => r.underlying))
@@ -139,7 +203,7 @@ export default function Screener() {
       return
     }
     setAnalyzeError(null)
-    navigate('/analyze', { state: { analyzePositions: rows.map(toAnalyzePosition), view: 'graph' } })
+    navigate('/analyze', { state: { analyzePositions: rows.flatMap(toAnalyzePositions), view: 'graph' } })
   }
 
   // Lets the copilot answer "which of these would you pick?" about the
@@ -152,7 +216,19 @@ export default function Screener() {
     setCopilotContext('Screener', {
       criteria: result.criteria,
       totalMatches: result.totalMatches,
-      topResults: result.results.slice(0, 20).map((r) => ({
+      topResults: result.results.slice(0, 20).map((r) => r.legs ? ({
+        strategy: r.strategy,
+        position: rowLabel(r),
+        dte: r.dte,
+        spot: r.spot,
+        legs: r.legs.map(({ type, strike, qty, price, delta }) => ({ type, strike, qty, price, delta })),
+        creditPerShare: r.credit,
+        maxProfitPerShare: r.maxProfit,
+        breakevens: r.breakevens,
+        capitalPerShare: r.capital,
+        roiPct: r.roi,
+        annualizedRoiPct: r.annualizedRoi,
+      }) : ({
         contract: formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type),
         dte: r.dte,
         spot: r.spot,
@@ -175,7 +251,7 @@ export default function Screener() {
   async function handleSubmit(e) {
     e.preventDefault()
     const symbols = parseTickers(criteria.tickers)
-    const optionTypes = [criteria.puts && 'PUT', criteria.calls && 'CALL'].filter(Boolean)
+    const strategy = criteria.optionType
     const minDte = Number(criteria.minDte)
     const maxDte = Number(criteria.maxDte)
     const minMoneyness = optionalNumber(criteria.minMoneyness)
@@ -186,7 +262,6 @@ export default function Screener() {
     const problem =
       symbols.length === 0 ? 'Enter at least one ticker.'
       : symbols.length > 25 ? 'Screen at most 25 tickers at a time.'
-      : optionTypes.length === 0 ? 'Select Put, Call, or both.'
       : ![minDte, maxDte].every(Number.isFinite) ? 'DTE must be a number.'
       : minMoneyness == null || maxMoneyness == null ? 'Enter both a min and max moneyness.'
       : ![minMoneyness, maxMoneyness].every(Number.isFinite) ? 'Moneyness must be a number.'
@@ -203,7 +278,7 @@ export default function Screener() {
       return
     }
 
-    const request = { symbols, minDte, maxDte, minMoneyness, maxMoneyness, minDelta, maxDelta, optionTypes }
+    const request = { symbols, minDte, maxDte, minMoneyness, maxMoneyness, minDelta, maxDelta, strategy }
     setLoading(true)
     setError(null)
     try {
@@ -232,19 +307,34 @@ export default function Screener() {
               />
             </div>
 
-            <fieldset className="screener-range screener-option-types">
-              <legend>Option Type</legend>
-              <div className="screener-option-type-inputs">
-                <label className="toggle-label">
-                  <input type="checkbox" className="toggle-checkbox" checked={criteria.puts} onChange={update('puts')} />
-                  <span>Puts</span>
-                </label>
-                <label className="toggle-label">
-                  <input type="checkbox" className="toggle-checkbox" checked={criteria.calls} onChange={update('calls')} />
-                  <span>Calls</span>
-                </label>
-              </div>
-            </fieldset>
+            <div className="form-group screener-option-types">
+              <label htmlFor="screener-option-type">
+                Option Type
+                <HelpTip label="About option types">
+                  <strong>Puts / Calls:</strong> single contracts to sell (cash-secured put / covered call).
+                  <br />
+                  <strong>Ratio Put (1×2):</strong> buy 1 put, sell 2 puts at a lower strike, same expiration —
+                  only combinations that open for a net credit.
+                  <br />
+                  <strong>Jade Lizard:</strong> sell a put, plus a call spread above it (sell a call, buy a
+                  higher call up to 5 strikes wider), with total credit at least the spread's width — so no
+                  upside risk.
+                  <br />
+                  For both strategies every leg must be inside the moneyness range, and the delta range applies
+                  to the legs you sell.
+                </HelpTip>
+              </label>
+              <select
+                id="screener-option-type"
+                className="input"
+                value={criteria.optionType}
+                onChange={update('optionType')}
+              >
+                {OPTION_TYPES.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
 
             <fieldset className="screener-range">
               <legend>
@@ -322,7 +412,11 @@ export default function Screener() {
 
           <div className="card">
             <div className="section-header screener-results-header">
-              <h3 className="section-title">Top Contracts to Sell</h3>
+              <h3 className="section-title">
+                {MULTI_LEG.includes(result.criteria?.strategy)
+                  ? `Top ${OPTION_TYPE_LABELS[result.criteria.strategy]} Positions`
+                  : 'Top Contracts to Sell'}
+              </h3>
               <span className="summary-line">
                 {result.results.length < result.totalMatches
                   ? `Top ${result.results.length} of ${result.totalMatches} matches`
@@ -352,20 +446,24 @@ export default function Screener() {
                           type="checkbox"
                           checked={selected.has(r.symbol)}
                           onChange={() => toggleSelected(r)}
-                          aria-label={`Select ${formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol}`}
+                          aria-label={`Select ${rowLabel(r)}`}
                         />
                       ),
                     },
-                    ...COLUMNS,
+                    ...(MULTI_LEG.includes(result.criteria?.strategy) ? STRATEGY_COLUMNS : COLUMNS),
                   ]}
                   defaultSortKey="annualizedRoi"
                   defaultSortDir="desc"
                   maxHeight="640px"
                 />
                 <p className="screener-hint">
-                  ROI assumes you sell at the bid and the underlying is unchanged at expiration: (bid − intrinsic)
-                  ÷ capital, where capital is the strike for a cash-secured put and the spot price for a covered
-                  call. Ann. ROI scales that to a 365-day year.
+                  {MULTI_LEG.includes(result.criteria?.strategy)
+                    ? 'Legs are priced at the bid when sold and the ask when bought; amounts are per share. ROI is '
+                      + 'the P&L if the underlying is unchanged at expiration ÷ capital, where capital is the max '
+                      + 'loss if the stock went to zero. Ann. ROI scales that to a 365-day year.'
+                    : 'ROI assumes you sell at the bid and the underlying is unchanged at expiration: (bid − '
+                      + 'intrinsic) ÷ capital, where capital is the strike for a cash-secured put and the spot price '
+                      + 'for a covered call. Ann. ROI scales that to a 365-day year.'}
                 </p>
               </>
             ) : (
