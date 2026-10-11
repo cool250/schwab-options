@@ -36,6 +36,9 @@ const OPTION_TYPE_LABELS = Object.fromEntries(OPTION_TYPES.map((o) => [o.value, 
 const screenerCache = {
   criteria: DEFAULT_CRITERIA,
   result: null,
+  // Rows ticked for Analyze Selected — kept with `result` so they're still
+  // ticked after a trip to Analyze and back.
+  selected: new Map(),
 }
 
 // A blank field becomes null — for delta that means "no limit on that side"
@@ -166,7 +169,7 @@ export default function Screener() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   // Selected result rows, keyed by contract symbol (unique per row).
-  const [selected, setSelected] = useState(new Map())
+  const [selected, setSelected] = useState(() => new Map(screenerCache.selected))
   const [analyzeError, setAnalyzeError] = useState(null)
 
   useEffect(() => {
@@ -175,10 +178,11 @@ export default function Screener() {
 
   useEffect(() => {
     screenerCache.result = result
-    // A new screen replaces the rows a selection could refer to.
-    setSelected(new Map())
-    setAnalyzeError(null)
   }, [result])
+
+  useEffect(() => {
+    screenerCache.selected = selected
+  }, [selected])
 
   function toggleSelected(row) {
     setSelected((prev) => {
@@ -284,6 +288,11 @@ export default function Screener() {
     try {
       const data = await screenOptions(request)
       setResult({ ...data, criteria: request })
+      // A new scan replaces the rows a selection could refer to — cleared
+      // here rather than whenever `result` changes, so restoring cached
+      // results on remount keeps the user's selection.
+      setSelected(new Map())
+      setAnalyzeError(null)
     } catch (err) {
       setError(friendlyErrorMessage(err, err.message || 'Failed to run screener.'))
     } finally {
@@ -297,7 +306,13 @@ export default function Screener() {
         <form onSubmit={handleSubmit}>
           <div className="screener-fields">
             <div className="form-group screener-tickers">
-              <label htmlFor="screener-tickers">Tickers</label>
+              <label htmlFor="screener-tickers">
+                Tickers
+                <HelpTip label="About tickers">
+                  Enter multiple tickers separated by a comma, e.g. AAPL, MSFT, NVDA. Up to 25 per scan;
+                  futures roots like /ES work too.
+                </HelpTip>
+              </label>
               <input
                 id="screener-tickers"
                 className="input"
