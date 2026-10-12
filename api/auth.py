@@ -23,7 +23,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 _bearer = HTTPBearer()
 
-_TOKEN_TTL = 8 * 3600  # 8 hours
+# Sessions end after 15 minutes of inactivity: a token is valid for 15
+# minutes, and the frontend swaps it for a fresh one (POST /refresh) while
+# the user is actively using the app (frontend/src/context/AuthContext.jsx).
+_TOKEN_TTL = 15 * 60
 
 
 def _secret_key() -> bytes:
@@ -117,6 +120,14 @@ def login(req: LoginRequest):
             detail="Invalid credentials",
         )
     return {"token": _make_token(user.id), "user": user.public()}
+
+
+@router.post("/refresh")
+def refresh(user: User = Depends(require_auth)):
+    """Swap a still-valid login token for a fresh 15-minute one. The
+    frontend calls this only while the user is active, so an idle session
+    simply runs out."""
+    return {"token": _make_token(user.id)}
 
 
 @router.get("/me")

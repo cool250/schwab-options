@@ -105,7 +105,6 @@ CHAIN_PROVIDER=tastytrade     # 'schwab' or 'tastytrade' — which broker serves
                                 # (positions/transactions always use Schwab; Charts always uses Tastytrade)
 OPENAI_API_KEY=sk-...           # only needed for the Copilot chat feature
 OPENAI_MODEL=gpt-4o             # defaults to gpt-4o if unset
-USE_DB=false                    # true = store the Schwab token in Redis instead of token.json
 ```
 
 A quick way to generate `SECRET_KEY`:
@@ -210,7 +209,7 @@ Rather than a hand-maintained list here (which drifts fast), the full live endpo
 
 ## Deploying to Fly.io
 
-The app runs as **one small Fly machine** (shared-cpu-1x, 512MB — about $3.69/month if always on, less with the auto-stop below) from the repo's `Dockerfile` and `fly.toml`. The Docker build compiles the React app and FastAPI serves it alongside the API, same single-process layout as local. The Schwab token lives in `token.json` on a **1GB Fly volume** mounted at `/data`, so it survives restarts and redeploys — no Redis needed.
+The app runs as **one small Fly machine** (shared-cpu-1x, 512MB — about $3.69/month if always on, less with the auto-stop below) from the repo's `Dockerfile` and `fly.toml`. The Docker build compiles the React app and FastAPI serves it alongside the API, same single-process layout as local. Schwab tokens and the user database live on a **1GB Fly volume** mounted at `/data`, so they survive restarts and redeploys.
 
 ### One-time setup
 
@@ -240,7 +239,7 @@ fly deploy --ha=false
 
 About step 4:
 - It copies the needed keys from `.env` without printing them, strips surrounding quotes (`fly secrets import` would otherwise keep them as part of the value), and swaps in the Fly callback URL.
-- It deliberately leaves out `USE_DB`, `REDIS_URL`, `TOKEN_JSON` (unused on Fly — the token is on the volume) and `CHAIN_PROVIDER` (already in `fly.toml`).
+- It copies only the keys the app needs as secrets; `CHAIN_PROVIDER` is left out because it's already in `fly.toml`.
 - Prefer this over a long multi-line `fly secrets set … \` command: one broken line continuation there silently sets only the first secret, which leaves login failing with 401.
 - To use a different `SECRET_KEY` in production than locally, drop it from the `grep` list and add `echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"`.
 
@@ -376,36 +375,13 @@ Keep those lines in `.dockerignore`, and add any new secret file you create.
 
 ## Token Storage
 
-The app supports two backends for storing the Schwab OAuth token, controlled by the `USE_DB` environment variable.
+Each user's Schwab OAuth token is stored as a JSON file:
 
-| `USE_DB` | Backend | When to use |
-|---|---|---|
-| `false` / unset | `token.json` file — at `TOKEN_FILE` if set, else `./token.json`. `TOKEN_JSON` isn't read in this mode | Local development, and Fly.io (`TOKEN_FILE=/data/token.json` on its volume) |
-| `true` | Redis (`REDIS_URL`), re-seeded from `TOKEN_JSON` if the Redis copy ever expires | A host with no persistent disk |
+| User | File |
+|---|---|
+| The original admin | `TOKEN_FILE` if set, else `./token.json` in the project root (Fly sets `TOKEN_FILE=/data/token.json`) |
+| Everyone else | `schwab_tokens/user_<id>.json` in the same folder |
 
-### File (default — no Redis needed)
+Files are written atomically and readable only by the app's own user (mode 0600). No extra configuration is needed locally; on Fly they're on the `/data` volume.
 
-Token is read from `token.json` in the project root locally, or wherever `TOKEN_FILE` points (Fly.io sets `/data/token.json`). No extra configuration required.
-
-### Local development with Redis
-
-```bash
-# Start Redis
-brew services start redis
-
-# Seed Redis with your current token
-python3 -c "
-import json, redis
-r = redis.from_url('redis://localhost:6379', decode_responses=True)
-r.set('TOKEN_JSON', open('token.json').read())
-print('Token seeded to Redis')
-"
-```
-
-Add to `.env`:
-```
-USE_DB=true
-REDIS_URL=redis://localhost:6379
-```
-
-Either way, the access token is refreshed automatically on every `401` response and written back to the store. The refresh token itself expires after 7 days — reconnect from **Settings → Schwab Connection** (or re-run `main.py`).
+The access token is refreshed automatically (shortly before it expires, or on a `401`) and written back to the file. The refresh token itself expires after 7 days — reconnect from **Settings → Schwab Connection** (or, for the admin locally, re-run `main.py`).

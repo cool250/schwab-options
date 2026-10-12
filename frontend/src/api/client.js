@@ -10,6 +10,7 @@ async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, { ...options, headers, cache: 'no-store' })
   if (res.status === 401) {
     sessionStorage.removeItem('auth_token')
+    sessionStorage.setItem('auth_notice', 'Your session expired. Please log in again.')
     window.location.href = '/login'
     throw new Error('Session expired. Please log in again.')
   }
@@ -83,7 +84,11 @@ export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyn
   return request(`/market/options/screener?${p}`)
 }
 
-// Current user / own password — see api/auth.py.
+// Current user / session renewal / own password — see api/auth.py.
+export function refreshSession() {
+  return request('/auth/refresh', { method: 'POST' })
+}
+
 export function getMe() {
   return request('/auth/me')
 }
