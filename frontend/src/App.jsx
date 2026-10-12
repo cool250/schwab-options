@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import ErrorBoundary from './components/ErrorBoundary'
 import Navbar from './components/Navbar'
 import CopilotWidget from './components/CopilotWidget'
+import RequireSchwab from './components/RequireSchwab'
 import Login from './pages/Login'
 import Landing from './pages/Landing'
 import Positions from './pages/Positions'
@@ -44,9 +45,12 @@ export default function App() {
                   <main className="main-content">
                     <ErrorBoundary>
                       <Routes>
-                        <Route path="/positions" element={<Positions />} />
-                        <Route path="/transactions" element={<Transactions />} />
-                        <Route path="/allocation" element={<Reports />} />
+                        {/* Portfolio pages read the user's own Schwab account —
+                            RequireSchwab shows a "connect Schwab" notice first
+                            if it isn't connected or has expired. */}
+                        <Route path="/positions" element={<RequireSchwab><Positions /></RequireSchwab>} />
+                        <Route path="/transactions" element={<RequireSchwab><Transactions /></RequireSchwab>} />
+                        <Route path="/allocation" element={<RequireSchwab><Reports /></RequireSchwab>} />
                         <Route path="/analyze" element={<StrikeLab />} />
                         <Route path="/charts" element={<Charts />} />
                         <Route path="/screener" element={<Screener />} />

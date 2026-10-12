@@ -118,7 +118,7 @@ export default function Charts() {
       <div className="card">
         <div className="form-group form-group--sm">
           <label htmlFor="charts-symbol">Symbol</label>
-          <form onSubmit={submitSymbol}>
+          <form onSubmit={submitSymbol} className="symbol-form">
             <input
               id="charts-symbol"
               className="input"
@@ -126,6 +126,9 @@ export default function Charts() {
               value={symbolInput}
               onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
             />
+            <button type="submit" className="btn btn-primary symbol-go-btn" disabled={!symbolInput.trim()}>
+              Go
+            </button>
           </form>
         </div>
       </div>

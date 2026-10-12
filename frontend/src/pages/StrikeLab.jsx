@@ -761,7 +761,7 @@ export default function StrikeLab() {
           <div className="form-group symbol-group">
             <label htmlFor="strikelab-symbol">Symbol</label>
             <div className="symbol-input-row">
-              <form onSubmit={submitSymbol}>
+              <form onSubmit={submitSymbol} className="symbol-form">
                 <input
                   id="strikelab-symbol"
                   className="input"
@@ -769,6 +769,9 @@ export default function StrikeLab() {
                   value={symbolInput}
                   onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
                 />
+                <button type="submit" className="btn btn-primary symbol-go-btn" disabled={!symbolInput.trim()}>
+                  Go
+                </button>
               </form>
               {symbol && (
                 <span className="price-badge ok">

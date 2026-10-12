@@ -13,6 +13,9 @@ import { CopilotIcon } from '../components/CopilotWidget'
 // pages only — Screener, Analyze, Charts — never Positions/Transactions/
 // Reports, since this page is public and those show account data.
 
+// Where login (and "Open dashboard") lands: Market → Analyze.
+const DEFAULT_PAGE = '/analyze'
+
 const FEATURES = [
   {
     Icon: PositionsIcon,
@@ -150,13 +153,15 @@ export default function Landing({ initialOverlay = null }) {
   }
 
   function afterLogin() {
-    // Back to the page that sent the visitor to /login, else Positions.
+    // Back to the page that sent the visitor to /login, else the Market
+    // section's first page — it works for every user right away, unlike
+    // the Portfolio pages, which need the user's own Schwab connection.
     const from = location.state?.from
-    navigate(from?.pathname ? `${from.pathname}${from.search ?? ''}` : '/positions', { replace: true })
+    navigate(from?.pathname ? `${from.pathname}${from.search ?? ''}` : DEFAULT_PAGE, { replace: true })
   }
 
   const authActions = token ? (
-    <Link to="/positions" className="btn btn-primary">Open dashboard</Link>
+    <Link to={DEFAULT_PAGE} className="btn btn-primary">Open dashboard</Link>
   ) : (
     <>
       <button type="button" className="landing-link-btn" onClick={() => setOverlay('login')}>Log in</button>
@@ -192,7 +197,7 @@ export default function Landing({ initialOverlay = null }) {
               </p>
               <div className="landing-hero-actions">
                 {token ? (
-                  <Link to="/positions" className="btn btn-primary landing-cta">Open dashboard</Link>
+                  <Link to={DEFAULT_PAGE} className="btn btn-primary landing-cta">Open dashboard</Link>
                 ) : (
                   <>
                     <button type="button" className="btn btn-primary landing-cta" onClick={() => setOverlay('login')}>

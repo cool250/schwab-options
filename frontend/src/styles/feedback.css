@@ -44,3 +44,30 @@
   height: 11px;
   border-width: 2px;
 }
+
+/* ─── "Connect Schwab" notice (components/RequireSchwab.jsx) ─── */
+.connect-notice {
+  max-width: 640px;
+  margin: 24px auto 0;
+  padding: 40px 36px;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+.connect-notice-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+.connect-notice-icon svg { width: 26px; height: 26px; }
+.connect-notice-title { margin: 0; font-size: 1.3rem; font-weight: 700; color: var(--text); }
+.connect-notice-text { margin: 0; font-size: 0.95rem; line-height: 1.55; color: var(--text); max-width: 520px; }
+.connect-notice-text--muted { font-size: 0.85rem; color: var(--text-muted); }
+.connect-notice-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 12px; }
+.connect-notice-actions .btn { text-decoration: none; }

@@ -37,6 +37,12 @@
   filter: invert(1);
 }
 
+/* ─── Symbol field + Go button (Analyze and Charts) ──── */
+/* Enter still submits the form; Go is the same submit, for mouse/touch. */
+.symbol-form { display: flex; align-items: center; gap: 10px; }
+.symbol-form .input { flex: 1; min-width: 0; }
+.symbol-go-btn { padding: 7px 16px; flex-shrink: 0; }
+
 /* ─── Form helpers ────────────────────────────────────── */
 .form-group--sm  { max-width: 280px; }
 
