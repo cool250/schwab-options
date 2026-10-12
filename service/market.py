@@ -172,7 +172,8 @@ class MarketService:
                 return datetime.fromtimestamp(b["time"] / 1000, _ET).isoformat()
             return datetime.fromtimestamp(b["time"] / 1000, timezone.utc).strftime("%Y-%m-%dT00:00:00")
 
-        support, resistance = _swing_levels([b["high"] for b in bars], [b["low"] for b in bars])
+        # One support and one resistance line on the chart.
+        support, resistance = _swing_levels([b["high"] for b in bars], [b["low"] for b in bars], max_levels=1)
 
         result = {
             "symbol": symbol,

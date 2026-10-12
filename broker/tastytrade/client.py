@@ -483,6 +483,8 @@ class TastytradeClient:
                 return None
             return None if math.isnan(f) else f
 
+        FIRST_BAR_WAIT = 2.0
+
         async def _fetch() -> dict[int, dict]:
             bars: dict[int, dict] = {}
             loop = asyncio.get_running_loop()
@@ -494,11 +496,21 @@ class TastytradeClient:
                     if remaining <= 0:
                         break
                     try:
+                        # Before the first bar, wait at most FIRST_BAR_WAIT:
+                        # a healthy snapshot starts in well under a second,
+                        # and when DXLink stalls on a new subscription,
+                        # waiting longer doesn't help — re-subscribing on
+                        # the same connection does (below).
                         event = await asyncio.wait_for(
-                            streamer.get_event("Candle"), timeout=min(remaining, quiet) if bars else remaining
+                            streamer.get_event("Candle"),
+                            timeout=min(remaining, quiet if bars else FIRST_BAR_WAIT),
                         )
                     except asyncio.TimeoutError:
-                        break
+                        if bars:
+                            break
+                        await streamer.unsubscribe("Candle", candle_symbol)
+                        await streamer.subscribe("Candle", candle_symbol, from_time=from_time_ms)
+                        continue
                     flags = int(num(event.get("eventFlags")) or 0)
                     t = num(event.get("time"))
                     if t is not None and t >= from_time_ms:
