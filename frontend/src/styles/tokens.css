@@ -34,6 +34,10 @@
      button, and white text on it is 14.6:1 vs 5.2:1 on the old blue. */
   --nav-bg: #1e293b;
   --nav-border: transparent;
+  /* Highlight text on --nav-bg bands (e.g. the landing hero's label). The
+     band is dark in both themes, so one value serves both: ~10:1 contrast
+     on this slate, ~14:1 on the dark theme's near-black. */
+  --nav-highlight: #facc15;
   --header-font-size: 0.93rem; /* shared by DataTable's <th> and StrikeLab's chain-table header spans */
   --label-font-size: 0.9rem; /* form field labels (.form-group label) and anything styled to match them */
 

@@ -85,6 +85,8 @@
   color: var(--primary-hover);
 }
 .landing-eyebrow--muted { color: var(--primary); }
+/* On the dark hero band, yellow reads far better than blue. */
+.landing-hero .landing-eyebrow { color: var(--nav-highlight); }
 .landing-hero h1 {
   margin: 0 0 20px;
   font-size: clamp(2rem, 4vw, 3rem);
