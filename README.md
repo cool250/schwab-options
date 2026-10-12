@@ -311,6 +311,7 @@ fly deploy --image registry.fly.io/your-app-name:<previous-image-tag>
 - **Accounts live in** `/data/nutrade.db` (SQLite on the volume), so they survive redeploys. `ADMIN_USERNAME`/`ADMIN_PASSWORD` only create the very first admin when that database is empty — after that, change your password in Settings, not in secrets.
 - **Logs:** `fly logs` (the app mirrors its log to stdout on Fly via `LOG_TO_STDOUT`).
 - **Auto-stop:** the machine stops when nothing is connected and starts on the next request, so you mostly pay for hours actually used — the first page load after idle takes a few seconds. An open Analyze chain stream counts as a connection and keeps it running. Set `min_machines_running = 1` in `fly.toml` (then `fly deploy`) to keep it always on instead.
+- **Sessions:** you're signed out after **15 minutes of inactivity** (clicks, typing, scrolling); while you're using the app it renews itself in the background. Background refreshes and the Analyze live stream don't count as activity, so an idle tab signs out and the machine can auto-stop.
 - **Shell into the machine:** `fly ssh console` (start it first with `fly machine start` if it's auto-stopped).
 
 ### Troubleshooting
@@ -342,7 +343,7 @@ Schwab rejected the `redirect_uri` — it must match a callback URL registered i
 Locally the same error usually means a **stale backend**: `.env` changes are only read at startup — `--reload` and the VS Code debugger keep the old value — so fully stop and restart the backend.
 
 **After Schwab login you land on `/login` instead of Settings**
-The Schwab connection itself still succeeded (check `fly logs` for `Schwab reconnected via the in-app flow`); only the app login was lost on the way back. Log in again — Settings shows the new expiry. (The app hands its login across the redirect; if this keeps happening, the app login itself may have expired — it lasts 8 hours.)
+The Schwab connection itself still succeeded (check `fly logs` for `Schwab reconnected via the in-app flow`); only the app login was lost on the way back. Log in again — Settings shows the new expiry. (The app hands its login across the redirect; if this keeps happening, the app login may have timed out — sessions end after 15 minutes without activity, and time on Schwab's page counts.)
 
 **Deploy fails: volume / mount error**
 The `data` volume doesn't exist in the machine's region: `fly volumes list`, then `fly volumes create data --size 1 --region iad`. Deploy with `--ha=false` the first time — a volume attaches to only one machine.

@@ -58,7 +58,12 @@ their own Schwab connection** (positions/transactions are per-user);
 
 ## Auth
 
-Custom HMAC-SHA256 signed tokens (`api/auth.py`), **not** JWT — 8-hour TTL,
+Custom HMAC-SHA256 signed tokens (`api/auth.py`), **not** JWT — **15-minute
+TTL, renewed while the user is active**: `AuthContext` tracks real input
+(not polling or the Analyze stream) and calls `POST /api/auth/refresh` once
+a token is 5 minutes old; after 15 idle minutes it signs out (which also
+closes the Analyze WebSocket, so an idle tab lets the Fly machine
+auto-stop). Don't make background requests count as activity.
 secret from `SECRET_KEY`, payload `u<user id>:<issued ms>`. A token is only
 valid while its user exists, is enabled, and hasn't changed password since
 it was issued (so disable/reset signs them out). Users are in SQLite
