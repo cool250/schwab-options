@@ -32,8 +32,9 @@ function getCellClass(key, val) {
  *                     `key` isn't a real field (e.g. a checkbox with no backing data) is not.
  *   defaultSortKey  — column key to sort by on first render
  *   maxHeight       — optional CSS max-height for the scroll container (e.g. "480px")
- *   paginate        — split rows into pages (default true); the controls only
- *                     appear when there's more than one page. Sorting applies to
+ *   paginate        — split rows into pages (default true). The bar (row count +
+ *                     rows-per-page) shows once a table has 10+ rows; page buttons
+ *                     only when there's more than one page. Sorting applies to
  *                     all rows before paging. Rows-per-page is remembered per browser.
  *   defaultPageSize — rows per page until the user picks another size (default 25).
  *                     A table with its own default remembers its own choice, so
@@ -141,7 +142,7 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
         </tbody>
       </table>
     </div>
-    {paginate && sorted.length > PAGE_SIZES[0] && (
+    {paginate && sorted.length >= PAGE_SIZES[0] && (
       <Pagination
         page={current}
         pageCount={pageCount}
