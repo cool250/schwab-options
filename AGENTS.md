@@ -159,6 +159,12 @@ manually inside the handler — follow that same pattern for any new WS route.
   `localStorage`, with an inline script in `index.html` to avoid a
   flash-of-wrong-theme on load. Any new color must go through a token —
   check both the light and dark blocks in `tokens.css` before shipping.
+- **Page caches must be per-session.** Any module-level cache of user data
+  must be created with `createSessionCache()` (or register a reset with
+  `registerSessionReset()`) from `utils/sessionCaches.js`; `AuthContext`
+  clears them all on login/logout. Module state outlives a sign-out on the
+  same tab, so a plain module object here once showed the previous user's
+  Schwab positions to the next user who signed in.
 - Several pages keep a plain module-level object (e.g. `strikeLabCache` in
   `StrikeLab.jsx`, `symbolStore` in `utils/symbolStore.js`) to survive
   navigating away and back within a session, without a real state library.

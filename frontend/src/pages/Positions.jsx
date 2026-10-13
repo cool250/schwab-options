@@ -4,6 +4,7 @@ import { getPositions, getFuturesPosition, getFuturesQuotes, getFuturesOptionPos
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
+import { createSessionCache } from '../utils/sessionCaches'
 
 // Position fields come back pre-formatted for display (e.g. "$1,234.56", "-2") —
 // undo that so the value can be passed to StrikeLab as a real number.
@@ -16,12 +17,12 @@ function toNumber(value) {
 // back) within the same browser session — only a full page reload clears it.
 // Positions don't change fast enough to justify refetching (and, for futures
 // options, re-paying the several-seconds DXLink quote lookup) on every visit.
-const positionsCache = {
+const positionsCache = createSessionCache(() => ({
   data: null,
   futuresData: null,
   futuresQuotes: null,
   futuresContractQuotes: null,
-}
+}))
 
 // broker_cost_basis (Schwab's own tax-lot-aware cost basis — see
 // PositionService.get_stock_position) matches trade_price in the common

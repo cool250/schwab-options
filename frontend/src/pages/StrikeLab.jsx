@@ -15,6 +15,7 @@ import { MULTIPLIER, getMultiplier } from "../utils/contractMultiplier";
 import { symbolStore } from "../utils/symbolStore";
 import { setCopilotContext, clearCopilotContext } from "../utils/copilotContext";
 import { consumePendingLegs, onLegsApplied } from "../utils/copilotProposedLegs";
+import { createSessionCache } from "../utils/sessionCaches";
 
 /** Patches a live bid/ask tick into whichever leg (call or put, on whichever
  *  strike row) carries that streamer-symbol, leaving everything else as-is. */
@@ -260,7 +261,7 @@ const fmtCount = (v) => (isNum(v) ? Math.round(v).toLocaleString() : "—");
 // Survives unmounting/remounting this page (e.g. navigating to Positions and
 // back) within the same browser session — only a full page reload, typing a
 // new symbol, or a fresh "Analyze Selected" from Positions replaces it.
-const strikeLabCache = {
+const strikeLabCache = createSessionCache(() => ({
   symbol: null,
   symbolInput: null,
   spot: null,
@@ -271,7 +272,7 @@ const strikeLabCache = {
   chain: null,
   view: null,
   expirations: null,
-};
+}));
 
 export default function StrikeLab() {
   const location = useLocation();

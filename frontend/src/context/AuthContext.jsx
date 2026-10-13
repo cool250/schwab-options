@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { getMe, refreshSession } from '../api/client'
+import { clearSessionCaches } from '../utils/sessionCaches'
 
 const AuthContext = createContext(null)
 
@@ -72,6 +73,10 @@ export function AuthProvider({ children }) {
   }, [token, user])
 
   function login(t, u = null) {
+    // A new login may be a different user: drop every page's cached data
+    // first (see utils/sessionCaches.js). Skipped for a token refresh of the
+    // same session (renewSession doesn't go through here).
+    if (t !== token) clearSessionCaches()
     sessionStorage.setItem('auth_token', t)
     sessionStorage.setItem(ISSUED_KEY, String(Date.now()))
     setToken(t)
@@ -79,6 +84,7 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
+    clearSessionCaches()
     sessionStorage.removeItem('auth_token')
     sessionStorage.removeItem(ISSUED_KEY)
     setToken(null)

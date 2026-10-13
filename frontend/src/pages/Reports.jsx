@@ -8,6 +8,7 @@ import { getAllocations, getEquityTransactions, getOptionQuotes, friendlyErrorMe
 import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
+import { createSessionCache } from '../utils/sessionCaches'
 
 const COLORS = [
   '#1a56db', '#059669', '#d97706', '#dc2626', '#7c3aed',
@@ -147,12 +148,12 @@ function isoWeekRange(dateStr) {
 // and back) within the same browser session — only a full page reload or an
 // explicit new Submit clears it, so a plain revisit shows the last-submitted
 // report as-is instead of blanking out and forcing a resubmit.
-const reportsCache = {
+const reportsCache = createSessionCache(() => ({
   period: 'month', year: currentYear(), month: currentMonth(), realizedOnly: true,
   submitted: false, symbolData: [], weeklyData: [], dailyData: [], tableData: [], total: 0,
   equitySymbolData: [], equityTableData: [], equityTotal: 0, label: '',
   openOptionLegs: [], optionQuotes: {},
-}
+}))
 
 export default function Reports() {
   const navigate = useNavigate()

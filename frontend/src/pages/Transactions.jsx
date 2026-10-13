@@ -6,6 +6,7 @@ import { formatDate } from '../utils/dateFormat'
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
+import { createSessionCache } from '../utils/sessionCaches'
 
 // A `render` column formats the display only — DataTable still sorts by the
 // raw row[key] (ISO "YYYY-MM-DD", which sorts chronologically), so this
@@ -106,11 +107,11 @@ function DownloadCsvButton({ onClick }) {
 // explicit new search clears it. Without this, switching tabs away and back
 // silently re-ran the last search and threw away whatever the user was
 // looking at.
-const transactionsCache = {
+const transactionsCache = createSessionCache(() => ({
   tab: null,
   options: null, // { ticker, contractType, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes }
   equity: null, // { ticker, assetType, realizedOnly, startDate, endDate, transactions }
-}
+}))
 
 export default function Transactions() {
   const [searchParams] = useSearchParams()
