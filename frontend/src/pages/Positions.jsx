@@ -4,7 +4,6 @@ import { getPositions, getFuturesPosition, getFuturesQuotes, getFuturesOptionPos
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
-import { createSessionCache } from '../utils/sessionCaches'
 
 // Position fields come back pre-formatted for display (e.g. "$1,234.56", "-2") —
 // undo that so the value can be passed to StrikeLab as a real number.
@@ -17,12 +16,7 @@ function toNumber(value) {
 // back) within the same browser session — only a full page reload clears it.
 // Positions don't change fast enough to justify refetching (and, for futures
 // options, re-paying the several-seconds DXLink quote lookup) on every visit.
-const positionsCache = createSessionCache(() => ({
-  data: null,
-  futuresData: null,
-  futuresQuotes: null,
-  futuresContractQuotes: null,
-}))
+
 
 // broker_cost_basis (Schwab's own tax-lot-aware cost basis — see
 // PositionService.get_stock_position) matches trade_price in the common
@@ -117,28 +111,30 @@ function futuresSymbolColumn(optionType) {
 export default function Positions() {
   const navigate = useNavigate()
   const [tab, setTab] = useState('equity') // 'equity' | 'futures'
-  const [data, setData] = useState(positionsCache.data)
-  const [loading, setLoading] = useState(!positionsCache.data)
+  // Account data is loaded fresh on every visit — never cached in memory,
+  // so it can't carry over to another user signing in on the same tab.
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   // Futures data is fetched lazily — the futures-option lookup goes through
   // Tastytrade's DXLink feed per open expiration (Schwab's quote endpoint
   // rejects futures-option symbols outright) and can take several seconds,
   // so it's only worth paying for once the user actually opens this tab.
-  const [futuresData, setFuturesData] = useState(positionsCache.futuresData)
+  const [futuresData, setFuturesData] = useState(null)
   const [futuresLoading, setFuturesLoading] = useState(false)
   const [futuresError, setFuturesError] = useState(null)
 
   // current_price for futures options is fetched separately, after the
   // position list itself, so the table renders with everything except price
   // right away instead of blocking on the slow DXLink lookup. Keyed by symbol.
-  const [futuresQuotes, setFuturesQuotes] = useState(positionsCache.futuresQuotes ?? {})
+  const [futuresQuotes, setFuturesQuotes] = useState({})
   const [futuresQuotesLoading, setFuturesQuotesLoading] = useState(false)
 
   // Same idea, for the outright Futures table — keyed by root symbol (e.g.
   // "ES"), not a contract symbol, so it's a separate state/cache from
   // futuresQuotes above rather than sharing one dict.
-  const [futuresContractQuotes, setFuturesContractQuotes] = useState(positionsCache.futuresContractQuotes ?? {})
+  const [futuresContractQuotes, setFuturesContractQuotes] = useState({})
   const [futuresContractQuotesLoading, setFuturesContractQuotesLoading] = useState(false)
 
   // Options picked (across either tab) to send to StrikeLab — keyed by the
@@ -147,12 +143,8 @@ export default function Positions() {
   const [analyzeError, setAnalyzeError] = useState(null)
 
   useEffect(() => {
-    if (positionsCache.data) return
     getPositions()
-      .then((d) => {
-        positionsCache.data = d
-        setData(d)
-      })
+      .then((d) => setData(d))
       .catch((err) => {
         setError(friendlyErrorMessage(err, 'Failed to load positions. Make sure the API server is running.'))
       })
@@ -170,9 +162,7 @@ export default function Positions() {
     setFuturesError(null)
     Promise.all([getFuturesPosition(), getFuturesOptionPosition()])
       .then(([futures, futuresOptions]) => {
-        const combined = { futures, ...futuresOptions }
-        positionsCache.futuresData = combined
-        setFuturesData(combined)
+        setFuturesData({ futures, ...futuresOptions })
       })
       .catch((err) => {
         setFuturesError(friendlyErrorMessage(err, 'Failed to load futures positions. Make sure the API server is running.'))
@@ -181,13 +171,10 @@ export default function Positions() {
   }, [tab, futuresData])
 
   useEffect(() => {
-    if (!futuresData || positionsCache.futuresQuotes) return
+    if (!futuresData) return
     setFuturesQuotesLoading(true)
     getFuturesOptionQuotes()
-      .then((quotes) => {
-        positionsCache.futuresQuotes = quotes
-        setFuturesQuotes(quotes)
-      })
+      .then((quotes) => setFuturesQuotes(quotes))
       // Prices are a nicety layered on top of the position list — a failure
       // here shouldn't surface an error banner over an otherwise-fine table.
       .catch(() => {})
@@ -195,13 +182,10 @@ export default function Positions() {
   }, [futuresData])
 
   useEffect(() => {
-    if (!futuresData || positionsCache.futuresContractQuotes) return
+    if (!futuresData) return
     setFuturesContractQuotesLoading(true)
     getFuturesQuotes()
-      .then((quotes) => {
-        positionsCache.futuresContractQuotes = quotes
-        setFuturesContractQuotes(quotes)
-      })
+      .then((quotes) => setFuturesContractQuotes(quotes))
       .catch(() => {})
       .finally(() => setFuturesContractQuotesLoading(false))
   }, [futuresData])

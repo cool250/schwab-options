@@ -159,7 +159,8 @@ manually inside the handler — follow that same pattern for any new WS route.
   `localStorage`, with an inline script in `index.html` to avoid a
   flash-of-wrong-theme on load. Any new color must go through a token —
   check both the light and dark blocks in `tokens.css` before shipping.
-- **Page caches must be per-session.** Any module-level cache of user data
+- **Don't cache brokerage account data in memory.** Positions, Transactions
+  and Reports load fresh on every visit. Any other module-level page cache
   must be created with `createSessionCache()` (or register a reset with
   `registerSessionReset()`) from `utils/sessionCaches.js`; `AuthContext`
   clears them all on login/logout. Module state outlives a sign-out on the

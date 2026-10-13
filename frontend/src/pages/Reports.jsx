@@ -8,7 +8,6 @@ import { getAllocations, getEquityTransactions, getOptionQuotes, friendlyErrorMe
 import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
-import { createSessionCache } from '../utils/sessionCaches'
 
 const COLORS = [
   '#1a56db', '#059669', '#d97706', '#dc2626', '#7c3aed',
@@ -144,53 +143,42 @@ function isoWeekRange(dateStr) {
   return { week, start: fmt(start), end: fmt(end) }
 }
 
-// Survives unmounting/remounting this page (e.g. navigating to Transactions
-// and back) within the same browser session — only a full page reload or an
-// explicit new Submit clears it, so a plain revisit shows the last-submitted
-// report as-is instead of blanking out and forcing a resubmit.
-const reportsCache = createSessionCache(() => ({
+// Starting state for each visit — reports are not cached between visits, so
+// account data is always loaded fresh for whoever is signed in.
+const reportDefaults = () => ({
   period: 'month', year: currentYear(), month: currentMonth(), realizedOnly: true,
   submitted: false, symbolData: [], weeklyData: [], dailyData: [], tableData: [], total: 0,
   equitySymbolData: [], equityTableData: [], equityTotal: 0, label: '',
   openOptionLegs: [], optionQuotes: {},
-}))
+})
 
 export default function Reports() {
+  const [defaults] = useState(reportDefaults)
   const navigate = useNavigate()
-  const [period, setPeriod] = useState(reportsCache.period) // 'month' | 'ytd'
-  const [year, setYear] = useState(reportsCache.year)
-  const [month, setMonth] = useState(reportsCache.month)
-  const [realizedOnly, setRealizedOnly] = useState(reportsCache.realizedOnly)
+  const [period, setPeriod] = useState(defaults.period) // 'month' | 'ytd'
+  const [year, setYear] = useState(defaults.year)
+  const [month, setMonth] = useState(defaults.month)
+  const [realizedOnly, setRealizedOnly] = useState(defaults.realizedOnly)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [submitted, setSubmitted] = useState(reportsCache.submitted)
-  const [symbolData, setSymbolData] = useState(reportsCache.symbolData)
-  const [weeklyData, setWeeklyData] = useState(reportsCache.weeklyData)
-  const [dailyData, setDailyData] = useState(reportsCache.dailyData)
-  const [tableData, setTableData] = useState(reportsCache.tableData)
-  const [total, setTotal] = useState(reportsCache.total)
-  const [equitySymbolData, setEquitySymbolData] = useState(reportsCache.equitySymbolData)
-  const [equityTableData, setEquityTableData] = useState(reportsCache.equityTableData)
-  const [equityTotal, setEquityTotal] = useState(reportsCache.equityTotal)
-  const [label, setLabel] = useState(reportsCache.label)
+  const [submitted, setSubmitted] = useState(defaults.submitted)
+  const [symbolData, setSymbolData] = useState(defaults.symbolData)
+  const [weeklyData, setWeeklyData] = useState(defaults.weeklyData)
+  const [dailyData, setDailyData] = useState(defaults.dailyData)
+  const [tableData, setTableData] = useState(defaults.tableData)
+  const [total, setTotal] = useState(defaults.total)
+  const [equitySymbolData, setEquitySymbolData] = useState(defaults.equitySymbolData)
+  const [equityTableData, setEquityTableData] = useState(defaults.equityTableData)
+  const [equityTotal, setEquityTotal] = useState(defaults.equityTotal)
+  const [label, setLabel] = useState(defaults.label)
 
   // Still-open option legs from the last submit, and their live quotes —
   // fetched separately (Tastytrade DXLink, slow) so the chart itself renders
   // with the realized total right away instead of blocking on it. See
   // totalUnrealizedGain below for how these combine.
-  const [openOptionLegs, setOpenOptionLegs] = useState(reportsCache.openOptionLegs)
-  const [optionQuotes, setOptionQuotes] = useState(reportsCache.optionQuotes)
+  const [openOptionLegs, setOpenOptionLegs] = useState(defaults.openOptionLegs)
+  const [optionQuotes, setOptionQuotes] = useState(defaults.optionQuotes)
   const [optionQuotesLoading, setOptionQuotesLoading] = useState(false)
-
-  useEffect(() => {
-    Object.assign(reportsCache, {
-      period, year, month, realizedOnly, submitted, symbolData, weeklyData, dailyData,
-      tableData, total, equitySymbolData, equityTableData, equityTotal, label,
-      openOptionLegs, optionQuotes,
-    })
-  }, [period, year, month, realizedOnly, submitted, symbolData, weeklyData, dailyData,
-      tableData, total, equitySymbolData, equityTableData, equityTotal, label,
-      openOptionLegs, optionQuotes])
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear() - i)
 

@@ -6,7 +6,6 @@ import { formatDate } from '../utils/dateFormat'
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
-import { createSessionCache } from '../utils/sessionCaches'
 
 // A `render` column formats the display only — DataTable still sorts by the
 // raw row[key] (ISO "YYYY-MM-DD", which sorts chronologically), so this
@@ -107,11 +106,7 @@ function DownloadCsvButton({ onClick }) {
 // explicit new search clears it. Without this, switching tabs away and back
 // silently re-ran the last search and threw away whatever the user was
 // looking at.
-const transactionsCache = createSessionCache(() => ({
-  tab: null,
-  options: null, // { ticker, contractType, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes }
-  equity: null, // { ticker, assetType, realizedOnly, startDate, endDate, transactions }
-}))
+
 
 export default function Transactions() {
   const [searchParams] = useSearchParams()
@@ -122,11 +117,13 @@ export default function Transactions() {
   // An incoming link with no explicit ?tab= (the options-chart click-through)
   // means "options" specifically, not whatever tab happened to be cached —
   // only a plain revisit (no link params at all) should restore the cache.
-  const initialTab = urlTab ?? (fromLink ? 'options' : transactionsCache.tab ?? 'options')
+  const initialTab = urlTab ?? 'options'
   const [tab, setTab] = useState(initialTab) // 'options' | 'equity'
 
-  const cachedOptions = !fromLink ? transactionsCache.options : null
-  const cachedEquity = !fromLink ? transactionsCache.equity : null
+  // Searches and results are not cached between visits: account data is
+  // always loaded fresh for whoever is signed in.
+  const cachedOptions = null
+  const cachedEquity = null
 
   // ---- Option transactions ----
   const [ticker, setTicker] = useState(
@@ -152,14 +149,6 @@ export default function Transactions() {
   const [transactions, setTransactions] = useState(cachedOptions?.transactions ?? null)
   const [optionQuotes, setOptionQuotes] = useState(cachedOptions?.optionQuotes ?? {})
   const [optionQuotesLoading, setOptionQuotesLoading] = useState(false)
-
-  useEffect(() => {
-    transactionsCache.tab = tab
-  }, [tab])
-
-  useEffect(() => {
-    transactionsCache.options = { ticker, contractType, ignoreFutures, ignoreGrouping, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes }
-  }, [ticker, contractType, ignoreFutures, ignoreGrouping, realizedOnly, unrealizedOnly, startDate, endDate, transactions, optionQuotes])
 
   async function runSearch(tickerVal, startVal, endVal, contractTypeVal, ignoreFuturesVal, ignoreGroupingVal, realizedVal, unrealizedVal) {
     setLoading(true)
@@ -319,13 +308,6 @@ export default function Transactions() {
   const [equityLoading, setEquityLoading] = useState(false)
   const [equityError, setEquityError] = useState(null)
   const [equityTransactions, setEquityTransactions] = useState(cachedEquity?.transactions ?? null)
-
-  useEffect(() => {
-    transactionsCache.equity = {
-      ticker: equityTicker, assetType, realizedOnly: equityRealizedOnly,
-      startDate: equityStartDate, endDate: equityEndDate, transactions: equityTransactions,
-    }
-  }, [equityTicker, assetType, equityRealizedOnly, equityStartDate, equityEndDate, equityTransactions])
 
   async function runEquitySearch(tickerVal, startVal, endVal, assetTypeVal, realizedVal) {
     setEquityLoading(true)
@@ -508,7 +490,7 @@ export default function Transactions() {
                       onClick={() => downloadCsv(`option-transactions_${startDate}_to_${endDate}.csv`, optionColumns, optionRows)}
                     />
                   </div>
-                  <DataTable data={optionRows} columns={optionColumns} defaultSortKey="close_date" defaultSortDir="desc" />
+                  <DataTable data={optionRows} columns={optionColumns} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
                 </div>
               )}
             </>
@@ -582,7 +564,7 @@ export default function Transactions() {
                       onClick={() => downloadCsv(`equity-transactions_${equityStartDate}_to_${equityEndDate}.csv`, EQUITY_COLUMNS, equityRows)}
                     />
                   </div>
-                  <DataTable data={equityRows} columns={EQUITY_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" />
+                  <DataTable data={equityRows} columns={EQUITY_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
                 </div>
               )}
             </>

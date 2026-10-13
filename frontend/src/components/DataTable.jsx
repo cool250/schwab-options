@@ -35,11 +35,15 @@ function getCellClass(key, val) {
  *   paginate        — split rows into pages (default true); the controls only
  *                     appear when there's more than one page. Sorting applies to
  *                     all rows before paging. Rows-per-page is remembered per browser.
+ *   defaultPageSize — rows per page until the user picks another size (default 25).
+ *                     A table with its own default remembers its own choice, so
+ *                     picking a size elsewhere doesn't override it.
  */
-export default function DataTable({ data, columns: columnsProp, defaultSortKey, defaultSortDir = 'asc', maxHeight, paginate = true }) {
+export default function DataTable({ data, columns: columnsProp, defaultSortKey, defaultSortDir = 'asc', maxHeight, paginate = true, defaultPageSize = DEFAULT_PAGE_SIZE }) {
+  const pageSizeKey = defaultPageSize === DEFAULT_PAGE_SIZE ? PAGE_SIZE_KEY : `${PAGE_SIZE_KEY}-${defaultPageSize}`
   const [sortCol, setSortCol] = useState(defaultSortKey ?? null)
   const [sortDir, setSortDir] = useState(defaultSortDir)
-  const [pageSize, setPageSize] = useState(loadPageSize)
+  const [pageSize, setPageSize] = useState(() => loadPageSize(pageSizeKey, defaultPageSize))
   const [page, setPage] = useState(1)
   const rowCount = data?.length ?? 0
 
@@ -86,7 +90,7 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
 
   function changePageSize(n) {
     setPageSize(n)
-    try { localStorage.setItem(PAGE_SIZE_KEY, String(n)) } catch {}
+    try { localStorage.setItem(pageSizeKey, String(n)) } catch {}
   }
 
   return (
@@ -158,13 +162,14 @@ const DEFAULT_PAGE_SIZE = 25
 const PAGE_SIZE_KEY = 'table-page-size'
 
 // 0 means "All".
-function loadPageSize() {
+function loadPageSize(key, fallback) {
   try {
-    const n = Number(localStorage.getItem(PAGE_SIZE_KEY))
-    if (n === 0 && localStorage.getItem(PAGE_SIZE_KEY) !== null) return 0
-    return PAGE_SIZES.includes(n) ? n : DEFAULT_PAGE_SIZE
+    const stored = localStorage.getItem(key)
+    if (stored === null) return fallback
+    const n = Number(stored)
+    return n === 0 || PAGE_SIZES.includes(n) ? n : fallback
   } catch {
-    return DEFAULT_PAGE_SIZE
+    return fallback
   }
 }
 
