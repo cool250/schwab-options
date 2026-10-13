@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   PortfolioIcon, MarketIcon, PositionsIcon, ReportsIcon, TransactionsIcon,
-  AnalyzeIcon, ChartsIcon, ScreenerIcon, SettingsIcon, SignOutIcon,
+  AnalyzeIcon, ChartsIcon, ScreenerIcon, SettingsIcon, SignOutIcon, CollapseIcon,
 } from './NavIcons'
 
 // Menu structure: each group is a collapsible parent with its pages beneath.
@@ -34,6 +34,21 @@ const NAV_GROUPS = [
 // read/write is guarded (storage can be unavailable, e.g. private mode).
 const COLLAPSED_STORAGE_KEY = 'nav-collapsed-groups'
 
+// Desktop sidebar collapsed to an icon-only rail — also per-browser.
+const RAIL_STORAGE_KEY = 'nav-sidebar-collapsed'
+
+function loadRail() {
+  let rail = false
+  try {
+    rail = localStorage.getItem(RAIL_STORAGE_KEY) === '1'
+  } catch {}
+  // Apply before the first paint (this runs in useState's initializer), so
+  // a page loaded with the menu collapsed doesn't visibly slide from the
+  // full width to the rail.
+  document.documentElement.classList.toggle('sidebar-collapsed', rail)
+  return rail
+}
+
 function loadCollapsed() {
   try {
     return new Set(JSON.parse(localStorage.getItem(COLLAPSED_STORAGE_KEY) || '[]'))
@@ -55,6 +70,16 @@ export default function Navbar() {
   const [open, setOpen] = useState(false)
   const close = () => setOpen(false)
   const [collapsed, setCollapsed] = useState(loadCollapsed)
+  const [rail, setRail] = useState(loadRail)
+
+  // The rail width lives in --sidebar-width (navbar.css), which also sets
+  // .app-shell's left padding — so the page reflows to the narrower menu.
+  useEffect(() => {
+    try {
+      localStorage.setItem(RAIL_STORAGE_KEY, rail ? '1' : '0')
+    } catch {}
+    document.documentElement.classList.toggle('sidebar-collapsed', rail)
+  }, [rail])
 
   useEffect(() => {
     try {
@@ -72,14 +97,25 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="navbar">
-      <span className="navbar-brand">
+    <nav className={`navbar${rail ? ' navbar--rail' : ''}`}>
+      <div className="navbar-brand">
         {/* Always the light-text variant — the navbar is a dark --nav-bg in
             both themes (see tokens.css/navbar.css), matching the Copilot
             panel's titlebar, so the dark-navy "Nu" in the other variant
             would have poor contrast here either way. */}
         <img src="/nutrade_icon.svg" alt="NuTrade" className="navbar-logo" />
-      </span>
+        {/* Desktop-only: collapse the sidebar to an icon rail and back. */}
+        <button
+          type="button"
+          className="navbar-rail-toggle"
+          onClick={() => setRail((r) => !r)}
+          aria-label={rail ? 'Expand menu' : 'Collapse menu'}
+          aria-pressed={rail}
+          title={rail ? 'Expand menu' : 'Collapse menu'}
+        >
+          <CollapseIcon />
+        </button>
+      </div>
 
       <button
         className="navbar-hamburger"
@@ -95,7 +131,9 @@ export default function Navbar() {
           // A group holding the current page always shows it, even if the
           // user collapsed that group earlier — the active page never hides.
           const hasActive = group.links.some((l) => pathname.startsWith(l.to))
-          const expanded = hasActive || !collapsed.has(group.id)
+          // In the icon rail there are no group headers to expand, so every
+          // page icon is always shown.
+          const expanded = rail || hasActive || !collapsed.has(group.id)
           const listId = `nav-group-${group.id}`
           return (
             <div key={group.id} className="nav-group">
@@ -110,7 +148,7 @@ export default function Navbar() {
               >
                 <span className="nav-group-label">
                   <group.Icon />
-                  {group.label}
+                  <span className="nav-label">{group.label}</span>
                 </span>
                 <span className={`nav-group-chevron${expanded ? ' expanded' : ''}`} aria-hidden="true">›</span>
               </button>
@@ -122,9 +160,11 @@ export default function Navbar() {
                       to={link.to}
                       className={({ isActive }) => `nav-link nav-sublink${isActive ? ' active' : ''}`}
                       onClick={close}
+                      title={rail ? link.label : undefined}
+                      aria-label={link.label}
                     >
                       <link.Icon />
-                      {link.label}
+                      <span className="nav-label">{link.label}</span>
                     </NavLink>
                   ))}
                 </div>
@@ -146,20 +186,28 @@ export default function Navbar() {
         </a>
       </div>
 
-      {/* Settings (incl. light/dark theme) + Sign out, pinned to the bottom
-          of the desktop sidebar. On phones these live inside the hamburger
-          dropdown instead (the --mobile copies above). */}
+      {/* Settings (incl. light/dark theme) and Sign out, pinned to the
+          bottom of the desktop sidebar. On phones these live inside the
+          hamburger dropdown instead (the --mobile copies above). */}
       <NavLink
         to="/settings"
         className={({ isActive }) => `nav-link navbar-settings--desktop${isActive ? ' active' : ''}`}
+        title={rail ? 'Settings' : undefined}
+        aria-label="Settings"
       >
         <SettingsIcon />
-        Settings
+        <span className="nav-label">Settings</span>
       </NavLink>
 
-      <a href="#" onClick={(e) => { e.preventDefault(); signOut() }} className="nav-link navbar-logout navbar-logout--desktop">
+      <a
+        href="#"
+        onClick={(e) => { e.preventDefault(); signOut() }}
+        className="nav-link navbar-logout navbar-logout--desktop"
+        title={rail ? 'Sign out' : undefined}
+        aria-label="Sign out"
+      >
         <SignOutIcon />
-        Sign out
+        <span className="nav-label">Sign out</span>
       </a>
     </nav>
   )

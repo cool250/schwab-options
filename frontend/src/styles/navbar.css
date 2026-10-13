@@ -6,6 +6,13 @@
 :root {
   --sidebar-width: 200px;
 }
+/* Collapsed to an icon rail (Navbar.jsx toggles this class on <html>). */
+:root.sidebar-collapsed {
+  --sidebar-width: 64px;
+}
+/* Collapse toggle (beside the logo) is desktop-only — shown in the sidebar
+   block below. */
+.navbar-rail-toggle { display: none; }
 /* Solid --nav-bg (dark slate / near-black, see tokens.css) + white text,
    shared with the Copilot panel's titlebar (copilot.css's
    .copilot-panel-header) — the two are meant to read as the same "frame"
@@ -191,7 +198,7 @@
 /* ─── Desktop: sidebar ───────────────────────────────── */
 @media (min-width: 769px) {
   /* Room for the fixed sidebar (App.jsx wraps the navbar + page in this). */
-  .app-shell { padding-left: var(--sidebar-width); }
+  .app-shell { padding-left: var(--sidebar-width); transition: padding-left 0.2s ease; }
 
   .navbar {
     position: fixed;
@@ -207,6 +214,8 @@
     overflow-y: auto;
     border-right: 1px solid var(--nav-border);
     box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+    transition: width 0.2s ease;
+    overflow-x: hidden;
   }
   /* Logo strip: 16px of air above the logo so it doesn't sit tight against
      the top of the window, and 24px below it before the first menu group. */
@@ -217,4 +226,43 @@
 
   /* Settings + Sign out pinned to the bottom of the sidebar. */
   .navbar-settings--desktop { margin-top: auto; }
+
+  /* Logo row: logo on the left, collapse toggle on the right. */
+  .navbar-brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .navbar-rail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+  }
+  .navbar-rail-toggle:hover { color: var(--text-inverse); background: rgba(255, 255, 255, 0.08); }
+  .navbar-rail-toggle:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4); }
+  .navbar-rail-toggle .nav-icon { transition: transform 0.2s ease; }
+  .nav-label { white-space: nowrap; }
+
+  /* ── Collapsed: icon rail ── */
+  .navbar--rail { padding: 0 8px 16px; }
+  .navbar--rail .nav-label,
+  .navbar--rail .nav-group-toggle { display: none; }
+  /* Groups separated by a hairline instead of their headers. */
+  .navbar--rail .nav-group + .nav-group {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .navbar--rail .nav-link,
+  .navbar--rail .nav-link.nav-sublink { justify-content: center; padding: 10px 0; }
+  .navbar--rail .navbar-rail-toggle .nav-icon { transform: rotate(180deg); }
+  /* Logo: show just its square mark (the left end of the wordmark image). */
+  /* Rail too narrow for logo + toggle side by side: stack them. */
+  .navbar--rail .navbar-brand { flex-direction: column; justify-content: center; gap: 10px; padding: 16px 0 0; }
+  .navbar--rail .navbar-logo { width: 34px; height: 34px; object-fit: cover; object-position: left center; }
 }

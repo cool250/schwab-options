@@ -101,3 +101,11 @@ export const ShieldIcon = () => (
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
   </Icon>
 )
+
+// Sidebar collapse/expand toggle (rotated 180° when the sidebar is collapsed).
+export const CollapseIcon = () => (
+  <Icon>
+    <polyline points="11 17 6 12 11 7" />
+    <polyline points="18 17 13 12 18 7" />
+  </Icon>
+)
