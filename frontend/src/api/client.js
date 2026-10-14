@@ -84,6 +84,21 @@ export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyn
   return request(`/market/options/screener?${p}`)
 }
 
+// Strategy Builder (Analyze page overlay) — see service/strategy_builder.py.
+export function getStrategyTemplates() {
+  return request('/market/strategies')
+}
+
+// params: { [legKey]: { mode, value } }; target: per-share min credit / max
+// debit, or null for none.
+export function buildStrategy({ symbol, dte, expirationDate, strategy, params, target }) {
+  return request('/market/strategy/build', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol, dte, expirationDate, strategy, params, target }),
+  })
+}
+
 // Current user / session renewal / own password — see api/auth.py.
 export function refreshSession() {
   return request('/auth/refresh', { method: 'POST' })

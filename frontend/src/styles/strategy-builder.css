@@ -1,0 +1,175 @@
+/* ─── Strategy Builder overlay (Analyze page) ───────────────
+   components/StrategyBuilderOverlay.jsx. Backdrop/centering follows the
+   landing page's login overlay; everything colored goes through tokens. */
+
+.sb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  background: var(--overlay-backdrop);
+  backdrop-filter: blur(3px);
+  overflow-y: auto;
+}
+
+.sb-dialog {
+  width: 100%;
+  max-width: 880px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 24px 24px;
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.sb-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sb-title { margin: 0 0 2px; font-size: 1.15rem; font-weight: 700; }
+.sb-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.sb-close:hover { color: var(--text); background: var(--bg); }
+.sb-close:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* .tab-row is flex: 1 for its usual place in a row — not here, inside a column. */
+.sb-direction { flex: none; }
+
+/* ─── Strategy cards ─── */
+.sb-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px;
+}
+.sb-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.sb-card:hover { border-color: var(--border-strong); }
+.sb-card.active { border-color: var(--primary); background: var(--primary-light); }
+.sb-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sb-card-name { font-size: 0.85rem; font-weight: 600; }
+.sb-sketch { width: 100%; height: 40px; overflow: visible; }
+.sb-sketch-zero { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.sb-sketch-line { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+
+/* ─── Parameter form ─── */
+.sb-form { display: flex; flex-direction: column; gap: 16px; }
+.sb-description { margin: 0; color: var(--text-muted); font-size: 0.9rem; }
+.sb-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.sb-grid .form-group label { display: flex; align-items: center; gap: 6px; }
+
+.sb-legs-form { display: flex; flex-direction: column; gap: 4px; }
+.sb-leg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+.sb-leg-label { font-size: 0.9rem; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sb-leg-label .text-muted { font-weight: 400; }
+.sb-leg-value { font-size: 0.85rem; }
+
+.sb-side {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+.sb-side.sell { color: var(--error); background: var(--error-bg); }
+.sb-side.buy { color: var(--success); background: var(--success-bg); }
+.sb-hint { font-size: 0.8rem; }
+
+/* ─── Result ─── */
+.sb-result { display: flex; flex-direction: column; gap: 14px; }
+.sb-result .alert { margin: 0; }
+.sb-metrics { flex-wrap: wrap; row-gap: 12px; }
+.sb-metrics .metric-label { display: flex; align-items: center; gap: 6px; }
+.sb-table-wrap { overflow-x: auto; }
+.sb-table td, .sb-table th { white-space: nowrap; }
+
+.sb-alternatives { display: flex; flex-direction: column; gap: 8px; }
+.sb-alt-list { display: flex; flex-direction: column; gap: 6px; }
+.sb-alt {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+.sb-alt:hover { border-color: var(--border-strong); }
+.sb-alt.active { border-color: var(--primary); background: var(--primary-light); }
+.sb-alt-strikes { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 0; }
+.sb-alt .positive { color: var(--success); }
+.sb-alt .negative { color: var(--error); }
+.sb-alt-tag {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* ─── Analyze page: entry button + applied-strategy badge ─── */
+.strategy-builder-btn { padding: 7px 14px; white-space: nowrap; }
+.strategy-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  vertical-align: middle;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+@media (max-width: 640px) {
+  .sb-overlay { padding: 0; }
+  .sb-dialog { min-height: 100%; border-radius: 0; border: none; padding: 16px; }
+  .sb-grid { grid-template-columns: 1fr; }
+  .sb-leg-row { grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .sb-leg-label { grid-column: 1 / -1; }
+  .sb-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

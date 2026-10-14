@@ -11,6 +11,7 @@ import pytz
 from broker.schwab.exceptions import BrokerAuthError
 from broker.tastytrade import TastytradeAPIError, TastytradeClient
 from service.option_chain_providers import get_option_chain_provider, otm_pct
+from service import strategy_builder
 from service.screener_strategies import (
     LONG_STRATEGIES,
     MULTI_LEG_STRATEGIES,
@@ -228,6 +229,53 @@ class MarketService:
             dict | None: Normalized chain, or None if unavailable.
         """
         return self.option_chain_provider.get_option_chain(symbol, dte, strike_count)
+
+    def get_strategy_templates(self) -> list[dict]:
+        """Strategy Builder templates (service/strategy_builder.py) — the one
+        definition the Analyze page's builder form is generated from."""
+        return strategy_builder.list_templates()
+
+    def build_strategy(
+        self,
+        symbol: str,
+        dte: int,
+        strategy: str,
+        params: dict,
+        target: Optional[float] = None,
+        expiration_date: Optional[str] = None,
+    ) -> Optional[dict]:
+        """
+        Place `strategy`'s legs on the live chain for the expiration `dte`
+        days out, priced at mid — see strategy_builder.build for the solver,
+        `params` and `target`. Backs the Analyze page's Strategy Builder.
+
+        `expiration_date` is what the caller selected; the chain provider
+        resolves `dte` to the closest listed expiration, and a mismatch is
+        reported in "reasons" rather than silently building on another date.
+
+        Returns None if the symbol has no chain. Raises
+        strategy_builder.StrategyParamError (-> 422) for bad parameters.
+        """
+        try:
+            chain = self.option_chain_provider.get_option_chain(symbol, dte, strategy_builder.STRIKE_COUNT)
+        except TastytradeAPIError as e:
+            if e.status_code == 404:  # unknown symbol: "no chain", not a system error
+                return None
+            raise
+        if chain is None:
+            return None
+        result = strategy_builder.build(strategy, params, chain, target)
+        if expiration_date and chain.get("expirationDate") and chain["expirationDate"] != expiration_date:
+            result["reasons"].insert(0, f'Built on {chain["expirationDate"]} — the closest listed expiration to {expiration_date}')
+        return {
+            "symbol": symbol,
+            "strategy": strategy,
+            "spot": chain["spot"],
+            "iv": chain.get("iv"),
+            "dte": chain.get("dte"),
+            "expirationDate": chain.get("expirationDate"),
+            **result,
+        }
 
     def screen_options(
         self,

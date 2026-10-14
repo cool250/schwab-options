@@ -28,6 +28,8 @@ expiration, divided by capital.
 
 from typing import Callable, Optional
 
+from service.strategy_math import net_premium, payoff, payoff_profile
+
 # Widest call spread considered for a jade lizard, in strike steps above the
 # short call. Wings are typically narrow (the credit has to cover the
 # width), and capping this keeps the search at puts x calls x 5 per
@@ -51,15 +53,6 @@ STRATEGY_OPTION_TYPES = {
 }
 
 
-def _intrinsic(option_type: str, strike: float, price: float) -> float:
-    return max(strike - price, 0.0) if option_type == "PUT" else max(price - strike, 0.0)
-
-
-def _payoff(legs: list[dict], credit: float, price: float) -> float:
-    """Per-share P&L at expiration with the underlying at `price`."""
-    return credit + sum(leg["qty"] * _intrinsic(leg["type"], leg["strike"], price) for leg in legs)
-
-
 def _leg(contract: dict, qty: int) -> dict:
     """qty is signed: positive = bought, negative = sold."""
     return {
@@ -75,26 +68,20 @@ def _leg(contract: dict, qty: int) -> dict:
 
 
 def _position_row(strategy: str, underlying: str, spot: float, legs: list[dict]) -> Optional[dict]:
-    credit = sum(-leg["qty"] * leg["price"] for leg in legs)
-    capital = -_payoff(legs, credit, 0.0)
+    credit = net_premium(legs)
+    capital = -payoff(legs, credit, 0.0)
     if capital <= 0:
         # No downside loss even at zero — only possible for a degenerate
         # strike combination; nothing meaningful to rank it against.
         return None
 
-    # Payoff is piecewise linear with kinks at the strikes, so its max and
-    # its zero crossings are all found by checking those kinks plus the two
-    # ends (0, and well past the highest strike).
-    strikes = sorted({leg["strike"] for leg in legs})
-    points = [0.0, *strikes, strikes[-1] * 2]
-    values = [_payoff(legs, credit, p) for p in points]
-    breakevens = []
-    for (p1, v1), (p2, v2) in zip(zip(points, values), zip(points[1:], values[1:])):
-        if (v1 < 0 <= v2 or v1 >= 0 > v2) and v1 != v2:
-            breakevens.append(p1 + (p2 - p1) * (-v1) / (v2 - v1))
+    # Both screener strategies carry no net short calls, so max profit is
+    # always bounded (see strategy_math.payoff_profile).
+    profile = payoff_profile(legs, credit)
+    breakevens = profile["breakevens"]
 
     dte = legs[0]["dte"]
-    roi = _payoff(legs, credit, spot) / capital
+    roi = payoff(legs, credit, spot) / capital
     short_deltas = [abs(leg["delta"]) for leg in legs if leg["qty"] < 0 and leg["delta"] is not None]
     return {
         # Unique per combination — used as the row's selection key.
@@ -106,7 +93,7 @@ def _position_row(strategy: str, underlying: str, spot: float, legs: list[dict])
         "dte": dte,
         "legs": [{k: v for k, v in leg.items() if k not in ("dte", "expirationDate")} for leg in legs],
         "credit": credit,
-        "maxProfit": max(values),
+        "maxProfit": profile["maxProfit"],
         "capital": capital,
         "breakevens": breakevens,
         "lowerBreakeven": breakevens[0] if breakevens else None,

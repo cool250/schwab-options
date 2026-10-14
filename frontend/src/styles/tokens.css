@@ -60,6 +60,9 @@
   --warning:       #b45309;
   --warning-bg:    #fffbeb;
 
+  /* Modal backdrop (Strategy Builder overlay) */
+  --overlay-backdrop: rgba(15, 23, 42, 0.55);
+
   /* Shape */
   --radius-sm: 6px;
   --radius:    10px;
@@ -123,6 +126,8 @@
   --error-border:  rgba(248, 113, 113, 0.35);
   --warning:       #fbbf24;
   --warning-bg:    rgba(251, 191, 36, 0.12);
+
+  --overlay-backdrop: rgba(0, 0, 0, 0.65);
 
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25);

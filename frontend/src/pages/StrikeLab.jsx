@@ -16,6 +16,7 @@ import { symbolStore } from "../utils/symbolStore";
 import { setCopilotContext, clearCopilotContext } from "../utils/copilotContext";
 import { consumePendingLegs, onLegsApplied } from "../utils/copilotProposedLegs";
 import { createSessionCache } from "../utils/sessionCaches";
+import StrategyBuilderOverlay from "../components/StrategyBuilderOverlay";
 
 /** Patches a live bid/ask tick into whichever leg (call or put, on whichever
  *  strike row) carries that streamer-symbol, leaving everything else as-is. */
@@ -302,7 +303,13 @@ const strikeLabCache = createSessionCache(() => ({
   view: null,
   expirations: null,
   expShown: null,
+  strategyBadge: null,
 }));
+
+// What a strategy badge (see applyLegs) was applied to — only the fields that
+// define the position, so a premium tweak keeps the badge but changing a
+// leg's strike/side/type/quantity, or adding/removing one, drops it.
+const legsSignature = (legs) => legs.map((l) => `${l.side}:${l.qty}:${l.type}:${l.strike}`).join("|");
 
 // Expirations are fetched up to ~2 years out, but the pill row starts with
 // the nearest EXP_PAGE and grows by EXP_PAGE per "+10" click.
@@ -366,6 +373,12 @@ export default function StrikeLab() {
     return p ? { date: p.expirationDate ?? null, dte: p.dte } : null;
   });
   const [expShown, setExpShown] = useState(strikeLabCache.expShown ?? EXP_PAGE);
+  // Strategy Builder overlay, and the label of the strategy it last applied
+  // ({label, signature}) — shown above the legs while they still match.
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [strategyBadge, setStrategyBadge] = useState(strikeLabCache.strategyBadge ?? null);
+  const activeStrategy =
+    strategyBadge && legs.length > 0 && strategyBadge.signature === legsSignature(legs) ? strategyBadge.label : null;
   const dte = expirations[expIndex]?.dte;
   // The pill above only controls which chain you're browsing to add new legs —
   // an already-built position keeps the expiration it was actually added at,
@@ -400,6 +413,18 @@ export default function StrikeLab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Replaces whatever's currently built with a complete new position — a
+  // copilot "Apply" or the Strategy Builder overlay. Selects the position's
+  // own expiration (see pendingExp) and widens the Range slider to fit it,
+  // same as arriving via "Analyze Selected". Only touches setters and refs,
+  // so it's safe to call from the mount-once effect below.
+  const applyLegs = (newLegs, { expirationDate = null, dte: legsDte, strategyLabel = null } = {}) => {
+    fitRangeToLegsRef.current = true;
+    setPendingExp({ date: expirationDate, dte: legsDte });
+    setLegs(newLegs);
+    setStrategyBadge(strategyLabel ? { label: strategyLabel, signature: legsSignature(newLegs) } : null);
+  };
+
   // Legs the copilot recommended and the user clicked "Apply" on (see
   // copilotProposedLegs.js) — replaces whatever's currently built, same as
   // arriving via "Analyze Selected" from Positions above, since applying a
@@ -409,14 +434,12 @@ export default function StrikeLab() {
   useEffect(() => {
     function apply(incomingLegs) {
       if (!incomingLegs || incomingLegs.length === 0) return;
-      fitRangeToLegsRef.current = true;
       const legSymbol = incomingLegs[0].symbol;
       if (legSymbol) {
         setSymbol(legSymbol);
         setSymbolInput(legSymbol);
       }
-      setPendingExp({ date: incomingLegs[0].expirationDate ?? null, dte: incomingLegs[0].dte });
-      setLegs(
+      applyLegs(
         incomingLegs.map((l, i) => ({
           id: `l${Date.now()}-${i}`,
           side: l.side,
@@ -426,7 +449,8 @@ export default function StrikeLab() {
           premium: l.premium,
           dte: l.dte,
           multiplier: getMultiplier(l.symbol),
-        }))
+        })),
+        { expirationDate: incomingLegs[0].expirationDate ?? null, dte: incomingLegs[0].dte }
       );
     }
     apply(consumePendingLegs());
@@ -687,7 +711,8 @@ export default function StrikeLab() {
     strikeLabCache.view = view;
     strikeLabCache.expirations = expirations;
     strikeLabCache.expShown = expShown;
-  }, [symbol, symbolInput, spot, expIndex, legs, rangePct, ivPct, chain, view, expirations, expShown]);
+    strikeLabCache.strategyBadge = strategyBadge;
+  }, [symbol, symbolInput, spot, expIndex, legs, rangePct, ivPct, chain, view, expirations, expShown, strategyBadge]);
 
   const lo = spot * (1 - rangePct / 100);
   const hi = spot * (1 + rangePct / 100);
@@ -762,6 +787,7 @@ export default function StrikeLab() {
       symbol,
       spot,
       selectedExpirationDte: dte,
+      ...(activeStrategy ? { strategy: activeStrategy } : {}),
       daysToExpiration: positionDte,
       impliedVolatilityPct: ivPct,
       netCreditOrDebit: credit,
@@ -778,7 +804,7 @@ export default function StrikeLab() {
       })),
     });
     return () => clearCopilotContext("StrikeLab");
-  }, [symbol, spot, dte, positionDte, ivPct, credit, maxProfit, maxLoss, breakevens, legs]);
+  }, [symbol, spot, dte, positionDte, ivPct, credit, maxProfit, maxLoss, breakevens, legs, activeStrategy]);
 
   const updateLeg = (id, patch) =>
     setLegs((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -813,6 +839,22 @@ export default function StrikeLab() {
     });
   };
 
+  // Strategy Builder "Apply": the built legs replace the position, on the
+  // expiration they were built for, and the Graph shows the result.
+  const applyBuiltStrategy = ({ legs: built, expirationDate, dte: builtDte, label }) => {
+    const stamp = Date.now();
+    applyLegs(
+      built.map((l, i) => ({ ...l, id: `l${stamp}-${i}`, dte: builtDte, multiplier: getMultiplier(symbol) })),
+      { expirationDate, dte: builtDte, strategyLabel: label }
+    );
+    setView("graph");
+    setBuilderOpen(false);
+  };
+  const closeBuilder = useCallback(() => setBuilderOpen(false), []);
+  // Opens only once the ticker's expirations are in (the builder needs them,
+  // and a spot to show) — not on the previous symbol's stale list.
+  const canBuild = !!symbol && expirationsSymbol === symbol && expirations.length > 0 && spot > 0;
+
   const submitSymbol = (e) => {
     e.preventDefault();
     const s = symbolInput.trim().toUpperCase();
@@ -825,6 +867,17 @@ export default function StrikeLab() {
   return (
     <div className="page">
       {chainError && <div className="alert error">{chainError}</div>}
+      {builderOpen && canBuild && (
+        <StrategyBuilderOverlay
+          symbol={symbol}
+          spot={spot}
+          expirations={expirations}
+          initialExpIndex={expIndex}
+          hasLegs={legs.length > 0}
+          onApply={applyBuiltStrategy}
+          onClose={closeBuilder}
+        />
+      )}
 
       {/* ---------------- Symbol / strategy / expirations / ruler ---------------- */}
       <div className="card">
@@ -850,6 +903,15 @@ export default function StrikeLab() {
                   {loadingChain && <span className="spinner spinner-sm" title="Syncing chain…" />}
                 </span>
               )}
+              <button
+                type="button"
+                className="btn btn-secondary strategy-builder-btn"
+                onClick={() => setBuilderOpen(true)}
+                disabled={!canBuild}
+                title={canBuild ? "Build an options strategy on this ticker" : "Enter a symbol first"}
+              >
+                Build Strategy
+              </button>
             </div>
           </div>
 
@@ -901,7 +963,10 @@ export default function StrikeLab() {
 
       {/* ---------------- Legs editor ---------------- */}
       <div className="card">
-        <h3 className="section-title">Strike</h3>
+        <h3 className="section-title">
+          Strike
+          {activeStrategy && <span className="strategy-badge">{activeStrategy}</span>}
+        </h3>
         <StrikeRuler
           legs={legs}
           spot={spot}

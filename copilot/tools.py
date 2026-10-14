@@ -21,6 +21,7 @@ from datetime import date, timedelta
 
 from broker.exceptions import BrokerError
 from service import MarketService, PositionService, TransactionService
+from service.strategy_builder import ANCHOR_MODES, TEMPLATES, WING_MODES, StrategyParamError
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,58 @@ def get_expirations(symbol: str, days_ahead: int = 60) -> str:
     return _safe(MarketService().get_expirations, symbol, days_ahead)
 
 
+# Strategies the copilot may build: credit templates only, matching the
+# net-credit HARD CONSTRAINT in agent.py's system prompt. The Analyze page's
+# builder overlay offers the debit templates too; widening this tuple is
+# the one change needed if the copilot's rule ever changes.
+COPILOT_STRATEGY_DIRECTIONS = ("credit",)
+COPILOT_STRATEGIES = [k for k, t in TEMPLATES.items() if t["direction"] in COPILOT_STRATEGY_DIRECTIONS]
+
+
+def build_strategy(
+    symbol: str,
+    strategy: str,
+    dte: int,
+    expiration_date: str = "",
+    params: dict | None = None,
+    min_credit: float | None = None,
+) -> str:
+    """Place a named strategy's legs on the live chain — the same solver as
+    the Analyze page's Strategy Builder (service/strategy_builder.py)."""
+    strategy = strategy.strip().upper()
+    if strategy not in COPILOT_STRATEGIES:
+        return json.dumps({"error": f"Unsupported strategy {strategy!r}; use one of {COPILOT_STRATEGIES}"})
+    symbol = symbol.strip().upper()
+    try:
+        result = MarketService().build_strategy(symbol, dte, strategy, params or {}, min_credit, expiration_date or None)
+    except StrategyParamError as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:  # e.g. TastytradeAPIError, which isn't a BrokerError — never break the tool loop
+        logger.error("Copilot build_strategy failed for %s %s: %s", symbol, strategy, e)
+        return json.dumps({"error": str(e) or e.__class__.__name__})
+    if result is None:
+        return json.dumps({"error": f"No option chain found for {symbol}"})
+    return json.dumps(result, default=str)
+
+
+def _strategy_legs_doc() -> str:
+    """One line per buildable strategy listing its leg keys and roles, for
+    build_strategy's schema description — generated so it can't drift from
+    the templates."""
+    lines = []
+    for key in COPILOT_STRATEGIES:
+        legs = ", ".join(
+            f'{leg["key"]} ({leg["role"]}, default {leg["default"]["mode"]}'
+            + (f' {leg["default"]["value"]}' if leg["default"].get("value") is not None else "")
+            + ")"
+            if leg["role"] != "same"
+            else f'{leg["key"]} (same strike as {leg["of"]})'
+            for leg in TEMPLATES[key]["legs"]
+        )
+        lines.append(f"{key}: {legs}")
+    return "\n".join(lines)
+
+
 def propose_legs(legs: list[dict]) -> str:
     """Not a data fetch like every other tool here — this one has no broker
     call at all. Calling it is how the model hands a concrete, actionable
@@ -141,6 +194,7 @@ TOOL_FUNCTIONS = {
     "get_price_history": get_price_history,
     "get_option_chain": get_option_chain,
     "get_expirations": get_expirations,
+    "build_strategy": build_strategy,
     "propose_legs": propose_legs,
 }
 
@@ -367,6 +421,64 @@ TOOL_SCHEMAS = [
                     },
                 },
                 "required": ["symbol"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "build_strategy",
+            "description": "Place a named multi-leg (or single-leg) credit strategy on the live option "
+            "chain for one expiration: finds the strikes matching the requested placement (delta, "
+            "% OTM, expected move, strike, wing width), searches up to 5 strikes either way when "
+            "the strategy's structure or min_credit isn't met, and returns the best match plus "
+            "alternatives with legs (bid/ask/mid/delta/iv), netPremium (credit at mid, per share), "
+            "naturalPremium (credit selling at the bid and buying at the ask, per share), maxProfit, "
+            "maxLoss (null = unlimited), breakevens, pop (estimated probability of profit) and "
+            "returnOnRisk (maxProfit / |maxLoss|). best is null when nothing qualifies, with "
+            "`reasons` saying why. It only places strikes and enforces each strategy's structure "
+            "(strike order, net credit, a jade lizard's credit covering its call spread); the "
+            "strategy reference's own rules (covering checks, delta ceilings, ratio floors) still "
+            "apply and must be checked against the result. Strategies and their leg keys:\n"
+            + _strategy_legs_doc(),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": 'Ticker symbol, e.g. "AAPL" or "/ES" for a futures root.'},
+                    "strategy": {"type": "string", "enum": COPILOT_STRATEGIES},
+                    "dte": {
+                        "type": "integer",
+                        "description": "Days to expiration of the chosen expiration (the closest listed "
+                        "expiration is used).",
+                    },
+                    "expiration_date": {
+                        "type": "string",
+                        "description": "The chosen expiration as YYYY-MM-DD, if known — the result's reasons "
+                        "flag it if the chain resolved to a different date.",
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Optional placement per leg key (see the strategy list above); legs "
+                        "left out use their default. Anchor legs take mode "
+                        f"{'/'.join(ANCHOR_MODES)}; wing legs take mode {'/'.join(WING_MODES)}. Delta is a "
+                        "fraction (0.16, not 16); otm_pct is percent out of the money; sigma is a multiple "
+                        "of the expected move from the chain's IV; width is in dollars; steps is a count of "
+                        "listed strikes; atm takes no value.",
+                        "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                                "mode": {"type": "string", "enum": sorted(set(ANCHOR_MODES) | set(WING_MODES))},
+                                "value": {"type": "number"},
+                            },
+                            "required": ["mode"],
+                        },
+                    },
+                    "min_credit": {
+                        "type": "number",
+                        "description": "Optional minimum net credit per share at mid (e.g. 1.50).",
+                    },
+                },
+                "required": ["symbol", "strategy", "dte"],
             },
         },
     },
