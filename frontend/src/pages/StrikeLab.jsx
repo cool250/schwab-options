@@ -963,8 +963,8 @@ export default function StrikeLab() {
                   tickFormatter={(v) => (v === 0 ? "$0" : `${v > 0 ? "+" : ""}${v}`)}
                   stroke="var(--text-faint)"
                   tick={{ fontSize: 12 }}
-                  tickLine={false}
-                  axisLine={false}
+                  tickLine={{ stroke: "var(--border-strong)" }}
+                  axisLine={{ stroke: "var(--border-strong)" }}
                   width={56}
                 />
                 <Tooltip content={<PayoffTooltip />} />

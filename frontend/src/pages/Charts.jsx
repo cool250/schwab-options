@@ -499,14 +499,17 @@ function PriceHistoryChart({ history, loading, error, noSymbol }) {
             tickLine={false}
             minTickGap={28}
           />
+          {/* Visible axis line + tick marks. Labels keep cents when the
+              ticks aren't whole dollars (a tight 1D range would otherwise
+              repeat the same rounded label). */}
           <YAxis
             domain={["auto", "auto"]}
-            tickFormatter={(v) => `$${Math.round(v)}`}
+            tickFormatter={(v) => `$${Number.isInteger(v) ? v : v.toFixed(2)}`}
             stroke="var(--text-faint)"
             tick={{ fontSize: 12 }}
-            tickLine={false}
-            axisLine={false}
-            width={56}
+            tickLine={{ stroke: "var(--border-strong)" }}
+            axisLine={{ stroke: "var(--border-strong)" }}
+            width={64}
           />
           <Tooltip content={<PriceHistoryTooltip range={history.range} />} />
           {history.resistance.map((lvl, i) => (
