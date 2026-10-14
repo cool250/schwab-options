@@ -247,6 +247,16 @@ const sliderFillStyle = (value, min, max) => {
 const formatExpLabel = (dateStr) =>
   new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
+// A leg only carries its dte, so its expiration date is looked up in the
+// symbol's listed expirations, falling back to today + dte. Shown as
+// "Oct 17", plus the year ("Jan 15 '27") when it isn't this year.
+function legExpirationLabel(dte, expirations) {
+  const listed = (expirations ?? []).find((e) => e.dte === dte)?.date;
+  const d = listed ? new Date(`${listed}T00:00:00`) : new Date(Date.now() + dte * 86400000);
+  const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.getFullYear() === new Date().getFullYear() ? label : `${label} '${String(d.getFullYear()).slice(2)}`;
+}
+
 // Bid/ask/delta from the backend are usually a number or null/undefined, but
 // a stray non-numeric value (e.g. dxFeed's "NaN" sentinel string slipping
 // through unsanitized) has crashed the whole chain table before — `!= null`
@@ -870,6 +880,7 @@ export default function StrikeLab() {
           onUpdateLeg={updateLeg}
           onRemoveLeg={removeLeg}
           symbol={symbol}
+          expirations={expirations}
           autoOpenLegId={autoOpenLegId}
           onAutoOpenHandled={() => setAutoOpenLegId(null)}
         />
@@ -1065,7 +1076,7 @@ export default function StrikeLab() {
    SELL=bid convention as clicking a cell directly in the chain table
    (see addLegFromChain/OptionChainTable's onAddLeg calls).
 ============================================================================ */
-function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symbol, autoOpenLegId, onAutoOpenHandled }) {
+function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symbol, expirations, autoOpenLegId, onAutoOpenHandled }) {
   const width = 100;
   const strikes = legs.map((l) => l.strike);
   const effLo = Math.min(lo, ...strikes);
@@ -1237,6 +1248,7 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symb
             leg={openLeg}
             left={Math.min(88, Math.max(12, pct(openLeg.strike)))}
             symbol={symbol}
+            expLabel={legExpirationLabel(openLeg.dte, expirations)}
             quote={quoteForLeg(openLeg)}
             onUpdate={(patch) => onUpdateLeg(openLeg.id, patch)}
             onRemove={() => {
@@ -1266,14 +1278,14 @@ function legRoi(leg) {
 // replaces the old always-visible rows table (see StrikeRuler) so building a
 // multi-leg strategy doesn't need a full table's worth of vertical space for
 // legs that aren't being edited right now.
-const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, quote, onUpdate, onRemove, onClose }, ref) {
+const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, expLabel, quote, onUpdate, onRemove, onClose }, ref) {
   const roi = legRoi(leg);
   return (
     <div className="leg-popover" style={{ left: `${left}%` }} ref={ref}>
       <div className="leg-popover-header">
         <span>
           {symbol} {leg.strike}
-          {leg.type[0]} · {leg.dte}d to exp
+          {leg.type[0]} · Exp {expLabel}
         </span>
         <button type="button" className="leg-popover-close" onClick={onClose} aria-label="Close">
           ×
