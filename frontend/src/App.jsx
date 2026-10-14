@@ -4,7 +4,7 @@ import { ThemeProvider } from './context/ThemeContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import ErrorBoundary from './components/ErrorBoundary'
 import Navbar from './components/Navbar'
-import CopilotWidget from './components/CopilotWidget'
+import CopilotWidget, { CopilotDisabledLauncher } from './components/CopilotWidget'
 import RequireSchwab from './components/RequireSchwab'
 import Login from './pages/Login'
 import Landing from './pages/Landing'
@@ -17,10 +17,12 @@ import Screener from './pages/Screener'
 import Settings from './pages/Settings'
 
 // The Copilot is admin-only (it's billed to the admin's OpenAI key; the API
-// enforces this too — api/app.py mounts it behind require_admin).
+// enforces this too — api/app.py mounts it behind require_admin). Everyone
+// else sees its launcher greyed out, so the feature isn't a mystery.
 function AdminCopilot() {
   const { user } = useAuth()
-  return user?.isAdmin ? <CopilotWidget /> : null
+  if (!user) return null
+  return user.isAdmin ? <CopilotWidget /> : <CopilotDisabledLauncher />
 }
 
 export default function App() {

@@ -46,6 +46,19 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   transform: translateY(-1px);
   box-shadow: 0 4px 10px rgba(37,99,235,0.35);
 }
+/* Non-admin users: same launcher, inert (CopilotDisabledLauncher). A
+   card-coloured disc with a strong border and muted icon at full opacity —
+   reads as "off" yet stays visible on both the light and dark page
+   background (a translucent grey fill all but vanished in dark mode). */
+.copilot-launcher--disabled,
+.copilot-launcher--disabled:hover {
+  background: var(--card-bg);
+  border: 2px solid var(--border-strong);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: var(--shadow-sm);
+}
 
 .copilot-panel {
   position: fixed;
