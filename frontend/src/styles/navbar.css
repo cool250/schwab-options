@@ -145,6 +145,38 @@
    mobile dropdown (one copy of each, shown per breakpoint like Sign out). */
 .navbar-settings--mobile { display: none; }
 
+/* Signed-in user (Navbar's NavUser): bottom of the desktop sidebar, top of
+   the mobile dropdown — one copy each, shown per breakpoint. */
+.navbar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 12px;
+  color: var(--text-inverse);
+  min-width: 0;
+}
+.navbar-user--mobile { display: none; }
+.navbar-user-avatar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--text-inverse);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.navbar-user-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.navbar-user-name { font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navbar-user-role { font-size: 0.72rem; color: rgba(255, 255, 255, 0.6); }
+
 /* ─── Navbar logout button ───────────────────────────── */
 /* Styled entirely by .nav-link (also on the element) so Sign out matches
    every other menu item's size, color, padding and hover; this class only
@@ -166,6 +198,8 @@
   .navbar-logout--desktop { display: none; }
   .navbar-settings--desktop { display: none; }
   .navbar-settings--mobile { display: flex; }
+  .navbar-user--desktop { display: none; }
+  .navbar-user--mobile { display: flex; border-top: none; padding-top: 8px; }
 
   /* Collapsed by default */
   .navbar-links {
@@ -224,8 +258,8 @@
   .navbar-links { flex-direction: column; gap: 2px; }
   .nav-link { padding: 9px 14px; }
 
-  /* Settings + Sign out pinned to the bottom of the sidebar. */
-  .navbar-settings--desktop { margin-top: auto; }
+  /* Signed-in user, Settings and Sign out pinned to the bottom of the sidebar. */
+  .navbar-user--desktop { margin-top: auto; }
 
   /* Logo row: logo on the left, collapse toggle on the right. */
   .navbar-brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -261,6 +295,7 @@
   .navbar--rail .nav-link,
   .navbar--rail .nav-link.nav-sublink { justify-content: center; padding: 10px 0; }
   .navbar--rail .navbar-rail-toggle .nav-icon { transform: rotate(180deg); }
+  .navbar--rail .navbar-user { justify-content: center; padding-left: 0; padding-right: 0; }
   /* Logo: show just its square mark (the left end of the wordmark image). */
   /* Rail too narrow for logo + toggle side by side: stack them. */
   .navbar--rail .navbar-brand { flex-direction: column; justify-content: center; gap: 10px; padding: 16px 0 0; }

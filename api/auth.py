@@ -135,6 +135,21 @@ def me(user: User = Depends(require_auth)):
     return user.public()
 
 
+class ProfileRequest(BaseModel):
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    email: Optional[str] = None
+
+
+@router.patch("/me")
+def update_me(req: ProfileRequest, user: User = Depends(require_auth)):
+    """Edit your own optional profile (first/last name, email). Blank clears a field."""
+    try:
+        return users.set_profile(user.id, req.firstName, req.lastName, req.email).public()
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
 class ChangePasswordRequest(BaseModel):
     currentPassword: str
     newPassword: str

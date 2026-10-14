@@ -83,6 +83,12 @@ export function AuthProvider({ children }) {
     setUser(u ?? user)
   }
 
+  // Refresh the signed-in user's details (e.g. after editing their profile)
+  // without touching the token or its renewal timing.
+  function updateUser(u) {
+    setUser(u)
+  }
+
   function logout() {
     clearSessionCaches()
     sessionStorage.removeItem('auth_token')
@@ -149,7 +155,7 @@ export function AuthProvider({ children }) {
   }, [token])
 
   return (
-    <AuthContext.Provider value={{ token, user, login, logout, renewSession }}>
+    <AuthContext.Provider value={{ token, user, login, logout, renewSession, updateUser }}>
       {children}
     </AuthContext.Provider>
   )

@@ -18,6 +18,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import sys
@@ -61,6 +62,9 @@ class User:
     disabled: bool
     created_at: float
     password_changed_at: float
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
 
     def public(self) -> dict:
         return {
@@ -69,6 +73,9 @@ class User:
             "isAdmin": self.is_admin,
             "disabled": self.disabled,
             "createdAt": self.created_at,
+            "firstName": self.first_name,
+            "lastName": self.last_name,
+            "email": self.email,
         }
 
 
@@ -82,6 +89,9 @@ def _row_to_user(row: Optional[sqlite3.Row]) -> Optional[User]:
         disabled=bool(row["disabled"]),
         created_at=row["created_at"],
         password_changed_at=row["password_changed_at"],
+        first_name=row["first_name"],
+        last_name=row["last_name"],
+        email=row["email"],
     )
 
 
@@ -127,6 +137,26 @@ def validate_username(username: str) -> str:
     return username
 
 
+# Optional profile fields. Blank means "not set" (stored as NULL).
+PROFILE_FIELDS = ("first_name", "last_name", "email")
+_MAX_NAME_LENGTH = 50
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def validate_profile(first_name: Optional[str], last_name: Optional[str], email: Optional[str]) -> dict:
+    def clean(value: Optional[str]) -> Optional[str]:
+        value = (value or "").strip()
+        return value or None
+
+    profile = {"first_name": clean(first_name), "last_name": clean(last_name), "email": clean(email)}
+    for field, label in (("first_name", "First name"), ("last_name", "Last name")):
+        if profile[field] and len(profile[field]) > _MAX_NAME_LENGTH:
+            raise ValueError(f"{label} must be at most {_MAX_NAME_LENGTH} characters")
+    if profile["email"] and (len(profile["email"]) > 254 or not _EMAIL_RE.match(profile["email"])):
+        raise ValueError("Enter a valid email address")
+    return profile
+
+
 # ─── Schema / bootstrap ──────────────────────────────────────────────────
 
 def init_db() -> None:
@@ -145,6 +175,12 @@ def init_db() -> None:
             )
             """
         )
+        # Profile columns were added after the table first shipped — add them
+        # to an existing database in place (all nullable, so nothing to backfill).
+        existing = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        for column in PROFILE_FIELDS:
+            if column not in existing:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     if count == 0:
         username = os.getenv("ADMIN_USERNAME", "").strip()
@@ -188,17 +224,27 @@ def list_users() -> list[User]:
         return [_row_to_user(r) for r in conn.execute("SELECT * FROM users ORDER BY id").fetchall()]
 
 
-def create_user(username: str, password: str, is_admin: bool = False, _skip_validation: bool = False) -> User:
+def create_user(
+    username: str,
+    password: str,
+    is_admin: bool = False,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    email: Optional[str] = None,
+    _skip_validation: bool = False,
+) -> User:
     if not _skip_validation:
         username = validate_username(username)
         validate_new_password(password)
+    profile = validate_profile(first_name, last_name, email)
     now = time.time()
     try:
         with _connect() as conn:
             cur = conn.execute(
-                "INSERT INTO users (username, password_hash, is_admin, created_at, password_changed_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (username, hash_password(password), int(is_admin), now, now),
+                "INSERT INTO users (username, password_hash, is_admin, created_at, password_changed_at, "
+                "first_name, last_name, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (username, hash_password(password), int(is_admin), now, now,
+                 profile["first_name"], profile["last_name"], profile["email"]),
             )
             user_id = cur.lastrowid
     except sqlite3.IntegrityError:
@@ -215,6 +261,16 @@ def set_password(user_id: int, password: str) -> None:
             "UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?",
             (hash_password(password), time.time(), user_id),
         )
+
+
+def set_profile(user_id: int, first_name: Optional[str], last_name: Optional[str], email: Optional[str]) -> User:
+    profile = validate_profile(first_name, last_name, email)
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET first_name = ?, last_name = ?, email = ? WHERE id = ?",
+            (profile["first_name"], profile["last_name"], profile["email"], user_id),
+        )
+    return get_user(user_id)
 
 
 def set_disabled(user_id: int, disabled: bool) -> None:

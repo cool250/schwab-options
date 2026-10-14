@@ -58,7 +58,7 @@ function loadCollapsed() {
 }
 
 export default function Navbar() {
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const navigate = useNavigate()
   // Sign out lands on the public landing page rather than letting
   // ProtectedRoute bounce to /login, which would open the login overlay.
@@ -127,6 +127,7 @@ export default function Navbar() {
       </button>
 
       <div className={`navbar-links${open ? ' open' : ''}`}>
+        <NavUser user={user} className="navbar-user--mobile" />
         {NAV_GROUPS.map((group) => {
           // A group holding the current page always shows it, even if the
           // user collapsed that group earlier — the active page never hides.
@@ -186,9 +187,10 @@ export default function Navbar() {
         </a>
       </div>
 
-      {/* Settings (incl. light/dark theme) and Sign out, pinned to the
-          bottom of the desktop sidebar. On phones these live inside the
-          hamburger dropdown instead (the --mobile copies above). */}
+      {/* Who's signed in, Settings (incl. light/dark theme) and Sign out,
+          pinned to the bottom of the desktop sidebar. On phones these live
+          inside the hamburger dropdown instead (the --mobile copies above). */}
+      <NavUser user={user} className="navbar-user--desktop" />
       <NavLink
         to="/settings"
         className={({ isActive }) => `nav-link navbar-settings--desktop${isActive ? ' active' : ''}`}
@@ -210,5 +212,25 @@ export default function Navbar() {
         <span className="nav-label">Sign out</span>
       </a>
     </nav>
+  )
+}
+
+// The signed-in user: initials avatar plus their name (first/last from the
+// profile, else the username) and role. In the icon rail only the avatar
+// shows; the tooltip carries the full name either way (long names truncate).
+function NavUser({ user, className }) {
+  if (!user) return null
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username
+  const initials = (user.firstName || user.lastName)
+    ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`
+    : user.username.slice(0, 2)
+  return (
+    <div className={`navbar-user ${className}`} title={`Signed in as ${name}`}>
+      <span className="navbar-user-avatar" aria-hidden="true">{initials.toUpperCase()}</span>
+      <span className="navbar-user-text nav-label">
+        <span className="navbar-user-name">{name}</span>
+        <span className="navbar-user-role">{user.isAdmin ? 'Admin' : 'User'}</span>
+      </span>
+    </div>
   )
 }

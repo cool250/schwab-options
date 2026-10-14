@@ -2,6 +2,8 @@
 the admin creates accounts, resets passwords, and disables or deletes users.
 Mounted with Depends(require_admin) in api/app.py."""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
@@ -17,6 +19,9 @@ class CreateUserRequest(BaseModel):
     username: str
     password: str
     isAdmin: bool = False
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    email: Optional[str] = None
 
 
 class SetPasswordRequest(BaseModel):
@@ -42,7 +47,10 @@ def list_users():
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 def create_user(req: CreateUserRequest):
     try:
-        return users.create_user(req.username, req.password, is_admin=req.isAdmin).public()
+        return users.create_user(
+            req.username, req.password, is_admin=req.isAdmin,
+            first_name=req.firstName, last_name=req.lastName, email=req.email,
+        ).public()
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

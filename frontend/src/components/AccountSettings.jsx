@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import {
-  changePassword, listUsers, createUser, resetUserPassword, setUserDisabled, deleteUser,
+  changePassword, updateProfile, listUsers, createUser, resetUserPassword, setUserDisabled, deleteUser,
 } from '../api/client'
 import DataTable from './DataTable'
 
@@ -15,14 +15,45 @@ function generatePassword() {
   return Array.from(bytes, (b) => chars[b % chars.length]).join('')
 }
 
-/** Settings → Account: who's signed in, and change your own password. */
+// "Ada Lovelace", or whichever part is set; null when neither is.
+function fullName(u) {
+  return [u?.firstName, u?.lastName].filter(Boolean).join(' ') || null
+}
+
+/** Settings → Account: who's signed in, your optional profile, and change
+ *  your own password. */
 export function AccountCard() {
-  const { user, login } = useAuth()
+  const { user, login, updateUser } = useAuth()
+  const [profile, setProfile] = useState({ firstName: '', lastName: '', email: '' })
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [profileMessage, setProfileMessage] = useState(null) // {tone, text}
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null) // {tone, text}
+
+  // Fill the form once the signed-in user has loaded (AuthContext fetches it).
+  useEffect(() => {
+    if (user) setProfile({ firstName: user.firstName ?? '', lastName: user.lastName ?? '', email: user.email ?? '' })
+  }, [user?.id])
+
+  async function handleProfileSubmit(e) {
+    e.preventDefault()
+    setSavingProfile(true)
+    setProfileMessage(null)
+    try {
+      const updated = await updateProfile(profile)
+      updateUser(updated)
+      setProfileMessage({ tone: 'success', text: 'Profile saved.' })
+    } catch (err) {
+      setProfileMessage({ tone: 'error', text: err.message || 'Could not save profile.' })
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
+  const setField = (field) => (e) => setProfile((p) => ({ ...p, [field]: e.target.value }))
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -49,9 +80,36 @@ export function AccountCard() {
       <h3 className="section-title">Account</h3>
       {user && (
         <p className="summary-line">
-          Signed in as <strong>{user.username}</strong>{user.isAdmin ? ' · Admin' : ''}
+          Signed in as <strong>{user.username}</strong>{fullName(user) ? ` (${fullName(user)})` : ''}{user.isAdmin ? ' · Admin' : ''}
         </p>
       )}
+
+      <h4 className="settings-subtitle">Profile <span className="text-muted">(optional)</span></h4>
+      <form onSubmit={handleProfileSubmit} className="settings-password-form">
+        <div className="form-group">
+          <label htmlFor="profile-first">First name</label>
+          <input id="profile-first" className="input" autoComplete="given-name" maxLength={50}
+            value={profile.firstName} onChange={setField('firstName')} />
+        </div>
+        <div className="form-group">
+          <label htmlFor="profile-last">Last name</label>
+          <input id="profile-last" className="input" autoComplete="family-name" maxLength={50}
+            value={profile.lastName} onChange={setField('lastName')} />
+        </div>
+        <div className="form-group">
+          <label htmlFor="profile-email">Email</label>
+          <input id="profile-email" type="email" className="input" autoComplete="email" maxLength={254}
+            value={profile.email} onChange={setField('email')} />
+        </div>
+        <div>
+          <button type="submit" className="btn btn-primary" disabled={savingProfile || !user}>
+            {savingProfile ? 'Saving…' : 'Save profile'}
+          </button>
+        </div>
+      </form>
+      {profileMessage && <div className={`alert ${profileMessage.tone}`}>{profileMessage.text}</div>}
+
+      <h4 className="settings-subtitle">Change password</h4>
       <form onSubmit={handleSubmit} className="settings-password-form">
         <div className="form-group">
           <label htmlFor="pw-current">Current password</label>
@@ -89,6 +147,7 @@ export function UsersCard() {
   const [newUsername, setNewUsername] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newIsAdmin, setNewIsAdmin] = useState(false)
+  const [newProfile, setNewProfile] = useState({ firstName: '', lastName: '', email: '' })
   const [resetting, setResetting] = useState(null) // user being given a new password
   const [resetPassword, setResetPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -125,10 +184,13 @@ export function UsersCard() {
     const username = newUsername.trim()
     const password = newPassword
     const created = await run(
-      () => createUser(username, password, newIsAdmin),
+      () => createUser(username, password, newIsAdmin, newProfile),
       `Created ${username}. Send them their username and password: ${password}`,
     )
-    if (created) { setNewUsername(''); setNewPassword(''); setNewIsAdmin(false) }
+    if (created) {
+      setNewUsername(''); setNewPassword(''); setNewIsAdmin(false)
+      setNewProfile({ firstName: '', lastName: '', email: '' })
+    }
   }
 
   async function handleReset(e) {
@@ -149,6 +211,8 @@ export function UsersCard() {
 
   const columns = [
     { key: 'username', label: 'Username', render: (u) => <strong>{u.username}</strong> },
+    { key: 'name', label: 'Name', render: (u) => u.name ?? <span className="text-muted">—</span> },
+    { key: 'email', label: 'Email', render: (u) => u.email ?? <span className="text-muted">—</span> },
     { key: 'isAdmin', label: 'Role', render: (u) => (u.isAdmin ? 'Admin' : 'User') },
     {
       key: 'disabled',
@@ -212,6 +276,21 @@ export function UsersCard() {
             </button>
           </div>
         </div>
+        <div className="form-group">
+          <label htmlFor="new-first">First name <span className="text-muted">(optional)</span></label>
+          <input id="new-first" className="input" autoComplete="off" maxLength={50} value={newProfile.firstName}
+            onChange={(e) => setNewProfile((p) => ({ ...p, firstName: e.target.value }))} />
+        </div>
+        <div className="form-group">
+          <label htmlFor="new-last">Last name <span className="text-muted">(optional)</span></label>
+          <input id="new-last" className="input" autoComplete="off" maxLength={50} value={newProfile.lastName}
+            onChange={(e) => setNewProfile((p) => ({ ...p, lastName: e.target.value }))} />
+        </div>
+        <div className="form-group">
+          <label htmlFor="new-email">Email <span className="text-muted">(optional)</span></label>
+          <input id="new-email" type="email" className="input" autoComplete="off" maxLength={254} value={newProfile.email}
+            onChange={(e) => setNewProfile((p) => ({ ...p, email: e.target.value }))} />
+        </div>
         <label className="toggle-label">
           <input type="checkbox" className="toggle-checkbox" checked={newIsAdmin} onChange={(e) => setNewIsAdmin(e.target.checked)} />
           <span>Admin</span>
@@ -236,7 +315,14 @@ export function UsersCard() {
         </form>
       )}
 
-      {users && <DataTable data={users} columns={columns} defaultSortKey="username" />}
+      {users && (
+        <DataTable
+          // `name` is a real field so the Name column sorts.
+          data={users.map((u) => ({ ...u, name: fullName(u) }))}
+          columns={columns}
+          defaultSortKey="username"
+        />
+      )}
     </div>
   )
 }

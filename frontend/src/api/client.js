@@ -93,6 +93,15 @@ export function getMe() {
   return request('/auth/me')
 }
 
+// Your own optional profile (first/last name, email); blank clears a field.
+export function updateProfile({ firstName, lastName, email }) {
+  return request('/auth/me', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ firstName, lastName, email }),
+  })
+}
+
 export function changePassword(currentPassword, newPassword) {
   return request('/auth/password', {
     method: 'POST',
@@ -106,11 +115,12 @@ export function listUsers() {
   return request('/admin/users')
 }
 
-export function createUser(username, password, isAdmin = false) {
+export function createUser(username, password, isAdmin = false, profile = {}) {
+  const { firstName, lastName, email } = profile
   return request('/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, isAdmin }),
+    body: JSON.stringify({ username, password, isAdmin, firstName, lastName, email }),
   })
 }
 
