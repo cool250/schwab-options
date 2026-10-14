@@ -202,9 +202,28 @@ function maxLossProfit(legs, lo, hi) {
 const DEFAULT_SPOT = 0;
 
 /** Splits a "YYYY-MM-DD" date into the { month, day } shown on an expiration pill. */
-function expPillParts(dateStr) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  return { month: d.toLocaleDateString("en-US", { month: "short" }), day: String(d.getDate()) };
+// Groups expirations (already sorted by date) into consecutive same-month
+// runs for the expiration strip: one month header spanning that month's
+// days. The year is added ("Jan '27") on January and whenever the year
+// changes from the previous group, so far-out dates stay unambiguous.
+function groupExpirationsByMonth(exps) {
+  const groups = [];
+  let prevYear = new Date().getFullYear();
+  exps.forEach((e, index) => {
+    const d = new Date(`${e.date}T00:00:00`);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    let group = groups[groups.length - 1];
+    if (!group || group.key !== key) {
+      const month = d.toLocaleDateString("en-US", { month: "short" });
+      const year = d.getFullYear();
+      const showYear = year !== prevYear || (d.getMonth() === 0 && year !== new Date().getFullYear());
+      group = { key, label: showYear ? `${month} '${String(year).slice(2)}` : month, days: [] };
+      groups.push(group);
+      prevYear = year;
+    }
+    group.days.push({ index, day: String(d.getDate()), date: e.date, dte: e.dte });
+  });
+  return groups;
 }
 
 /* ============================================================================
@@ -272,7 +291,13 @@ const strikeLabCache = createSessionCache(() => ({
   chain: null,
   view: null,
   expirations: null,
+  expShown: null,
 }));
+
+// Expirations are fetched up to ~2 years out, but the pill row starts with
+// the nearest EXP_PAGE and grows by EXP_PAGE per "+10" click.
+const EXP_PAGE = 10;
+const EXP_DAYS_AHEAD = 730;
 
 export default function StrikeLab() {
   const location = useLocation();
@@ -317,6 +342,7 @@ export default function StrikeLab() {
   );
 
   const [expirations, setExpirations] = useState(strikeLabCache.expirations ?? []); // [{date, dte}] — real listed expirations, incl. daily where offered
+  const [expShown, setExpShown] = useState(strikeLabCache.expShown ?? EXP_PAGE);
   const dte = expirations[expIndex]?.dte;
   // The pill above only controls which chain you're browsing to add new legs —
   // an already-built position keeps the expiration it was actually added at,
@@ -396,10 +422,12 @@ export default function StrikeLab() {
     let cancelled = false;
     (async () => {
       try {
-        const result = await getExpirationList(symbol);
-        // Sorted by dte ascending — cap to the next 10 so the pill row renders cleanly.
+        // Sorted by dte ascending. The full list is kept; the pill row
+        // shows the first expShown of it (see the "+10" pill).
+        const result = await getExpirationList(symbol, EXP_DAYS_AHEAD);
         if (!cancelled) {
-          setExpirations((result || []).slice(0, 10));
+          setExpirations(result || []);
+          setExpShown(EXP_PAGE);
           setChainError(null);
         }
       } catch (e) {
@@ -617,7 +645,8 @@ export default function StrikeLab() {
     strikeLabCache.chain = chain;
     strikeLabCache.view = view;
     strikeLabCache.expirations = expirations;
-  }, [symbol, symbolInput, spot, expIndex, legs, rangePct, ivPct, chain, view, expirations]);
+    strikeLabCache.expShown = expShown;
+  }, [symbol, symbolInput, spot, expIndex, legs, rangePct, ivPct, chain, view, expirations, expShown]);
 
   const lo = spot * (1 - rangePct / 100);
   const hi = spot * (1 + rangePct / 100);
@@ -784,26 +813,46 @@ export default function StrikeLab() {
           </div>
 
           <div className="exp-group">
-            <span className="metric-label">Expiration{dte != null ? ` · ${dte}d` : ""}</span>
+            <span className="metric-label">Expiration{dte != null ? `: ${dte}d` : ""}</span>
             <div className="exp-pills">
               {expirations.length === 0 && (
                 <span className="text-muted">
                   {!symbol ? "Enter a symbol to get started" : chainError ? "Failed to load expirations" : "Loading expirations…"}
                 </span>
               )}
-              {expirations.map((e, i) => {
-                const { month, day } = expPillParts(e.date);
-                return (
-                  <button
-                    key={e.date}
-                    className={`exp-pill ${i === expIndex ? "active" : ""}`}
-                    onClick={() => setExpIndex(i)}
-                  >
-                    <span className="exp-pill-month">{month}</span>
-                    <span className="exp-pill-day">{day}</span>
-                  </button>
-                );
-              })}
+              {groupExpirationsByMonth(expirations.slice(0, Math.max(expShown, expIndex + 1))).map((g) => (
+                <div key={g.key} className="exp-month">
+                  <span className="exp-month-label">{g.label}</span>
+                  <div className="exp-month-days">
+                    {g.days.map((d) => (
+                      <button
+                        key={d.date}
+                        type="button"
+                        className={`exp-day ${d.index === expIndex ? "active" : ""}`}
+                        onClick={() => setExpIndex(d.index)}
+                        title={`${d.date} · ${d.dte}d`}
+                      >
+                        {d.day}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {expirations.length > Math.max(expShown, expIndex + 1) && (
+                <div className="exp-month">
+                  <span className="exp-month-label">More</span>
+                  <div className="exp-month-days">
+                    <button
+                      type="button"
+                      className="exp-day exp-day-more"
+                      onClick={() => setExpShown((n) => Math.max(n, expIndex + 1) + EXP_PAGE)}
+                      title={`Show the next ${Math.min(EXP_PAGE, expirations.length - Math.max(expShown, expIndex + 1))} expirations`}
+                    >
+                      +{Math.min(EXP_PAGE, expirations.length - Math.max(expShown, expIndex + 1))}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -866,13 +915,13 @@ export default function StrikeLab() {
         </div>
       </div>
 
-      {/* ---------------- Chain / Table / Graph ---------------- */}
+      {/* ---------------- Chain / Graph / Table ---------------- */}
       <div className="card">
         <div className="tab-row">
           {[
             { id: "chain", label: "Chain" },
-            { id: "table", label: "Table" },
             { id: "graph", label: "Graph" },
+            { id: "table", label: "Table" },
           ].map((t) => (
             <button
               key={t.id}
