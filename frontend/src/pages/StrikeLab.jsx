@@ -352,6 +352,19 @@ export default function StrikeLab() {
   );
 
   const [expirations, setExpirations] = useState(strikeLabCache.expirations ?? []); // [{date, dte}] — real listed expirations, incl. daily where offered
+  // Which symbol `expirations` belongs to — on arriving with a new symbol
+  // the cached list is still the previous symbol's until the fetch lands.
+  // A new Analyze request always refetches (and resets the selection), so
+  // it waits for that fresh list even when the symbol is unchanged.
+  const [expirationsSymbol, setExpirationsSymbol] = useState(isNewAnalyzeRequest ? null : strikeLabCache.symbol);
+  // Expiration that legs arriving from elsewhere (Positions/Screener
+  // "Analyze", copilot "Apply") were built on: once this symbol's
+  // expirations load, the expiration row selects it so the chain shown
+  // matches the legs instead of defaulting to the nearest expiration.
+  const [pendingExp, setPendingExp] = useState(() => {
+    const p = pendingPositions.current[0];
+    return p ? { date: p.expirationDate ?? null, dte: p.dte } : null;
+  });
   const [expShown, setExpShown] = useState(strikeLabCache.expShown ?? EXP_PAGE);
   const dte = expirations[expIndex]?.dte;
   // The pill above only controls which chain you're browsing to add new legs —
@@ -402,6 +415,7 @@ export default function StrikeLab() {
         setSymbol(legSymbol);
         setSymbolInput(legSymbol);
       }
+      setPendingExp({ date: incomingLegs[0].expirationDate ?? null, dte: incomingLegs[0].dte });
       setLegs(
         incomingLegs.map((l, i) => ({
           id: `l${Date.now()}-${i}`,
@@ -437,6 +451,7 @@ export default function StrikeLab() {
         const result = await getExpirationList(symbol, EXP_DAYS_AHEAD);
         if (!cancelled) {
           setExpirations(result || []);
+          setExpirationsSymbol(symbol);
           setExpShown(EXP_PAGE);
           setChainError(null);
         }
@@ -444,6 +459,7 @@ export default function StrikeLab() {
         console.error("Failed to load expirations:", e);
         if (!cancelled) {
           setExpirations([]);
+          setExpirationsSymbol(symbol);
           setChainError(friendlyErrorMessage(e, e.message || "Failed to load expirations."));
         }
       }
@@ -453,6 +469,21 @@ export default function StrikeLab() {
       cancelled = true;
     };
   }, [symbol]);
+
+  // Select the incoming legs' expiration (see pendingExp): exact date when
+  // the source sent one, else the listed expiration closest in dte.
+  useEffect(() => {
+    if (!pendingExp || expirationsSymbol !== symbol || expirations.length === 0) return;
+    let index = pendingExp.date ? expirations.findIndex((e) => e.date === pendingExp.date) : -1;
+    if (index < 0 && pendingExp.dte != null) {
+      index = expirations.reduce(
+        (best, e, i) => (Math.abs(e.dte - pendingExp.dte) < Math.abs(expirations[best].dte - pendingExp.dte) ? i : best),
+        0
+      );
+    }
+    if (index >= 0) setExpIndex(index);
+    setPendingExp(null);
+  }, [pendingExp, expirations, expirationsSymbol, symbol]);
 
   // Holds the live WebSocket and the strike_count it was last subscribed
   // with — read/written outside React state since requestMoreStrikes below
