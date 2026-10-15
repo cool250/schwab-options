@@ -33,6 +33,8 @@
 /* Secondary detail inline with a metric value (e.g. Breakeven's "% from
    spot") instead of wrapping to its own row underneath. */
 .metric-subtext { font-size: 0.75em; font-weight: 500; }
+/* A label with a HelpTip "?" beside it. */
+.metric-label--help { display: flex; align-items: center; gap: 6px; }
 
 /* Compact variant (e.g. StrikeLab's Net Credit/Max Loss/Max Profit/Breakeven
    card) — smaller text and tighter padding so this particular card takes

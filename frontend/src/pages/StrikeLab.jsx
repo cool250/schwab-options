@@ -17,6 +17,7 @@ import { setCopilotContext, clearCopilotContext } from "../utils/copilotContext"
 import { consumePendingLegs, onLegsApplied } from "../utils/copilotProposedLegs";
 import { createSessionCache } from "../utils/sessionCaches";
 import StrategyBuilderOverlay from "../components/StrategyBuilderOverlay";
+import HelpTip from "../components/HelpTip";
 
 /** Patches a live bid/ask tick into whichever leg (call or put, on whichever
  *  strike row) carries that streamer-symbol, leaving everything else as-is. */
@@ -198,6 +199,38 @@ function maxLossProfit(legs, lo, hi) {
   if (callSlope < 0) minP = -Infinity;
 
   return { maxProfit: maxP, maxLoss: minP };
+}
+
+// Net calls held, multiplier-weighted: the P&L slope past the highest
+// strike. > 0 = unlimited profit to the upside, < 0 = unlimited loss.
+function upsideSlope(legs) {
+  return legs.reduce(
+    (sum, leg) =>
+      leg.type === "CALL" ? sum + (leg.side === "BUY" ? 1 : -1) * leg.qty * (leg.multiplier ?? MULTIPLIER) : sum,
+    0
+  );
+}
+
+/** Estimated chance the position finishes above zero P&L at expiration,
+ *  under a driftless lognormal model at volatility `iv` (a fraction) — the
+ *  same model the Strategy Builder uses (service/strategy_math.py's
+ *  probability_of_profit), so the two pages agree. The breakevens split the
+ *  price axis into regions of constant sign; each profitable region adds its
+ *  probability. Null without legs, a spot or an IV. */
+function probabilityOfProfit(legs, spot, iv, dte, breakevens) {
+  if (legs.length === 0 || !(spot > 0) || !(iv > 0)) return null;
+  const sigma = iv * Math.sqrt(Math.max(dte ?? 0, 0.5) / 365);
+  const cdf = (p) => (p <= 0 ? 0 : normCdf((Math.log(p / spot) + (sigma * sigma) / 2) / sigma));
+  const edges = [0, ...[...breakevens].sort((a, b) => a - b), Infinity];
+  const top = Math.max(...legs.map((l) => l.strike));
+  let pop = 0;
+  for (let i = 0; i < edges.length - 1; i++) {
+    const lo = edges[i];
+    const hi = edges[i + 1];
+    const probe = hi === Infinity ? Math.max(lo, top) * 1.5 + 1 : (lo + hi) / 2;
+    if (totalPL(legs, probe) > 0) pop += (hi === Infinity ? 1 : cdf(hi)) - cdf(lo);
+  }
+  return pop;
 }
 
 const DEFAULT_SPOT = 0;
@@ -742,6 +775,18 @@ export default function StrikeLab() {
     () => findBreakevens(legs, Math.max(0.01, spot * 0.01), spot * 4),
     [legs, spot]
   );
+  // Same two figures as the Strategy Builder's result. POP follows the
+  // Implied Vol slider (the chain's ATM IV unless moved).
+  const pop = useMemo(
+    () => probabilityOfProfit(legs, spot, ivPct / 100, positionDte, breakevens),
+    [legs, spot, ivPct, positionDte, breakevens]
+  );
+  // Max profit / max risk — return on the capital at risk for a credit, the
+  // reward-to-risk ratio for a debit. Null when either side is unbounded.
+  const returnOnRisk =
+    legs.length > 0 && upsideSlope(legs) <= 0 && Number.isFinite(maxLoss) && maxLoss < 0 && maxProfit > 0
+      ? maxProfit / -maxLoss
+      : null;
 
   // Widen the Range ±% slider so legs that arrived from elsewhere — every
   // strike and breakeven, plus a 25% margin — are actually on the Table/
@@ -1027,12 +1072,32 @@ export default function StrikeLab() {
             <span className="metric-value highlight">
               {breakevens.length
                 ? breakevens.map((b) => `$${b.toFixed(2)}`).join(" / ")
-                : "None in range"}
+                : "—"}
               {breakevens.length > 0 && (
                 <span className="text-muted metric-subtext">
                   {" "}({(((breakevens[0] - spot) / spot) * 100).toFixed(1)}%)
                 </span>
               )}
+            </span>
+          </div>
+          <div className="metric">
+            <span className="metric-label metric-label--help">
+              POP (est.)
+              <HelpTip label="About probability of profit">
+                Chance of finishing above zero P&amp;L at expiration, from a lognormal model at the Implied Vol
+                slider&apos;s {ivPct.toFixed(1)}%. An estimate: no skew, no early exit.
+              </HelpTip>
+            </span>
+            <span className="metric-value">{pop == null ? "—" : `${(pop * 100).toFixed(1)}%`}</span>
+          </div>
+          <div className="metric">
+            <span className="metric-label">{credit >= 0 ? "Return on Risk" : "Reward / Risk"}</span>
+            <span className="metric-value">
+              {returnOnRisk == null
+                ? "—"
+                : credit >= 0
+                  ? `${(returnOnRisk * 100).toFixed(1)}%`
+                  : `${returnOnRisk.toFixed(2)}×`}
             </span>
           </div>
         </div>
