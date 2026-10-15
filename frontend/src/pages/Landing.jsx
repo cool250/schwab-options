@@ -9,9 +9,13 @@ import {
 import { CopilotIcon } from '../components/CopilotWidget'
 
 // Public landing page at "/" (and at /login, with the login overlay open).
-// Screenshots in /public/landing are real captures of the market-data
-// pages only — Screener, Analyze, Charts — never Positions/Transactions/
-// Reports, since this page is public and those show account data.
+// Screenshots in /public/landing are real captures of the app. This page is
+// public, so no real account data or identity may appear in them: the
+// market-data pages (Screener, Analyze and its Strategy Builder, Charts) are
+// shot on live market data, and the one account page shown — Reports, the
+// hero — is shot on SAMPLE P&L (its API responses mocked by the capture
+// script), with the signed-in user shown as "Demo Trader". Never capture
+// Positions/Transactions/Reports on real account data.
 
 // Where login (and "Open dashboard") lands: Market → Analyze.
 const DEFAULT_PAGE = '/analyze'
@@ -35,7 +39,7 @@ const FEATURES = [
   {
     Icon: AnalyzeIcon,
     title: 'Analyze',
-    text: 'A live-streaming option chain: click a bid or ask to build a position, then see its payoff graph and time decay.',
+    text: 'A live-streaming option chain and a Strategy Builder: set up an iron condor, strangle or jade lizard by delta or moneyness, then see its payoff and time decay.',
   },
   {
     Icon: ChartsIcon,
@@ -50,7 +54,7 @@ const FEATURES = [
   {
     Icon: () => <CopilotIcon size={18} />,
     title: 'Copilot',
-    text: 'An AI assistant that can look up your positions and live market data, and sees the page you have open.',
+    text: 'An AI assistant that can look up your positions and live market data, build strategies on the live chain, and sees the page you have open.',
   },
   {
     Icon: ShieldIcon,
@@ -74,13 +78,27 @@ const SHOWCASES = [
     ],
   },
   {
+    id: 'strategy-builder',
+    eyebrow: 'Strategy Builder',
+    title: 'Build a strategy in a few clicks',
+    img: '/landing/strategy-builder.jpg',
+    alt: 'NuTrade Strategy Builder placing a 16-delta AAPL iron condor with $5 wings, showing its net credit, max loss, breakevens, probability of profit and each leg’s moneyness',
+    points: [
+      'Credit and debit strategies: short puts and calls, spreads, strangles, straddles, iron condors and butterflies, jade lizards and ratio puts',
+      'Place each leg by delta, moneyness, expected move or strike, and set wings by width',
+      'Set a minimum credit and it searches nearby strikes for the closest match',
+      'Max profit and loss, breakevens and probability of profit, then apply it to Analyze',
+    ],
+  },
+  {
     id: 'analyze',
     eyebrow: 'Analyze',
     title: 'See the payoff before you place it',
     img: '/landing/analyze.jpg',
-    alt: 'NuTrade Analyze showing a short AAPL 335 put with its payoff graph, net credit, max loss and breakeven',
+    alt: 'NuTrade Analyze showing an AAPL iron condor built with the Strategy Builder, with its payoff graph, net credit, max loss and breakevens',
     points: [
       'Live, streaming option chain',
+      'Start from the Strategy Builder, or click any bid or ask to add a leg',
       'Net credit, max profit and loss, and breakevens update as you edit legs',
       'Payoff graph plus a strike-by-date table of time decay',
     ],
@@ -177,6 +195,7 @@ export default function Landing({ initialOverlay = null }) {
           <nav className="landing-nav" aria-label="Page sections">
             <a href="#features">Features</a>
             <a href="#screener">Screener</a>
+            <a href="#strategy-builder">Strategy Builder</a>
             <a href="#analyze">Analyze</a>
             <a href="#charts">Charts</a>
           </nav>
@@ -191,8 +210,8 @@ export default function Landing({ initialOverlay = null }) {
               <p className="landing-eyebrow">Options strategy dashboard</p>
               <h1>Run your options strategy with every number in one place.</h1>
               <p className="landing-lede">
-                NuTrade brings your positions and trade history, live option chains, a strike analyzer and an
-                options screener into one read-only dashboard — with an AI copilot that knows
+                NuTrade brings your positions and trade history, live option chains, a strategy builder, a strike
+                analyzer and an options screener into one read-only dashboard — with an AI copilot that knows
                 what you're looking at.
               </p>
               <div className="landing-hero-actions">
@@ -212,8 +231,8 @@ export default function Landing({ initialOverlay = null }) {
             </div>
             <figure className="landing-shot landing-shot--hero">
               <img
-                src="/landing/screener.jpg"
-                alt="NuTrade Screener ranking short puts by annualized ROI"
+                src="/landing/reports.jpg"
+                alt="NuTrade Reports showing a month of option and equity/futures P&L by symbol (sample data)"
                 width="1600"
                 height="1000"
               />
@@ -265,7 +284,6 @@ export default function Landing({ initialOverlay = null }) {
       <footer className="landing-footer">
         <div className="landing-container landing-footer-inner">
           <img src="/nutrade_icon.svg" alt="NuTrade" className="landing-footer-logo" />
-          <p>Read-only by design · Live market data · Never places an order</p>
         </div>
       </footer>
 

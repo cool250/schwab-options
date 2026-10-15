@@ -221,7 +221,6 @@
   gap: 12px;
 }
 .landing-footer-logo { height: 28px; width: auto; }
-.landing-footer p { margin: 0; font-size: 0.85rem; color: rgba(255, 255, 255, 0.6); }
 
 /* ─── Overlay (login / register) ─── */
 .landing-overlay {

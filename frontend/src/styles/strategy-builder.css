@@ -7,27 +7,59 @@
   inset: 0;
   z-index: 300;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 40px 16px;
+  padding: 32px 16px;
   background: var(--overlay-backdrop);
   backdrop-filter: blur(3px);
-  overflow-y: auto;
 }
 
+/* Fits the viewport: only .sb-body scrolls, so the footer's Build/Apply
+   are always on screen. */
 .sb-dialog {
   width: 100%;
   max-width: 880px;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 22px 24px 24px;
+  overflow: hidden;
   background: var(--card-bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
 }
+
+.sb-top {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.sb-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px 20px;
+}
+.sb-body:empty { display: none; }
+.sb-empty { margin: 0; }
+.sb-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--card-bg);
+}
+.sb-apply { margin-left: auto; min-width: 96px; }
 
 .sb-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .sb-title { margin: 0 0 2px; font-size: 1.15rem; font-weight: 700; }
@@ -48,12 +80,16 @@
 /* .tab-row is flex: 1 for its usual place in a row — not here, inside a column. */
 .sb-direction { flex: none; }
 
-/* ─── Strategy cards ─── */
+/* ─── Strategy cards: one row, scrolls sideways when they don't fit ─── */
 .sb-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  position: relative; /* offsetParent for the cards (selected-card scroll) */
+  display: flex;
   gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px; /* room for the scrollbar under the cards */
+  scrollbar-width: thin;
 }
+.sb-cards .sb-card { flex: 0 0 132px; }
 .sb-card {
   display: flex;
   flex-direction: column;
@@ -187,9 +223,10 @@
 
 @media (max-width: 640px) {
   .sb-overlay { padding: 0; }
-  .sb-dialog { min-height: 100%; border-radius: 0; border: none; padding: 16px; }
+  .sb-dialog { height: 100%; border-radius: 0; border: none; }
+  .sb-top, .sb-body, .sb-footer { padding-left: 16px; padding-right: 16px; }
   .sb-grid { grid-template-columns: 1fr; }
   .sb-leg-row { grid-template-columns: 1fr 1fr; gap: 8px 12px; }
   .sb-leg-label { grid-column: 1 / -1; }
-  .sb-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sb-cards .sb-card { flex-basis: 120px; }
 }
