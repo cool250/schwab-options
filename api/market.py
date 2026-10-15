@@ -78,6 +78,9 @@ class StrategyBuildRequest(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=20)
     dte: int = Field(..., ge=0, le=1000)
     expirationDate: Optional[str] = None
+    # Optional end of an expiration range: build on every listed expiration
+    # with dte in [dte, maxDte] and rank them together.
+    maxDte: Optional[int] = Field(None, ge=0, le=1000)
     strategy: str
     # Leg key -> placement; legs left out use the template's default.
     params: dict[str, LegParam] = {}
@@ -102,6 +105,7 @@ def build_strategy(body: StrategyBuildRequest, service: MarketService = Depends(
             {k: v.model_dump() for k, v in body.params.items()},
             body.target,
             body.expirationDate,
+            body.maxDte,
         )
     except StrategyParamError as e:
         raise HTTPException(status_code=422, detail=str(e))

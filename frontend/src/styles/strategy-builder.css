@@ -116,7 +116,10 @@
 /* ─── Parameter form ─── */
 .sb-form { display: flex; flex-direction: column; gap: 16px; }
 .sb-description { margin: 0; color: var(--text-muted); font-size: 0.9rem; }
-.sb-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.sb-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.sb-exp-group { grid-column: span 2; }
+.sb-exp-range { display: flex; align-items: center; gap: 10px; }
+.sb-exp-range .input { flex: 1; min-width: 0; }
 .sb-grid .form-group label { display: flex; align-items: center; gap: 6px; }
 
 .sb-legs-form { display: flex; flex-direction: column; gap: 4px; }
@@ -147,8 +150,23 @@
 /* ─── Result ─── */
 .sb-result { display: flex; flex-direction: column; gap: 14px; }
 .sb-result .alert { margin: 0; }
-.sb-metrics { flex-wrap: wrap; row-gap: 12px; }
-.sb-metrics .metric-label { display: flex; align-items: center; gap: 6px; }
+/* All six figures on one line: values 20% smaller than the standard
+   .metric-value (1.25rem), tighter separators, nothing wraps. Where even
+   that can't fit (phones), the row scrolls sideways rather than wrapping. */
+.sb-metrics {
+  flex-direction: row; /* overrides metrics.css's stacked phone layout */
+  align-items: flex-start;
+  gap: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  margin-bottom: 0;
+}
+.sb-metrics .metric { flex: none; padding-right: 16px; margin-right: 16px; border-right: 1px solid var(--border); }
+.sb-metrics .metric:last-child { border-right: none; }
+.sb-metrics .metric:last-child { padding-right: 0; margin-right: 0; }
+.sb-metrics .metric-label { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 0.72rem; }
+.sb-metrics .metric-value { font-size: 1rem; white-space: nowrap; }
 .sb-table-wrap { overflow-x: auto; }
 .sb-table td, .sb-table th { white-space: nowrap; }
 
@@ -171,6 +189,7 @@
 }
 .sb-alt:hover { border-color: var(--border-strong); }
 .sb-alt.active { border-color: var(--primary); background: var(--primary-light); }
+.sb-alt-exp { font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .sb-alt-strikes { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 0; }
 .sb-alt .positive { color: var(--success); }
 .sb-alt .negative { color: var(--error); }
@@ -226,6 +245,7 @@
   .sb-dialog { height: 100%; border-radius: 0; border: none; }
   .sb-top, .sb-body, .sb-footer { padding-left: 16px; padding-right: 16px; }
   .sb-grid { grid-template-columns: 1fr; }
+  .sb-exp-group { grid-column: auto; }
   .sb-leg-row { grid-template-columns: 1fr 1fr; gap: 8px 12px; }
   .sb-leg-label { grid-column: 1 / -1; }
   .sb-cards .sb-card { flex-basis: 120px; }

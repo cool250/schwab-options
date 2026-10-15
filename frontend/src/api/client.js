@@ -91,11 +91,13 @@ export function getStrategyTemplates() {
 
 // params: { [legKey]: { mode, value } }; target: per-share min credit / max
 // debit, or null for none.
-export function buildStrategy({ symbol, dte, expirationDate, strategy, params, target }) {
+// maxDte: optional end of an expiration range (builds on every listed
+// expiration from dte through maxDte).
+export function buildStrategy({ symbol, dte, expirationDate, maxDte, strategy, params, target }) {
   return request('/market/strategy/build', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ symbol, dte, expirationDate, strategy, params, target }),
+    body: JSON.stringify({ symbol, dte, expirationDate, maxDte, strategy, params, target }),
   })
 }
 

@@ -45,6 +45,12 @@ ANCHOR_MODES = ("atm", "delta", "otm_pct", "sigma", "strike")
 WING_MODES = ("width", "steps", "delta", "otm_pct")
 SEARCH_STEPS = 5
 MAX_ALTERNATIVES = 5
+# An expiration range is solved per listed expiration (one live chain fetch
+# each, ~2-3s), so it's capped; the frontend only offers ranges this wide.
+MAX_RANGE_EXPIRATIONS = 10
+# Alternatives shown for a range: the best match on each other expiration
+# first, then the winning expiration's own runners-up.
+MAX_RANGE_ALTERNATIVES = 8
 # Strikes fetched per side of ATM. Wide enough that ~5Δ legs and their
 # wings are in the window on index/ETF chains with $1 strikes.
 STRIKE_COUNT = 60
@@ -393,6 +399,66 @@ def _candidate(template: dict, placed: dict[str, dict], spot: float, iv: Optiona
     }
 
 
+def resolve_params(template_id: str, params: dict, target: Optional[float] = None) -> tuple[dict, dict]:
+    """(template, {leg key: validated {"mode", "value"}}) — legs left out of
+    `params` get the template default. Raises StrategyParamError, so callers
+    can validate before fetching any chain."""
+    template = TEMPLATES.get(template_id)
+    if template is None:
+        raise StrategyParamError(f"Unknown strategy: {template_id}")
+    if target is not None and target < 0:
+        raise StrategyParamError("Target must be zero or more")
+    resolved = {}
+    for spec in template["legs"]:
+        if spec["role"] == "same":
+            continue
+        resolved[spec["key"]] = _validate_param(spec, params.get(spec["key"]) or spec["default"])
+    return template, resolved
+
+
+def _rank_key(template: dict):
+    """Sort key across candidates — possibly from different expirations:
+    closest to the requested placement first, then (credit) the best
+    annualized return, which is what makes a 20-DTE and a 45-DTE credit
+    comparable, then the better premium (more credit / less debit)."""
+    is_credit = template["direction"] == "credit"
+
+    def key(c: dict):
+        ann = c.get("annualizedReturn") if is_credit else None
+        return (c["distance"], -(ann if ann is not None else -math.inf), -c["netPremium"])
+
+    return key
+
+
+def combine(template_id: str, results: list[dict]) -> dict:
+    """Merge build() results for several expirations of the same strategy
+    and parameters into one {"best", "alternatives", "reasons", "params"}.
+    The best per expiration compete via _rank_key; alternatives are the
+    other expirations' bests, then the winner's own runners-up."""
+    template = TEMPLATES[template_id]
+    key = _rank_key(template)
+    winners = sorted((r for r in results if r["best"]), key=lambda r: key(r["best"]))
+    if not winners:
+        reasons = []
+        for r in results:
+            for why in r["reasons"]:
+                if why not in reasons:
+                    reasons.append(why)
+        return {"best": None, "alternatives": [], "reasons": reasons, "params": results[0]["params"] if results else {}}
+    top = winners[0]
+    alternatives = [r["best"] for r in winners[1:]] + top["alternatives"]
+    reasons = []
+    missing = len(results) - len(winners)
+    if missing:
+        reasons.append(f"{missing} of {len(results)} expirations had no qualifying combination")
+    return {
+        "best": top["best"],
+        "alternatives": alternatives[:MAX_RANGE_ALTERNATIVES],
+        "reasons": reasons,
+        "params": top["params"],
+    }
+
+
 def build(template_id: str, params: dict, chain: dict, target: Optional[float] = None) -> dict:
     """Solve `template_id` against one expiration's normalized `chain`
     (OptionChainProvider.get_option_chain shape).
@@ -404,17 +470,7 @@ def build(template_id: str, params: dict, chain: dict, target: Optional[float] =
     Returns {"best", "alternatives", "reasons", "params"} — best is None
     (with reasons saying why) when no combination qualifies.
     """
-    template = TEMPLATES.get(template_id)
-    if template is None:
-        raise StrategyParamError(f"Unknown strategy: {template_id}")
-    if target is not None and target < 0:
-        raise StrategyParamError("Target must be zero or more")
-
-    resolved = {}
-    for spec in template["legs"]:
-        if spec["role"] == "same":
-            continue
-        resolved[spec["key"]] = _validate_param(spec, params.get(spec["key"]) or spec["default"])
+    template, resolved = resolve_params(template_id, params, target)
 
     spot, iv, dte = chain["spot"], chain.get("iv"), chain.get("dte") or 0
     by_type = _contracts_by_type(chain)
@@ -478,6 +534,11 @@ def build(template_id: str, params: dict, chain: dict, target: Optional[float] =
         if cand is None:
             continue
         cand["distance"] = sum(abs(o) for o in offsets)
+        # Each candidate carries its own expiration, since a range build
+        # mixes candidates from several.
+        cand["expirationDate"] = chain.get("expirationDate")
+        cand["dte"] = dte
+        cand["iv"] = iv
         candidates.append(cand)
 
     is_credit = template["direction"] == "credit"
@@ -500,9 +561,9 @@ def build(template_id: str, params: dict, chain: dict, target: Optional[float] =
             return {"best": None, "alternatives": [], "reasons": reasons, "params": resolved}
         candidates = meeting
 
-    # Closest to the requested placement first; among equally close ones the
-    # better premium (more credit / less debit).
-    candidates.sort(key=lambda c: (c["distance"], -c["netPremium"]))
+    # Same ordering a range build uses across expirations (see _rank_key);
+    # within one expiration the return tiebreak mostly follows the premium.
+    candidates.sort(key=_rank_key(template))
     return {
         "best": candidates[0],
         "alternatives": candidates[1 : 1 + MAX_ALTERNATIVES],

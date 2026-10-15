@@ -29,6 +29,10 @@ const builderCache = createSessionCache(() => ({
   contracts: 1,
 }))
 
+// Widest expiration range one build may span — each expiration is its own
+// live chain fetch. Mirrors strategy_builder.MAX_RANGE_EXPIRATIONS.
+const MAX_RANGE_EXPIRATIONS = 10
+
 const ANCHOR_MODE_LABELS = {
   atm: 'At the money',
   delta: 'Delta',
@@ -154,6 +158,8 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
   const [target, setTarget] = useState(builderCache.target)
   const [contracts, setContracts] = useState(builderCache.contracts)
   const [expIndex, setExpIndex] = useState(Math.min(initialExpIndex ?? 0, Math.max(expirations.length - 1, 0)))
+  // End of the expiration range; equal to expIndex = a single expiration.
+  const [expToIndex, setExpToIndex] = useState(expIndex)
   const [building, setBuilding] = useState(false)
   const [buildError, setBuildError] = useState(null)
   const [result, setResult] = useState(null)
@@ -219,6 +225,8 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
   const qty = Math.max(1, Math.floor(Number(contracts) || 1))
   const scale = multiplier * qty
   const exp = expirations[expIndex]
+  const expTo = expirations[expToIndex] ?? exp
+  const rangeCount = expToIndex - expIndex + 1
 
   const clearResult = () => {
     setResult(null)
@@ -272,6 +280,7 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
         symbol,
         dte: exp.dte,
         expirationDate: exp.date,
+        maxDte: rangeCount > 1 ? expTo.dte : null,
         strategy: template.id,
         params,
         target: Number.isFinite(targetValue) ? targetValue : null,
@@ -291,8 +300,8 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
     if (!chosen) return
     const premium = chosen.netPremium
     onApply({
-      expirationDate: result.expirationDate,
-      dte: result.dte,
+      expirationDate: chosen.expirationDate ?? result.expirationDate,
+      dte: chosen.dte ?? result.dte,
       legs: chosen.legs.map((l) => ({
         side: l.qty < 0 ? 'SELL' : 'BUY',
         qty: Math.abs(l.qty) * qty,
@@ -372,23 +381,55 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
               <p className="sb-description">{template.description}</p>
 
               <div className="sb-grid">
-                <div className="form-group">
-                  <label htmlFor="sb-exp">Expiration</label>
-                  <select
-                    id="sb-exp"
-                    className="input"
-                    value={expIndex}
-                    onChange={(e) => {
-                      setExpIndex(+e.target.value)
-                      clearResult()
-                    }}
-                  >
-                    {expirations.map((x, i) => (
-                      <option key={x.date} value={i}>
-                        {formatDate(x.date)} · {x.dte}d
-                      </option>
-                    ))}
-                  </select>
+                <div className="form-group sb-exp-group">
+                  <label htmlFor="sb-exp">
+                    Expiration
+                    <HelpTip label="About the expiration range">
+                      Pick a later "to" date to search a range: the strategy is built on every listed expiration in
+                      it (up to {MAX_RANGE_EXPIRATIONS}) and the results are ranked together. The closest match to
+                      your leg placement wins
+                      {isCredit ? ', then the best annualized return on risk' : ''}. The best match on each other
+                      expiration is listed under Alternatives.
+                    </HelpTip>
+                  </label>
+                  <div className="sb-exp-range">
+                    <select
+                      id="sb-exp"
+                      className="input"
+                      aria-label="Expiration from"
+                      value={expIndex}
+                      onChange={(e) => {
+                        const from = +e.target.value
+                        setExpIndex(from)
+                        // Keep "to" on or after "from" and within the range cap.
+                        setExpToIndex((to) => Math.min(Math.max(to, from), from + MAX_RANGE_EXPIRATIONS - 1))
+                        clearResult()
+                      }}
+                    >
+                      {expirations.map((x, i) => (
+                        <option key={x.date} value={i}>
+                          {formatDate(x.date)} · {x.dte}d
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-muted">to</span>
+                    <select
+                      id="sb-exp-to"
+                      className="input"
+                      aria-label="Expiration to"
+                      value={expToIndex}
+                      onChange={(e) => {
+                        setExpToIndex(+e.target.value)
+                        clearResult()
+                      }}
+                    >
+                      {expirations.slice(expIndex, expIndex + MAX_RANGE_EXPIRATIONS).map((x, i) => (
+                        <option key={x.date} value={expIndex + i}>
+                          {i === 0 ? 'Same' : `${formatDate(x.date)} · ${x.dte}d`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className="form-group">
                   <label htmlFor="sb-contracts">Contracts</label>
@@ -530,7 +571,7 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
                         POP (est.)
                         <HelpTip label="About probability of profit">
                           Chance of finishing above zero P&L at expiration, from a lognormal model at the chain's ATM
-                          implied volatility ({fmtPct(result.iv)}). An estimate: no skew, no early exit.
+                          implied volatility ({fmtPct(chosen.iv ?? result.iv)}). An estimate: no skew, no early exit.
                         </HelpTip>
                       </span>
                       <span className="metric-value">{fmtPct(chosen.pop)}</span>
@@ -569,7 +610,7 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
                                 {l.qty < 0 ? 'Sell' : 'Buy'} {Math.abs(l.qty) * qty}
                               </span>
                             </td>
-                            <td>{formatOptionSymbol(symbol, result.expirationDate, l.strike, l.type) || l.symbol}</td>
+                            <td>{formatOptionSymbol(symbol, chosen.expirationDate ?? result.expirationDate, l.strike, l.type) || l.symbol}</td>
                             <td>{fmtMoneyness(l.otmPct)}</td>
                             <td>{fmtDelta(l.delta)}</td>
                             <td>{fmtIv(l.iv)}</td>
@@ -588,11 +629,16 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
                       <div className="sb-alt-list">
                         {candidates.map((c, i) => (
                           <button
-                            key={c.legs.map((l) => l.symbol).join('|')}
+                            key={`${c.expirationDate}|${c.legs.map((l) => l.symbol).join('|')}`}
                             type="button"
                             className={`sb-alt ${i === choice ? 'active' : ''}`}
                             onClick={() => setChoice(i)}
                           >
+                            {result.expirationsSearched > 1 && (
+                              <span className="sb-alt-exp">
+                                {formatDate(c.expirationDate)} · {c.dte}d
+                              </span>
+                            )}
                             <span className="sb-alt-strikes">
                               {c.legs.map((l) => `${l.strike}${l.type === 'PUT' ? 'P' : 'C'}`).join(' / ')}
                             </span>
@@ -620,25 +666,29 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
             className={`btn ${chosen ? 'btn-secondary' : 'btn-primary'}`}
             disabled={building || !template || !exp}
           >
-            {building ? 'Building…' : 'Build'}
+            {building ? (rangeCount > 1 ? `Building ${rangeCount} expirations…` : 'Building…') : 'Build'}
           </button>
           <button type="button" className="btn btn-secondary" onClick={resetDefaults} disabled={building || !template}>
             Reset to defaults
           </button>
           {chosen && (
             <span className="text-muted sb-hint">
-              {formatDate(result.expirationDate)} · {result.dte}d · spot ${Number(result.spot).toFixed(2)}
+              {formatDate(chosen.expirationDate ?? result.expirationDate)} · {chosen.dte ?? result.dte}d · spot $
+              {Number(result.spot).toFixed(2)}
+              {result.expirationsSearched > 1 && ` · best of ${result.expirationsSearched} expirations`}
             </span>
           )}
-          <button
-            type="button"
-            className="btn btn-primary sb-apply"
-            onClick={apply}
-            disabled={!chosen}
-            title={!chosen ? 'Build a strategy first' : hasLegs ? 'Replaces the legs currently on Analyze' : undefined}
-          >
-            Apply
-          </button>
+          {/* Only once a built strategy is showing — nothing to apply before that. */}
+          {chosen && (
+            <button
+              type="button"
+              className="btn btn-primary sb-apply"
+              onClick={apply}
+              title={hasLegs ? 'Replaces the legs currently on Analyze' : undefined}
+            >
+              Apply
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -134,6 +134,7 @@ def build_strategy(
     expiration_date: str = "",
     params: dict | None = None,
     min_credit: float | None = None,
+    max_dte: int | None = None,
 ) -> str:
     """Place a named strategy's legs on the live chain — the same solver as
     the Analyze page's Strategy Builder (service/strategy_builder.py)."""
@@ -142,7 +143,9 @@ def build_strategy(
         return json.dumps({"error": f"Unsupported strategy {strategy!r}; use one of {COPILOT_STRATEGIES}"})
     symbol = symbol.strip().upper()
     try:
-        result = MarketService().build_strategy(symbol, dte, strategy, params or {}, min_credit, expiration_date or None)
+        result = MarketService().build_strategy(
+            symbol, dte, strategy, params or {}, min_credit, expiration_date or None, max_dte
+        )
     except StrategyParamError as e:
         return json.dumps({"error": str(e)})
     except Exception as e:  # e.g. TastytradeAPIError, which isn't a BrokerError — never break the tool loop
@@ -476,6 +479,15 @@ TOOL_SCHEMAS = [
                     "min_credit": {
                         "type": "number",
                         "description": "Optional minimum net credit per share at mid (e.g. 1.50).",
+                    },
+                    "max_dte": {
+                        "type": "integer",
+                        "description": "Optional end of an expiration range: builds on every listed "
+                        "expiration with days-to-expiration from dte through max_dte (at most 10 "
+                        "expirations) and ranks them together — each candidate then carries its own "
+                        "expirationDate/dte, and the alternatives include the best match on each other "
+                        "expiration. Omit to build on a single expiration (and always omit it when the "
+                        "page context gives a selectedExpirationDte).",
                     },
                 },
                 "required": ["symbol", "strategy", "dte"],
