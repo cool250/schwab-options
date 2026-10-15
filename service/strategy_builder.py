@@ -38,10 +38,11 @@ screener's builders.
 import math
 from typing import Optional
 
+from service.option_chain_providers import otm_pct
 from service.strategy_math import net_premium, payoff, payoff_profile, probability_of_profit
 
 ANCHOR_MODES = ("atm", "delta", "otm_pct", "sigma", "strike")
-WING_MODES = ("width", "steps", "delta")
+WING_MODES = ("width", "steps", "delta", "otm_pct")
 SEARCH_STEPS = 5
 MAX_ALTERNATIVES = 5
 # Strikes fetched per side of ATM. Wide enough that ~5Δ legs and their
@@ -312,7 +313,7 @@ def _place_anchor(leg: dict, param: dict, contracts: list[dict], spot: float, iv
     return i, None
 
 
-def _place_wing(leg: dict, param: dict, contracts: list[dict], anchor_strike: float) -> Optional[dict]:
+def _place_wing(leg: dict, param: dict, contracts: list[dict], anchor_strike: float, spot: float) -> Optional[dict]:
     """The wing contract on the leg's side of `anchor_strike`, or None."""
     side = [c for c in contracts if (c["strike"] > anchor_strike if leg["dir"] > 0 else c["strike"] < anchor_strike)]
     if leg["dir"] < 0:
@@ -326,6 +327,12 @@ def _place_wing(leg: dict, param: dict, contracts: list[dict], anchor_strike: fl
     if mode == "delta":
         i = _by_delta(side, value, leg["type"])
         return side[i] if i is not None else None
+    if mode == "otm_pct":
+        # Moneyness is absolute (from spot), not relative to the anchor; a
+        # target on the wrong side of the anchor lands on the nearest strike
+        # past it, since `side` only holds strikes beyond the anchor.
+        target = spot * (1 + (-1 if leg["type"] == "PUT" else 1) * value / 100)
+        return side[_nearest_index(side, target)]
     target = anchor_strike + leg["dir"] * value
     return side[_nearest_index(side, target)]
 
@@ -358,7 +365,12 @@ def _candidate(template: dict, placed: dict[str, dict], spot: float, iv: Optiona
     deltas = [leg["delta"] for leg in legs]
     return {
         "legs": [
-            {k: leg[k] for k in ("key", "label", "symbol", "type", "strike", "qty", "bid", "ask", "mid", "delta", "iv")}
+            {
+                **{k: leg[k] for k in ("key", "label", "symbol", "type", "strike", "qty", "bid", "ask", "mid", "delta", "iv")},
+                # Percent out of the money (negative = in the money), same
+                # convention as the Screener's moneyness.
+                "otmPct": otm_pct(leg["strike"], spot, leg["type"]),
+            }
             for leg in legs
         ],
         # Per share, for one unit of the position. Positive = net credit.
@@ -443,7 +455,7 @@ def build(template_id: str, params: dict, chain: dict, target: Optional[float] =
                 placed[spec["key"]] = match
         for spec in template["legs"]:
             if spec["role"] == "wing":
-                wing = _place_wing(spec, resolved[spec["key"]], pools[spec["key"]], placed[spec["of"]]["strike"])
+                wing = _place_wing(spec, resolved[spec["key"]], pools[spec["key"]], placed[spec["of"]]["strike"], spot)
                 if wing is None:
                     return None
                 placed[spec["key"]] = wing

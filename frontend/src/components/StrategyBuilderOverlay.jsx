@@ -32,7 +32,7 @@ const builderCache = createSessionCache(() => ({
 const ANCHOR_MODE_LABELS = {
   atm: 'At the money',
   delta: 'Delta',
-  otm_pct: '% OTM',
+  otm_pct: 'Moneyness (% OTM)',
   sigma: 'Expected move (σ)',
   strike: 'Strike',
 }
@@ -40,6 +40,7 @@ const WING_MODE_LABELS = {
   width: 'Width ($)',
   steps: 'Strike steps',
   delta: 'Delta',
+  otm_pct: 'Moneyness (% OTM)',
 }
 
 // Deltas are entered as whole numbers ("16" for a 16Δ / 0.16 delta) — how
@@ -82,6 +83,7 @@ function placementSummary(template, params) {
         width: `$${p.value} wing`,
         steps: `${p.value}-strike wing`,
         delta: `${+(p.value * 100).toFixed(1)}Δ wing`,
+        otm_pct: `${p.value}% OTM wing`,
       }[p.mode]
     }
     if (text && !parts.includes(text)) parts.push(text)
@@ -93,6 +95,9 @@ const fmtUsd = (n) =>
   `$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const fmtPrice = (n) => (Number.isFinite(n) ? n.toFixed(2) : '—')
 const fmtPct = (n) => (Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : '—')
+// Screener convention: positive = out of the money, negative = in the money.
+const fmtMoneyness = (n) =>
+  !Number.isFinite(n) ? '—' : Math.abs(n) < 0.05 ? 'ATM' : `${Math.abs(n).toFixed(1)}% ${n > 0 ? 'OTM' : 'ITM'}`
 const fmtDelta = (n) => (Number.isFinite(n) ? n.toFixed(2) : '—')
 // Per-contract IV: a fraction from Tastytrade, a percentage from Schwab's
 // chain (same inconsistency the Analyze chain table lives with).
@@ -527,6 +532,7 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
                       <tr>
                         <th>Side</th>
                         <th>Contract</th>
+                        <th>Moneyness</th>
                         <th>Delta</th>
                         <th>IV</th>
                         <th>Bid</th>
@@ -543,6 +549,7 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
                             </span>
                           </td>
                           <td>{formatOptionSymbol(symbol, result.expirationDate, l.strike, l.type) || l.symbol}</td>
+                          <td>{fmtMoneyness(l.otmPct)}</td>
                           <td>{fmtDelta(l.delta)}</td>
                           <td>{fmtIv(l.iv)}</td>
                           <td>{fmtPrice(l.bid)}</td>

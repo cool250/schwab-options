@@ -903,15 +903,6 @@ export default function StrikeLab() {
                   {loadingChain && <span className="spinner spinner-sm" title="Syncing chain…" />}
                 </span>
               )}
-              <button
-                type="button"
-                className="btn btn-secondary strategy-builder-btn"
-                onClick={() => setBuilderOpen(true)}
-                disabled={!canBuild}
-                title={canBuild ? "Build an options strategy on this ticker" : "Enter a symbol first"}
-              >
-                Build Strategy
-              </button>
             </div>
           </div>
 
@@ -963,10 +954,23 @@ export default function StrikeLab() {
 
       {/* ---------------- Legs editor ---------------- */}
       <div className="card">
-        <h3 className="section-title">
-          Strike
-          {activeStrategy && <span className="strategy-badge">{activeStrategy}</span>}
-        </h3>
+        {/* Build Strategy lives here, not in the symbol row: it replaces these
+            legs, and the badge it leaves sits right beside it. */}
+        <div className="strike-card-header">
+          <h3 className="section-title">
+            Strike
+            {activeStrategy && <span className="strategy-badge">{activeStrategy}</span>}
+          </h3>
+          <button
+            type="button"
+            className="btn btn-primary strategy-builder-btn"
+            onClick={() => setBuilderOpen(true)}
+            disabled={!canBuild}
+            title={canBuild ? "Build an options strategy on this ticker" : "Enter a symbol first"}
+          >
+            Build Strategy
+          </button>
+        </div>
         <StrikeRuler
           legs={legs}
           spot={spot}
@@ -981,9 +985,21 @@ export default function StrikeLab() {
           onAutoOpenHandled={() => setAutoOpenLegId(null)}
         />
         <span className="summary-line">
-          {legs.length === 0
-            ? "No legs yet — click a bid/ask in the chain below to add one."
-            : `${legs.length} leg${legs.length !== 1 ? "s" : ""} — click a tag above to edit.`}
+          {legs.length === 0 ? (
+            canBuild ? (
+              <>
+                No legs yet — click a bid/ask in the chain below, or{" "}
+                <button type="button" className="link-button" onClick={() => setBuilderOpen(true)}>
+                  build a strategy
+                </button>
+                .
+              </>
+            ) : (
+              "No legs yet — click a bid/ask in the chain below to add one."
+            )
+          ) : (
+            `${legs.length} leg${legs.length !== 1 ? "s" : ""} — click a tag above to edit.`
+          )}
         </span>
       </div>
 

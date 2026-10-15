@@ -147,8 +147,28 @@
   letter-spacing: 0.4px;
 }
 
-/* ─── Analyze page: entry button + applied-strategy badge ─── */
-.strategy-builder-btn { padding: 7px 14px; white-space: nowrap; }
+/* ─── Analyze page: Strike card header (Build Strategy + applied badge) ─── */
+.strike-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.strategy-builder-btn { padding: 6px 14px; white-space: nowrap; }
+/* Inline text-style button inside a sentence (the empty-state hint). */
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.link-button:hover { color: var(--primary-hover); }
+.link-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
 .strategy-badge {
   display: inline-flex;
   align-items: center;
