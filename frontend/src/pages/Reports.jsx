@@ -35,14 +35,6 @@ function previousMonth(year, month) {
   return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 }
 }
 
-// YTD comparison: the same stretch of the previous year — Jan 1 through the
-// same calendar day (Feb 29 becomes Feb 28), or all of it for a past year.
-function previousYearRange(year) {
-  const { end } = ytdRange(year)
-  const sameDay = end.slice(5) === '02-29' ? '02-28' : end.slice(5)
-  return { start: `${year - 1}-01-01`, end: `${year - 1}-${sameDay}` }
-}
-
 // Same normalization Transactions.jsx applies to equity/future rows before
 // display: an unmatched leg — either a still-open position, or a closing
 // sale whose original open fell outside the backend's lookback window — has
@@ -89,7 +81,7 @@ export default function Reports() {
   const [year, setYear] = useState(defaults.year)
   const [month, setMonth] = useState(defaults.month)
   // Per tab: what was last loaded for it — the period plus the raw rows
-  // (options, equity/futures, and the comparison period's options) —
+  // (options, equity/futures, and, for Month, last month's options) —
   // whether it's loading, and its error. Each tab keeps its own, so
   // switching between Month and YTD doesn't refetch.
   const [reports, setReports] = useState({ month: null, ytd: null })
@@ -115,18 +107,16 @@ export default function Reports() {
     setReports((s) => ({ ...s, [period]: null }))
     try {
       const { start, end } = period === 'ytd' ? ytdRange(year) : monthRange(year, month)
-      // Comparison period: last month (Month) or the same stretch of last
-      // year (YTD).
+      // Month compares against last month; YTD has no comparison.
       const prevMonth = period === 'month' ? previousMonth(year, month) : null
-      const prevRange = prevMonth ? monthRange(prevMonth.year, prevMonth.month) : previousYearRange(year)
-      const prevName = prevMonth
-        ? MONTH_NAMES[prevMonth.month - 1]
-        : year === currentYear() ? `${year - 1} to date` : String(year - 1)
+      const prevRange = prevMonth && monthRange(prevMonth.year, prevMonth.month)
+      const prevName = prevMonth ? MONTH_NAMES[prevMonth.month - 1] : null
       const [data, equityData, prevData] = await Promise.all([
         getAllocations(start, end, REALIZED_ONLY),
         getEquityTransactions('', start, end, 'ALL', REALIZED_ONLY),
-        // Only for the comparison — the report still loads without it.
-        getAllocations(prevRange.start, prevRange.end, REALIZED_ONLY).catch(() => null),
+        // Only for the "vs last month" comparison — the report still loads
+        // without it.
+        prevRange ? getAllocations(prevRange.start, prevRange.end, REALIZED_ONLY).catch(() => null) : Promise.resolve(null),
       ])
       if (!current()) return
       setReports((s) => ({ ...s, [period]: {
@@ -278,7 +268,7 @@ export default function Reports() {
 
       {show && (
         <>
-          {/* 1. Key numbers, against last month (Month) or the same stretch of last year (YTD) */}
+          {/* 1. Key numbers — compared with last month in the Month view */}
           <KpiStrip
             stats={derived.stats}
             prev={derived.prevStats}
