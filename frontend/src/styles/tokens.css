@@ -63,6 +63,14 @@
   /* Modal backdrop (Strategy Builder overlay) */
   --overlay-backdrop: rgba(15, 23, 42, 0.55);
 
+  /* P&L heat (Reports calendars and symbol-by-month table): a diverging
+     pair — 4 gain steps, 4 loss steps, a neutral midpoint — plus the text
+     color to use on each step. */
+  --pnl-neutral: #f1f5f9;
+  --pnl-gain-1: #dcfce7; --pnl-gain-2: #8fdcb4; --pnl-gain-3: #2fa874; --pnl-gain-4: #047857;
+  --pnl-loss-1: #fee2e2; --pnl-loss-2: #f6a6a6; --pnl-loss-3: #e04b4b; --pnl-loss-4: #b91c1c;
+  --pnl-on-1: #0f172a; --pnl-on-2: #0f172a; --pnl-on-3: #ffffff; --pnl-on-4: #ffffff;
+
   /* Shape */
   --radius-sm: 6px;
   --radius:    10px;
@@ -128,6 +136,11 @@
   --warning-bg:    rgba(251, 191, 36, 0.12);
 
   --overlay-backdrop: rgba(0, 0, 0, 0.65);
+
+  --pnl-neutral: #303030;
+  --pnl-gain-1: #1f3a2f; --pnl-gain-2: #23664c; --pnl-gain-3: #2b9a6c; --pnl-gain-4: #5fe0a8;
+  --pnl-loss-1: #3d2424; --pnl-loss-2: #6e2c2c; --pnl-loss-3: #b53d3d; --pnl-loss-4: #fb8a8a;
+  --pnl-on-1: #f5f5f5; --pnl-on-2: #f5f5f5; --pnl-on-3: #ffffff; --pnl-on-4: #171717;
 
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25);

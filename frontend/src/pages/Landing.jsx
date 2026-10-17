@@ -34,7 +34,7 @@ const FEATURES = [
   {
     Icon: ReportsIcon,
     title: 'Reports',
-    text: 'P&L by symbol, week and day for any month or year to date, with click-through to the trades behind each number.',
+    text: 'Key numbers, a P&L calendar, running totals and results by symbol for any month or year to date, with click-through to the trades behind each number.',
   },
   {
     Icon: AnalyzeIcon,
@@ -232,7 +232,7 @@ export default function Landing({ initialOverlay = null }) {
             <figure className="landing-shot landing-shot--hero">
               <img
                 src="/landing/reports.jpg"
-                alt="NuTrade Reports showing a month of option and equity/futures P&L by symbol (sample data)"
+                alt="NuTrade Reports showing a month's P&L, win rate and profit factor, a P&L calendar and a running total (sample data)"
                 width="1600"
                 height="1000"
               />
@@ -272,20 +272,7 @@ export default function Landing({ initialOverlay = null }) {
             </div>
           </section>
         ))}
-
-        <section className="landing-cta-band">
-          <div className="landing-container landing-cta-band-inner">
-            <h2>Ready to look at your book?</h2>
-            <div className="landing-hero-actions">{authActions}</div>
-          </div>
-        </section>
       </main>
-
-      <footer className="landing-footer">
-        <div className="landing-container landing-footer-inner">
-          <img src="/nutrade_icon.svg" alt="NuTrade" className="landing-footer-logo" />
-        </div>
-      </footer>
 
       {overlay === 'login' && (
         <Overlay onClose={closeOverlay} labelledBy="login-title">
