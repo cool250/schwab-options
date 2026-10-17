@@ -1,7 +1,8 @@
 /* ─── Reports page (pages/Reports.jsx, components/ReportViews.jsx) ─── */
 
-.report-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 20px; }
-.report-row--even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.report-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+/* A chart that fills whatever height its card has left (see CHART_MIN_HEIGHT). */
+.report-chart-fill { flex: 1; min-height: 260px; min-width: 0; }
 .report-card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
 .report-card-note { font-size: 0.8rem; color: var(--text-muted); }
 /* In-card source switch: sized to its tabs, not stretched like a page-level .tab-row. */
@@ -133,7 +134,7 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
   .report-kpi:nth-child(4) { border-left: none; padding-left: 0; }
 }
 @media (max-width: 960px) {
-  .report-row, .report-row--even { grid-template-columns: minmax(0, 1fr); }
+  .report-row { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
   .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }

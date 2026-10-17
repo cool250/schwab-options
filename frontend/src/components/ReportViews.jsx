@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ResponsiveContainer, ComposedChart, BarChart, AreaChart, Bar, Line, Area, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceLine, LabelList,
@@ -76,6 +76,47 @@ export function HeatScale({ maxAbs }) {
     </div>
   )
 }
+
+/** Which trades a by-symbol table shows. */
+export function SourceTabs({ value, onChange }) {
+  return (
+    <div className="tab-row report-source-tabs" role="tablist" aria-label="Trades to include">
+      {[
+        { id: 'options', label: 'Options' },
+        { id: 'equity', label: 'Equity & futures' },
+        { id: 'all', label: 'All' },
+      ].map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          aria-selected={value === t.id}
+          className={`tab-item ${value === t.id ? 'active' : ''}`}
+          onClick={() => onChange(t.id)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Width of an element, kept current as it resizes. */
+function useWidth() {
+  const ref = useRef(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    if (!ref.current) return
+    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    ro.observe(ref.current)
+    return () => ro.disconnect()
+  }, [])
+  return [ref, width]
+}
+
+// Charts fill their card's height (a chart card beside a taller one ends
+// level with it) and never shrink below this.
+const CHART_MIN_HEIGHT = 260
 
 /** Enter/Space activate a non-button clickable element, like a button. */
 const keyActivate = (fn) => (e) => {
@@ -253,7 +294,7 @@ export function DailyRunChart({ trades, onDay }) {
   if (data.length === 0) return null
   const EndLabel = endLabel(data.length, compactUsd)
   return (
-    <ResponsiveContainer width="100%" height={280}>
+    <ResponsiveContainer width="100%" height="100%" minHeight={CHART_MIN_HEIGHT}>
       <ComposedChart
         data={data}
         margin={{ top: 12, right: 64, left: 0, bottom: 0 }}
@@ -411,7 +452,7 @@ export function MonthlyBarsChart({ trades, lastMonth, partialNote, onMonth }) {
     )
   }
   return (
-    <ResponsiveContainer width="100%" height={260}>
+    <ResponsiveContainer width="100%" height="100%" minHeight={CHART_MIN_HEIGHT}>
       <BarChart data={data} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid vertical={false} stroke="var(--border)" />
         <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} />
@@ -439,7 +480,7 @@ export function MonthlyBarsChart({ trades, lastMonth, partialNote, onMonth }) {
 }
 
 /** Cumulative realized P&L across the year, one point per trading day. */
-export function CumulativeChart({ trades }) {
+export function CumulativeChart({ trades, onDay }) {
   const data = useMemo(() => runningTotal(trades), [trades])
   const monthTicks = useMemo(() => {
     const seen = new Set()
@@ -448,8 +489,13 @@ export function CumulativeChart({ trades }) {
   if (data.length === 0) return null
   const EndLabel = endLabel(data.length, compactUsd)
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <AreaChart data={data} margin={{ top: 20, right: 64, left: 0, bottom: 0 }}>
+    <ResponsiveContainer width="100%" height="100%" minHeight={CHART_MIN_HEIGHT}>
+      <AreaChart
+        data={data}
+        margin={{ top: 20, right: 64, left: 0, bottom: 0 }}
+        onClick={(s) => s?.activeLabel && onDay(s.activeLabel)}
+        style={{ cursor: 'pointer' }}
+      >
         <CartesianGrid vertical={false} stroke="var(--border)" />
         <XAxis dataKey="date" ticks={monthTicks} tick={axisTick} tickLine={false} axisLine={false} tickFormatter={(d) => MONTH_NAMES[utcDate(d).getUTCMonth()]} />
         <YAxis tick={axisTick} tickLine={false} axisLine={false} width={56} tickFormatter={compactUsd} />
@@ -574,12 +620,16 @@ export function YearCalendar({ year, trades, endIso, onDay }) {
     }
     return { cells, monthLabels, weeks: week, maxAbs: Math.max(0, ...[...daily.values()].map(Math.abs)) }
   }, [year, trades, endIso])
-  const size = 13, gap = 3, left = 30, top = 16
+  // Squares sized so the year spans the card (between 9px and 22px; below
+  // that the strip scrolls sideways instead of shrinking further).
+  const [boxRef, boxWidth] = useWidth()
+  const left = 30, top = 16, gap = 3
+  const size = Math.max(9, Math.min(22, Math.floor((boxWidth - left) / Math.max(weeks, 1)) - gap))
   const width = left + weeks * (size + gap)
   const height = top + 5 * (size + gap)
   return (
     <>
-      <div className="report-ycal">
+      <div className="report-ycal" ref={boxRef}>
         <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="P&L for every trading day this year">
           {['Mon', 'Wed', 'Fri'].map((d, i) => (
             <text key={d} x={0} y={top + i * 2 * (size + gap) + size - 2} className="report-ycal-label">{d}</text>
