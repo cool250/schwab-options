@@ -4,18 +4,31 @@
 .report-row--even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .report-card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
 .report-card-note { font-size: 0.8rem; color: var(--text-muted); }
+/* In-card source switch: sized to its tabs, not stretched like a page-level .tab-row. */
+.report-source-tabs { flex: none; }
 
 .pnl-up { color: var(--success); }
 .pnl-down { color: var(--error); }
 
 /* Key numbers */
-.report-kpis { display: grid; grid-template-columns: 1.4fr repeat(5, minmax(0, 1fr)); }
+/* Hero tile, the wider Trades tile (its breakdown stays on one line), then four. */
+.report-kpis { display: grid; grid-template-columns: 1.3fr 1.6fr repeat(4, minmax(0, 1fr)); }
 .report-kpi { display: flex; flex-direction: column; gap: 4px; padding: 2px 18px; border-left: 1px solid var(--border); min-width: 0; }
 .report-kpi:first-child { border-left: none; padding-left: 0; }
 .report-kpi-label { font-size: 0.75rem; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
 .report-kpi-value { font-size: 1.25rem; font-weight: 700; color: var(--text); white-space: nowrap; }
 .report-kpi--hero .report-kpi-value { font-size: 2rem; line-height: 1.1; }
-.report-kpi-sub { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
+.report-kpi-sub { font-size: 0.78rem; color: var(--text-muted); }
+/* Trades tile: "3 closed · 13 expired · 2 exercised" on one line. */
+.report-kpi-breakdown { display: flex; flex-wrap: nowrap; gap: 6px; white-space: nowrap; }
+.report-kpi-breakdown > span { cursor: help; }
+.report-kpi-breakdown > span + span::before { content: "·"; margin-right: 6px; color: var(--text-faint); }
+.report-kpi-inline { margin-left: 4px; font-size: 0.78rem; font-weight: 500; color: var(--text-muted); }
+
+/* Period filters: Year, Month and Submit on one row. */
+.report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
+.report-filters .form-group { flex: 1 1 180px; min-width: 0; }
+.report-filters .btn { flex: none; }
 .report-kpi-extra { margin: 0; padding-top: 10px; border-top: 1px solid var(--border); }
 
 /* Month calendar */
@@ -80,6 +93,12 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
 .report-table td.pnl-up { color: var(--success); }
 .report-table td.pnl-down { color: var(--error); }
 .report-sym { font-weight: 600; }
+.report-exercised {
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  background: var(--warning-bg); color: var(--warning);
+  font-size: 0.72rem; font-weight: 600; white-space: nowrap; cursor: help;
+}
+.report-footnote { margin: 8px 0 0; font-size: 0.78rem; color: var(--text-muted); white-space: normal; }
 .report-row-link { cursor: pointer; }
 .report-table tbody tr.report-row-link:hover td { background: var(--bg); }
 .report-row-link:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
@@ -107,15 +126,20 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
 .report-ycal-cell { cursor: pointer; }
 .report-ycal-cell:hover, .report-ycal-cell:focus-visible { outline: none; stroke: var(--text); stroke-width: 1.5; }
 
-@media (max-width: 960px) {
+/* Below this the six tiles can't keep the Trades breakdown on one line:
+   two rows of three. */
+@media (max-width: 1240px) {
   .report-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 14px; }
   .report-kpi:nth-child(4) { border-left: none; padding-left: 0; }
+}
+@media (max-width: 960px) {
   .report-row, .report-row--even { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
   .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-kpi { border-left: none; padding-left: 0; }
   .report-kpi--hero { grid-column: 1 / -1; }
+  .report-kpi--wide { grid-column: 1 / -1; }
   .pnl-cal { gap: 3px; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1fr); }
   .pnl-day { min-height: 46px; padding: 4px 5px; }
   .pnl-day-value { font-size: 0.72rem; }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAllocations, getEquityTransactions, friendlyErrorMessage } from '../api/client'
 import Spinner from '../components/Spinner'
@@ -80,20 +80,30 @@ export default function Reports() {
   const [period, setPeriod] = useState(defaults.period) // 'month' | 'ytd'
   const [year, setYear] = useState(defaults.year)
   const [month, setMonth] = useState(defaults.month)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  // What the last Submit loaded: the period it was for plus the raw rows
+  // Per tab: what was last loaded for it — the period plus the raw rows
   // (options, equity/futures, and the previous month's options for the
-  // month view's comparison). Everything shown is derived from this.
-  const [report, setReport] = useState(null)
+  // month view's comparison) — whether it's loading, and its error. Each
+  // tab keeps its own, so switching between Month and YTD doesn't refetch.
+  const [reports, setReports] = useState({ month: null, ytd: null })
+  const [loadingFor, setLoadingFor] = useState({ month: false, ytd: false })
+  const [errors, setErrors] = useState({ month: null, ytd: null })
+  // Latest request per tab, so a slow earlier response can't overwrite a
+  // newer one (e.g. Submit pressed twice).
+  const requestIds = useRef({ month: 0, ytd: 0 })
+  const report = reports[period]
+  const loading = loadingFor[period]
+  const error = errors[period]
+  // YTD "Symbol by month" source: option trades, equity & futures, or both.
+  const [heatSource, setHeatSource] = useState('options') // 'options' | 'equity' | 'all'
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear() - i)
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    setReport(null)
+  async function load(period, year, month) {
+    const id = ++requestIds.current[period]
+    const current = () => requestIds.current[period] === id
+    setLoadingFor((s) => ({ ...s, [period]: true }))
+    setErrors((s) => ({ ...s, [period]: null }))
+    setReports((s) => ({ ...s, [period]: null }))
     try {
       const { start, end } = period === 'ytd' ? ytdRange(year) : monthRange(year, month)
       const prev = period === 'month' ? previousMonth(year, month) : null
@@ -105,19 +115,40 @@ export default function Reports() {
         // without it.
         prevRange ? getAllocations(prevRange.start, prevRange.end, REALIZED_ONLY).catch(() => null) : Promise.resolve(null),
       ])
-      setReport({
+      if (!current()) return
+      setReports((s) => ({ ...s, [period]: {
         period, year, month, start, end,
         label: period === 'ytd' ? `${year} year to date` : `${monthName(month)} ${year}`,
         optionRows: withDay(normalizeOptionRows(data ?? [])),
         equityRows: withDay(normalizeEquityRows(equityData ?? [])),
         prevOptionRows: prevData ? withDay(normalizeOptionRows(prevData)) : null,
         prevName: prev ? MONTH_NAMES[prev.month - 1] : null,
-      })
+      } }))
     } catch (err) {
-      setError(friendlyErrorMessage(err, 'Failed to fetch report data. Make sure the API server is running.'))
+      if (current()) setErrors((s) => ({ ...s, [period]: friendlyErrorMessage(err, 'Failed to fetch report data. Make sure the API server is running.') }))
     } finally {
-      setLoading(false)
+      if (current()) setLoadingFor((s) => ({ ...s, [period]: false }))
     }
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    load(period, year, month)
+  }
+
+  // The current month loads as soon as the page opens; YTD loads the
+  // selected year the first time its tab is opened.
+  const loadedOnMount = useRef(false)
+  useEffect(() => {
+    if (loadedOnMount.current) return // StrictMode runs effects twice in dev
+    loadedOnMount.current = true
+    load('month', year, month)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function selectPeriod(p) {
+    setPeriod(p)
+    if (!reports[p] && !loadingFor[p]) load(p, year, month)
   }
 
   const derived = useMemo(() => {
@@ -155,7 +186,22 @@ export default function Reports() {
   const openWeek = (start, end) => openTransactions({ start, end })
   const openSymbol = (ticker, tab) => openTransactions({ ticker, start: report.start, end: report.end, tab })
   const openMonth = (m) => openTransactions(monthBounds(m))
-  const openSymbolMonth = (ticker, m) => openTransactions({ ticker, ...monthBounds(m) })
+
+  // Symbol-by-month table, by source. Transactions shows one tab at a time,
+  // so a click opens the tab holding that cell's trades (for "All": options
+  // when the symbol had any that month, else equity & futures).
+  const heatTrades = !derived ? [] :
+    heatSource === 'options' ? derived.optionTrades :
+    heatSource === 'equity' ? derived.equityTrades :
+    [...derived.optionTrades, ...derived.equityTrades]
+  const monthOfTrade = (t) => utcDate(t.close_date).getUTCMonth()
+  const heatTab = (ticker, m) => {
+    if (heatSource !== 'all') return heatSource === 'equity' ? 'equity' : undefined
+    const hasOptions = derived.optionTrades.some((t) => monthOfTrade(t) === m && (ticker == null || (t.underlying_symbol ?? t.symbol) === ticker))
+    return hasOptions ? undefined : 'equity'
+  }
+  const openHeatCell = (ticker, m) => openTransactions({ ticker, ...monthBounds(m), tab: heatTab(ticker, m) })
+  const openHeatMonth = (m) => openTransactions({ ...monthBounds(m), tab: heatTab(null, m) })
 
   const noData = derived && derived.optionTrades.length === 0 && derived.equityTrades.length === 0
 
@@ -165,44 +211,40 @@ export default function Reports() {
         <button
           type="button"
           className={`tab-item ${period === 'month' ? 'active' : ''}`}
-          onClick={() => setPeriod('month')}
+          onClick={() => selectPeriod('month')}
         >
           Month
         </button>
         <button
           type="button"
           className={`tab-item ${period === 'ytd' ? 'active' : ''}`}
-          onClick={() => setPeriod('ytd')}
+          onClick={() => selectPeriod('ytd')}
         >
           YTD
         </button>
       </div>
 
       <div className="card">
-        <form onSubmit={handleSubmit}>
-          <div className="form-row form-row--2">
+        <form onSubmit={handleSubmit} className="report-filters">
+          <div className="form-group">
+            <label htmlFor="report-year">Year</label>
+            <select id="report-year" value={year} onChange={(e) => setYear(Number(e.target.value))} className="input">
+              {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          {period === 'month' && (
             <div className="form-group">
-              <label>Year</label>
-              <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="input">
-                {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+              <label htmlFor="report-month">Month</label>
+              <select id="report-month" value={month} onChange={(e) => setMonth(Number(e.target.value))} className="input">
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <option key={m} value={m}>{monthName(m)}</option>
+                ))}
               </select>
             </div>
-            {period === 'month' && (
-              <div className="form-group">
-                <label>Month</label>
-                <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="input">
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>{monthName(m)}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-          <div className="form-actions">
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              Submit
-            </button>
-          </div>
+          )}
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            Submit
+          </button>
         </form>
       </div>
 
@@ -307,12 +349,40 @@ export default function Reports() {
                   <h3 className="section-title">Symbol by month</h3>
                   <span className="report-card-note">Click a cell for that symbol&apos;s trades that month</span>
                 </div>
-                <SymbolMonthHeat
-                  trades={derived.optionTrades}
-                  lastMonth={derived.lastMonth}
-                  onCell={openSymbolMonth}
-                  onMonth={openMonth}
-                />
+                <div className="tab-row report-source-tabs" role="tablist" aria-label="Trades to include">
+                  {[
+                    { id: 'options', label: 'Options' },
+                    { id: 'equity', label: 'Equity & futures' },
+                    { id: 'all', label: 'All' },
+                  ].map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={heatSource === t.id}
+                      className={`tab-item ${heatSource === t.id ? 'active' : ''}`}
+                      onClick={() => setHeatSource(t.id)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                {heatTrades.length > 0 ? (
+                  <SymbolMonthHeat
+                    trades={heatTrades}
+                    lastMonth={derived.lastMonth}
+                    onCell={openHeatCell}
+                    onMonth={openHeatMonth}
+                  />
+                ) : (
+                  <p className="summary-line">No equity or futures trades closed in {report.year}.</p>
+                )}
+                {heatSource === 'all' && heatTrades.length > 0 && (
+                  <p className="report-footnote">
+                    Options and equity &amp; futures combined by symbol, so an exercised futures option&apos;s premium
+                    and the delivered future&apos;s result share one row.
+                  </p>
+                )}
               </div>
 
               <div className="card">

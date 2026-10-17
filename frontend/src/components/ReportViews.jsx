@@ -100,8 +100,34 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0 }) {
         : netNote,
       hero: true,
     },
-    { label: 'Trades closed', value: stats.n.toLocaleString(), sub: prev ? `${prev.n} in ${prevName}` : '' },
-    { label: 'Win rate', value: pct(stats.winRate), sub: prev ? `${pct(prev.winRate)} in ${prevName}` : '' },
+    {
+      label: 'Trades',
+      // Total, broken down as closed + expired + exercised.
+      // Last month's total sits beside this month's, on the same line.
+      value: (
+        <>
+          {stats.n.toLocaleString()}
+          {prev && <>{' '}<span className="report-kpi-inline">{prev.n} in {prevName}</span></>}
+        </>
+      ),
+      sub: (
+        <>
+          <span className="report-kpi-breakdown">
+            <span title="Bought or sold back before expiration">{stats.closed} closed</span>
+            <span title="Expired worthless">{stats.expired} expired</span>
+            <span title={`Futures options exercised into their future (${signedUsd(stats.exercisedNet)} premium). Their premium is in Option P&L but not in win rate; the future's result is under Equity/futures.`}>
+              {stats.exercised} exercised
+            </span>
+          </span>
+        </>
+      ),
+      wide: true,
+    },
+    {
+      label: 'Win rate',
+      value: pct(stats.winRate),
+      sub: prev ? `${pct(prev.winRate)} in ${prevName}` : stats.exercised ? 'excl. exercised' : '',
+    },
     { label: 'Avg win', value: <span className="pnl-up">{usd(stats.avgWin)}</span>, sub: 'per winning trade' },
     { label: 'Avg loss', value: <span className="pnl-down">{usd(stats.avgLoss)}</span>, sub: 'per losing trade' },
     {
@@ -114,7 +140,7 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0 }) {
     <div className="card">
       <div className="report-kpis">
         {tiles.map((t) => (
-          <div key={t.label} className={`report-kpi${t.hero ? ' report-kpi--hero' : ''}`}>
+          <div key={t.label} className={`report-kpi${t.hero ? ' report-kpi--hero' : ''}${t.wide ? ' report-kpi--wide' : ''}`}>
             <span className="report-kpi-label">{t.label}</span>
             <span className="report-kpi-value">{t.value}</span>
             {t.sub && <span className="report-kpi-sub">{t.sub}</span>}
@@ -284,9 +310,10 @@ export function SymbolTable({ rows, onSymbol }) {
   const span = maxPos + maxNeg || 1
   const zero = (maxNeg / span) * 100
   const total = rows.reduce(
-    (acc, r) => ({ n: acc.n + r.n, net: acc.net + r.net, wins: acc.wins + (r.winRate ?? 0) * r.n }),
-    { n: 0, net: 0, wins: 0 }
+    (acc, r) => ({ n: acc.n + r.n, net: acc.net + r.net, wins: acc.wins + r.wins, decided: acc.decided + r.decided }),
+    { n: 0, net: 0, wins: 0, decided: 0 }
   )
+  const anyExercised = rows.some((r) => r.exercised)
   return (
     <div className="report-table-wrap">
       <table className="report-table">
@@ -305,7 +332,17 @@ export function SymbolTable({ rows, onSymbol }) {
             const w = (Math.abs(r.net) / span) * 100
             return (
               <tr key={r.symbol} className="report-row-link" tabIndex={0} onClick={() => onSymbol(r.symbol)} onKeyDown={keyActivate(() => onSymbol(r.symbol))} title={`Open ${r.symbol} transactions`}>
-                <td className="report-sym">{r.symbol}</td>
+                <td className="report-sym">
+                  {r.symbol}
+                  {r.exercised > 0 && (
+                    <span
+                      className="report-exercised"
+                      title={`${r.exercised} exercised into the future (${signedUsd(r.exercisedNet)} premium). Counted in net P&L, not in win rate — the future's result is under Equity & futures.`}
+                    >
+                      {r.exercised} exercised
+                    </span>
+                  )}
+                </td>
                 <td className="num">{r.n}</td>
                 <td className="num">{pct(r.winRate)}</td>
                 <td className={`num ${signClass(r.net)}`}>{usd(r.n ? r.net / r.n : null)}</td>
@@ -330,13 +367,19 @@ export function SymbolTable({ rows, onSymbol }) {
           <tr>
             <td className="report-sym">Total</td>
             <td className="num">{total.n}</td>
-            <td className="num">{pct(total.n ? total.wins / total.n : null)}</td>
+            <td className="num">{pct(total.decided ? total.wins / total.decided : null)}</td>
             <td className={`num ${signClass(total.net)}`}>{usd(total.n ? total.net / total.n : null)}</td>
             <td />
             <td className="num"><span className={`report-amt ${signClass(total.net)}`}>{usd(total.net)}</span></td>
           </tr>
         </tfoot>
       </table>
+      {anyExercised && (
+        <p className="report-footnote">
+          Exercised: a futures option exercised into its future. Its premium is in net P&amp;L but left out of win
+          rate; the future&apos;s own result is under Equity &amp; futures.
+        </p>
+      )}
     </div>
   )
 }

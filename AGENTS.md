@@ -46,6 +46,17 @@ their own Schwab connection** (positions/transactions are per-user);
   bare-root symbols — if you add a new ticker-filtering code path, make sure
   it accepts both forms, or it'll silently return zero results for a
   perfectly valid futures query (this exact bug shipped once already).
+- **Schwab books futures-option exercises and expirations as ordinary
+  `TRADE`s**, not the `RECEIVE_AND_DELIVER` "Removed due to …" records equity
+  options get: the option closes at $0 ("Exercise, future settle …" /
+  "Removal of option due to expiration of …") and the delivered future is a
+  separate fill at the strike. `SchwabTransactionProvider._identify_close_event`
+  maps these to `EXERCISE`/`EXPIRATION`, and the matched leg's type is
+  `EXERCISED`, which, unlike an equity `ASSIGNED`, **keeps its premium as P&L**
+  (zeroing it would drop the premium from the total, since the future is
+  booked at the strike). Reports counts `EXERCISED` in net P&L but not in win
+  rate / avg win-loss / profit factor. Any code listing "closed" types must
+  include `EXERCISED` alongside `CLOSED`/`EXPIRED`/`ASSIGNED`.
 - **`CHAIN_PROVIDER`** env var (`"schwab"` or `"tastytrade"`, default
   `tastytrade`) selects which broker serves *option chains*. Positions and
   transactions always go through Schwab, and Charts' price history always

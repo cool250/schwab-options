@@ -293,7 +293,11 @@ TOOL_SCHEMAS = [
             "record with \"strategy\": \"RATIO_SPREAD\" (its \"type\" still holds the normal "
             "CLOSED/EXPIRED/ASSIGNED status), a \"ratio\" like \"1:2\", \"long_leg\"/\"short_leg\" "
             "strikes, and one combined total_amount — report those as one position, don't "
-            "re-derive the grouping yourself from individual legs.",
+            "re-derive the grouping yourself from individual legs. type \"EXERCISED\" marks a "
+            "futures option that was exercised/assigned into its future: its total_amount is the "
+            "option premium only (positive if it was sold, negative if bought), and the delivered "
+            "future's P&L is separate (get_equity_trade_history / get_futures_positions), so don't "
+            "describe an exercised short as a clean win.",
             "parameters": {
                 "type": "object",
                 "properties": {
