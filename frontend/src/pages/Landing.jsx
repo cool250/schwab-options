@@ -207,7 +207,7 @@ export default function Landing({ initialOverlay = null }) {
         <section className="landing-hero">
           <div className="landing-container landing-hero-inner">
             <div className="landing-hero-copy">
-              <p className="landing-eyebrow">Options strategy dashboard</p>
+              <p className="landing-eyebrow">Built for premium sellers</p>
               <h1>Run your options strategy with every number in one place.</h1>
               <p className="landing-lede">
                 NuTrade brings your positions and trade history, live option chains, a strategy builder, a strike
