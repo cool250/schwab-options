@@ -274,8 +274,8 @@ function OptionsSnapshotBody({ chain }) {
   const oiPutCallRatio = callOI > 0 ? putOI / callOI : null;
 
   // ATM = the strike closest to spot; average of its call/put IV, same
-  // convention SchwabOptionChainProvider._normalize_chain already uses for
-  // this chain's own chain-level "iv" field (see service/option_chain_providers.py).
+  // convention the chain provider uses for this chain's own chain-level
+  // "iv" field (see service/option_chain_providers.py).
   const atmRow = rows.reduce((a, b) =>
     Math.abs(b.strikePrice - chain.spot) < Math.abs(a.strikePrice - chain.spot) ? b : a
   );
@@ -470,9 +470,8 @@ function Candle({ x, y, width, height, payload }) {
 
 /** Candlesticks for the selected range with swing support/resistance
  *  levels (see service/market.py's _swing_levels) drawn as horizontal
- *  reference lines. Backed by Tastytrade's DXLink Candle feed regardless of
- *  CHAIN_PROVIDER (MarketService.get_price_history) — no Schwab login
- *  needed. A futures root like "/NQ" charts its active-month contract. */
+ *  reference lines. Backed by Tastytrade's DXLink Candle feed
+ *  (MarketService.get_price_history) — no Schwab login needed. A futures root like "/NQ" charts its active-month contract. */
 function PriceHistoryChart({ history, loading, error, noSymbol }) {
   if (noSymbol) {
     return <div className="chain-empty">Enter a symbol to get started</div>;

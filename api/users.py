@@ -65,6 +65,10 @@ class User:
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
+    # The broker account (full account number) this user's Portfolio pages
+    # read, when their broker login covers more than one; None = the
+    # broker's first. Server-side only — deliberately not in public().
+    broker_account: Optional[str] = None
 
     def public(self) -> dict:
         return {
@@ -92,6 +96,7 @@ def _row_to_user(row: Optional[sqlite3.Row]) -> Optional[User]:
         first_name=row["first_name"],
         last_name=row["last_name"],
         email=row["email"],
+        broker_account=row["broker_account"] if "broker_account" in row.keys() else None,
     )
 
 
@@ -178,7 +183,12 @@ def init_db() -> None:
         # Profile columns were added after the table first shipped — add them
         # to an existing database in place (all nullable, so nothing to backfill).
         existing = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
-        for column in PROFILE_FIELDS:
+        # The chosen broker account was first stored as "schwab_account";
+        # rename keeps a choice already made.
+        if "schwab_account" in existing and "broker_account" not in existing:
+            conn.execute("ALTER TABLE users RENAME COLUMN schwab_account TO broker_account")
+            existing = {*existing - {"schwab_account"}, "broker_account"}
+        for column in (*PROFILE_FIELDS, "broker_account"):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -261,6 +271,13 @@ def set_password(user_id: int, password: str) -> None:
             "UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?",
             (hash_password(password), time.time(), user_id),
         )
+
+
+def set_broker_account(user_id: int, account_number: Optional[str]) -> None:
+    """Which broker account this user's Portfolio pages read (None = the
+    first one the broker lists)."""
+    with _connect() as conn:
+        conn.execute("UPDATE users SET broker_account = ? WHERE id = ?", (account_number, user_id))
 
 
 def set_profile(user_id: int, first_name: Optional[str], last_name: Optional[str], email: Optional[str]) -> User:

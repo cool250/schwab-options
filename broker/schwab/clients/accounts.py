@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from broker.schwab.http import BaseClient
 from broker.schwab.exceptions import BrokerAPIError, BrokerValidationError
 from broker.schwab.auth import TokenProvider
+from broker.request_context import get_selected_account
 from broker.schwab.data.account_data import AccountHash, SecuritiesAccount, Activity
 from utils import convert_to_iso8601
 
@@ -25,10 +26,16 @@ class Accounts(BaseClient):
     # ------------------------------------------------------------------
 
     def _initialize_account_hash(self) -> None:
-        """Fetch and cache the account hash (called lazily on first use)."""
+        """Fetch and cache the account hash (called lazily on first use).
+
+        When the login covers several accounts, uses the one this request's
+        user picked in Settings (get_selected_account); if none is picked —
+        or the picked one is no longer authorized — the first Schwab lists."""
         response_data = self._fetch_data(f"{self.base_url}/accounts/accountNumbers")
         try:
-            account_hash = AccountHash(**response_data[0])
+            selected = get_selected_account()
+            entry = next((e for e in response_data if selected and e.get("accountNumber") == selected), response_data[0])
+            account_hash = AccountHash(**entry)
             self._account_hash_value = account_hash.hashValue
         except (IndexError, ValidationError) as exc:
             raise BrokerValidationError(
@@ -45,6 +52,28 @@ class Accounts(BaseClient):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def list_accounts(self) -> list[dict]:
+        """Every account the login covers, in Schwab's order:
+        [{"accountNumber", "hashValue", "type", "liquidationValue", "positions"}]
+        — enough to tell them apart in an account picker."""
+        numbers = self._fetch_data(f"{self.base_url}/accounts/accountNumbers") or []
+        details = self._fetch_data(f"{self.base_url}/accounts", {"fields": "positions"}) or []
+        by_number = {}
+        for item in details:
+            account = item.get("securitiesAccount") or {}
+            by_number[account.get("accountNumber")] = account
+        out = []
+        for entry in numbers:
+            account = by_number.get(entry.get("accountNumber"), {})
+            out.append({
+                "accountNumber": entry.get("accountNumber"),
+                "hashValue": entry.get("hashValue"),
+                "type": account.get("type"),
+                "liquidationValue": (account.get("currentBalances") or {}).get("liquidationValue"),
+                "positions": len(account.get("positions") or []),
+            })
+        return out
 
     def fetch_positions(self) -> SecuritiesAccount:
         """

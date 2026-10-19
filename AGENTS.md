@@ -19,9 +19,9 @@ their own Schwab connection** (positions/transactions are per-user);
 
 | Path | What lives there |
 |---|---|
-| `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, price history (no longer used by Charts), option chains, positions, transactions. No order-placement code exists here at all. |
+| `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, price history and option chains (neither used by the app any more — market data is Tastytrade's), positions, transactions. No order-placement code exists here at all. |
 | `broker/tastytrade/` | Tastytrade REST + DXLink WebSocket client — chains, live quotes/greeks via streaming. Has `place_order`/`cancel_order`/`get_orders` methods that exist in the SDK but are **never called anywhere in the app** — see Guardrails below. |
-| `service/` | Business logic: `PositionService`, `TransactionService`, `MarketService`, `option_chain_providers.py` (Schwab vs Tastytrade chain provider, selected by `CHAIN_PROVIDER` env var). `strategy_builder.py` is the Analyze page's Strategy Builder: data-driven templates (adding a strategy = one `TEMPLATES` entry) solved against one expiration's chain at mid prices; it and `screener_strategies.py` share the payoff math in `strategy_math.py`. This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
+| `service/` | Business logic: `PositionService`, `TransactionService`, `MarketService`, `portfolio/providers/` (the Portfolio broker seam — see "Adding a Portfolio broker" below), `option_chain_providers.py` (option chains — Tastytrade only). `strategy_builder.py` is the Analyze page's Strategy Builder: data-driven templates (adding a strategy = one `TEMPLATES` entry) solved against one expiration's chain at mid prices; it and `screener_strategies.py` share the payoff math in `strategy_math.py`. This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
 | `api/` | FastAPI routers: `auth.py`, `market.py`, `market_stream.py` (WebSocket), `position.py`, `transactions.py`, `copilot.py`. Registered in `api/app.py`. |
 | `copilot/` | The read-only financial-copilot agent — see its own section below. |
 | `frontend/src/pages/` | `Landing` (public page at `/`; Log in / Register open as overlays on it, and `/login` — where `ProtectedRoute` sends logged-out visitors, remembering the page they wanted — is the same page with the login overlay open. Its screenshots in `frontend/public/landing/` are real captures, and since the page is public they must never show real account data or the real user: market-data pages (Screener, Analyze/Strategy Builder, Charts) are shot on live market data, and the hero's Reports shot uses **sample P&L** via mocked API responses, with the sidebar user mocked as "Demo Trader" — never capture Positions/Transactions/Reports on real data. Register only explains that the admin creates accounts — there's no self-service sign-up), `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Screener` (top puts/calls to sell across tickers, ranked by annualized ROI — backed by `MarketService.screen_options` + each chain provider's `get_screener_contracts`; multi-leg Ratio Put / Jade Lizard combinations are built in `service/screener_strategies.py`), `Settings` (account/change password, Schwab connection, light/dark theme — not in the navbar — and the admin-only Users card, `components/AccountSettings.jsx`), `Login`. |
@@ -57,15 +57,35 @@ their own Schwab connection** (positions/transactions are per-user);
   booked at the strike). Reports counts `EXERCISED` in net P&L but not in win
   rate / avg win-loss / profit factor. Any code listing "closed" types must
   include `EXERCISED` alongside `CLOSED`/`EXPIRED`/`ASSIGNED`.
-- **`CHAIN_PROVIDER`** env var (`"schwab"` or `"tastytrade"`, default
-  `tastytrade`) selects which broker serves *option chains*. Positions and
-  transactions always go through Schwab, and Charts' price history always
-  through Tastytrade (DXLink `Candle` events via
-  `TastytradeClient.get_candles`) — don't assume `CHAIN_PROVIDER` gates
-  either. DXLink's history depth varies by bar size (monthly: decades;
+- **One broker per side.** Portfolio data (positions, balances,
+  transactions) is **Schwab only**; market data (option chains, the
+  screener, the strategy builder, Charts' price history via DXLink `Candle`
+  events / `TastytradeClient.get_candles`) is **Tastytrade only**. There's no
+  setting to swap either (the old `ACCOUNT_BROKER_PROVIDER` and
+  `CHAIN_PROVIDER` switches are gone). Exception still pending (see
+  `docs/portfolio-market-separation-plan.md`): Positions' and Transactions'
+  live futures / option prices come from Tastytrade, because Schwab can't
+  quote futures or futures options at all. DXLink's history depth varies by bar size (monthly: decades;
   daily: ~2 years; weekly: only months) and repeat long-history requests
   can come back empty, which is why 5Y/MAX use monthly bars and
   `MarketService` caches results per (symbol, range).
+
+## Adding a Portfolio broker
+
+Portfolio flows read the broker through `service/portfolio/providers/`:
+`base.py` holds the Protocols (`PositionProvider`: snapshot, quotes,
+`list_accounts`; `TransactionProvider`: raw history, option legs,
+equity/futures legs, futures-root normalization) and broker-neutral helpers
+(contract multipliers, OCC parsing); `schwab.py` is the only implementation;
+`__init__.py` is the registry (`register()`, `ACTIVE_BROKER`). A new broker
+is a new module implementing both Protocols plus one `register()` line —
+`PositionService`, `TransactionService` and the API routes don't change.
+Keep broker specifics (SDK models, symbol formats, how expirations /
+assignments / exercises are recorded → `close_event`) inside its module,
+raise `broker.exceptions` types, and honor `get_selected_account()`. It
+also needs its own connect flow and credential storage (Schwab's are
+`/api/auth/schwab/*` and `broker/schwab/auth`). Market data stays
+Tastytrade-only and is not part of this seam.
 
 ## Auth
 
@@ -95,9 +115,20 @@ bootstrap admin) keeps the legacy `TOKEN_FILE`; everyone else gets
 context raises instead of silently falling back to the admin's token
 (another person's account). ContextVars don't flow into threads a service
 starts itself: any ThreadPoolExecutor that could reach Schwab must submit
-work via `contextvars.copy_context().run` (one copy per task), as
-`MarketService.screen_options` does. Never cache account data at module
+work via `contextvars.copy_context().run` (one copy per task). (Market
+code's pools, e.g. `MarketService.screen_options`, don't need it — they
+only call Tastytrade.) Never cache account data at module
 level — services are built per request, and that's what keeps users apart.
+
+**Multiple accounts.** One broker login can cover several accounts.
+`require_auth` also calls `broker.request_context.set_selected_account(user.broker_account)`
+(saved per user in SQLite, chosen with `components/AccountPicker.jsx` — top
+of Positions and in Settings — via `GET /api/positions/accounts` and
+`PUT /api/positions/account`), and the broker client reads it when resolving
+the account (Schwab: `Accounts._initialize_account_hash`), falling back to
+the broker's first when none is chosen or the chosen one is no longer
+authorized. Full account numbers never go to the browser: it gets a masked
+label and the provider's opaque id.
 
 REST routes use `Depends(require_auth)` (Bearer header).
 The Schwab OAuth reconnect (`/api/auth/schwab/start|callback|status`, used
@@ -236,7 +267,7 @@ own sessionStorage login.
 ## Key env vars
 
 See the README's env var table for the full deployment list. The ones most
-relevant to day-to-day agent work: `CHAIN_PROVIDER`, `SCHWAB_APP_KEY` /
+relevant to day-to-day agent work: `SCHWAB_APP_KEY` /
 `SCHWAB_APP_SECRET` / `SCHWAB_APP_CALLBACK_URL`, `TASTY_CLIENT_ID` /
 `TASTY_CLIENT_SECRET` / `TASTY_REFRESH_TOKEN`, `OPENAI_API_KEY` /
 `OPENAI_MODEL`, `SECRET_KEY`, `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Deploy-only (Fly.io, set in `fly.toml`):

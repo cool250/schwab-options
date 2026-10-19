@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from api import users
 from api.users import User
 from broker.schwab.auth.authenticate import build_authorize_url, exchange_authorization_code
+from broker.request_context import set_selected_account
 from broker.schwab.auth.token_provider import create_token_provider, set_token_owner
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,8 @@ async def require_auth(credentials: HTTPAuthorizationCredentials = Depends(_bear
             headers={"WWW-Authenticate": "Bearer"},
         )
     set_token_owner(user.id)
+    # Which of their broker accounts this request reads (account picker).
+    set_selected_account(user.broker_account)
     return user
 
 

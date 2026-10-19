@@ -5,6 +5,7 @@ import { getSchwabStatus } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { beginSchwabConnect } from '../utils/schwabConnect'
 import { AccountCard, UsersCard } from '../components/AccountSettings'
+import AccountPicker from '../components/AccountPicker'
 
 const THEMES = [
   { value: 'light', label: 'Light' },
@@ -12,12 +13,6 @@ const THEMES = [
 ]
 
 const DAY_MS = 24 * 3600 * 1000
-
-function formatExpiry(iso) {
-  return new Date(iso).toLocaleString('en-US', {
-    month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit',
-  })
-}
 
 function statusLine(status) {
   if (!status.connected) return { tone: 'error', text: 'Not connected — connect Schwab to load positions and transactions.' }
@@ -90,6 +85,9 @@ export default function Settings() {
         {schwabError && <div className="alert error">{schwabError}</div>}
         {!schwab && !schwabError && <p className="summary-line">Checking connection…</p>}
         {line && <p className={`settings-status settings-status--${line.tone}`}>{line.text}</p>}
+        {/* Which account Positions, Transactions and Reports read, when the
+            Schwab login covers more than one (saved per user; api/auth.py). */}
+        {schwab?.connected && !schwab.expired && <AccountPicker />}
         <div>
           <button type="button" className="btn btn-primary" onClick={handleReconnect} disabled={reconnecting}>
             {reconnecting ? 'Opening Schwab…' : schwab?.connected ? 'Reconnect Schwab' : 'Connect Schwab'}

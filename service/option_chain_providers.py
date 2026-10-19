@@ -1,12 +1,6 @@
 import logging
-import os
-from datetime import datetime, timedelta
 from typing import Optional, Protocol
 
-import pytz
-
-from broker.schwab import Client
-from broker.schwab.exceptions import BrokerAuthError, BrokerError
 from broker.tastytrade import TastytradeAPIError, TastytradeClient
 
 logger = logging.getLogger(__name__)
@@ -104,198 +98,6 @@ def _cap_contracts(contracts: list[dict], spot: float, key) -> tuple[list[dict],
     return sorted(contracts, key=lambda c: abs(key(c) - spot))[:MAX_SCREENER_CONTRACTS], True
 
 
-class SchwabOptionChainProvider:
-    """Options-chain fetching backed by broker.Client (Schwab)."""
-
-    def __init__(self, client: Optional[Client] = None):
-        self.client = client or Client()
-
-    def get_option_chain(self, symbol: str, dte: int, strike_count: int = 20) -> Optional[dict]:
-        today = datetime.now(pytz.timezone("US/Eastern")).date()
-        from_date = (today + timedelta(days=max(dte - 4, 0))).strftime("%Y-%m-%d")
-        to_date = (today + timedelta(days=dte + 4)).strftime("%Y-%m-%d")
-
-        try:
-            # Schwab's strikeCount returns that many strikes total (split across
-            # both sides of ATM), not per side, so double the request to actually
-            # get `strike_count` strikes above and below.
-            option_chain = self.client.get_chain(
-                symbol, from_date, to_date, strike_count=strike_count * 2, contract_type="ALL"
-            )
-        except BrokerAuthError:
-            raise
-        except BrokerError as e:
-            # A fetch failure isn't the same as "this symbol has no listed
-            # options" (which _normalize_chain can legitimately return None
-            # for) — raise so it surfaces as a system error (app.py's
-            # BrokerError handler -> 502) instead of masquerading as that.
-            logger.error("Failed to fetch option chain for %s: %s", symbol, e)
-            raise
-
-        return self._normalize_chain(option_chain, dte)
-
-    def _normalize_chain(self, option_chain, target_dte: int) -> Optional[dict]:
-        """Merge Schwab's call/put expiration maps into a single strike-indexed chain
-        for the expiration closest to `target_dte`."""
-
-        def pick_expiration(exp_date_map):
-            if not exp_date_map:
-                return None, {}
-            best_key = min(exp_date_map, key=lambda k: abs(int(k.split(":")[1]) - target_dte))
-            return best_key, exp_date_map[best_key]
-
-        def leg(options):
-            option = options[0] if options else None
-            if option is None:
-                return None
-            return {
-                "symbol": option.symbol,
-                "bid": option.bid,
-                "ask": option.ask,
-                "delta": option.delta,
-                "iv": option.volatility,
-                "volume": option.totalVolume,
-                "openInterest": option.openInterest,
-            }
-
-        call_key, call_strikes = pick_expiration(option_chain.callExpDateMap)
-        put_key, put_strikes = pick_expiration(option_chain.putExpDateMap)
-        key = call_key or put_key
-        if key is None:
-            return None
-        exp_date, actual_dte = key.split(":")
-
-        strikes = sorted(set(call_strikes) | set(put_strikes), key=float)
-        merged = [
-            {
-                "strikePrice": float(strike),
-                "call": leg(call_strikes.get(strike)),
-                "put": leg(put_strikes.get(strike)),
-            }
-            for strike in strikes
-        ]
-
-        def contract_iv(options):
-            option = options[0] if options else None
-            return option.volatility if option else None
-
-        # Schwab's chain-level `volatility` field is a dead placeholder (always ~29
-        # regardless of symbol); use the ATM contract's own IV instead, which is
-        # computed per-strike and actually varies by symbol.
-        atm_strike = min(strikes, key=lambda s: abs(float(s) - option_chain.underlyingPrice), default=None)
-        atm_ivs = []
-        if atm_strike is not None:
-            for iv in (contract_iv(call_strikes.get(atm_strike)), contract_iv(put_strikes.get(atm_strike))):
-                if iv:
-                    atm_ivs.append(iv)
-        atm_iv = sum(atm_ivs) / len(atm_ivs) if atm_ivs else 0
-
-        return {
-            "symbol": option_chain.symbol,
-            "spot": option_chain.underlyingPrice,
-            "dte": int(actual_dte),
-            "expirationDate": exp_date,
-            "iv": atm_iv / 100,
-            "chain": merged,
-        }
-
-    def get_expirations(self, symbol: str, days_ahead: int = 60) -> list[dict]:
-        today = datetime.now(pytz.timezone("US/Eastern")).date()
-        from_date = today.strftime("%Y-%m-%d")
-        to_date = (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
-
-        try:
-            # strike_count=1 keeps this lightweight — we only need the
-            # expiration-date keys, not the actual option contracts.
-            option_chain = self.client.get_chain(
-                symbol, from_date, to_date, strike_count=1, contract_type="ALL"
-            )
-        except BrokerAuthError:
-            raise
-        except BrokerError as e:
-            logger.error("Failed to fetch expirations for %s: %s", symbol, e)
-            raise
-
-        keys = set(option_chain.callExpDateMap or {}) | set(option_chain.putExpDateMap or {})
-        expirations = []
-        for key in keys:
-            date_str, dte_str = key.split(":")
-            expirations.append({"date": date_str, "dte": int(dte_str)})
-        expirations.sort(key=lambda e: e["dte"])
-        return expirations
-
-    def get_screener_contracts(
-        self,
-        symbol: str,
-        min_dte: int,
-        max_dte: int,
-        option_types: list[str],
-        min_otm_pct: float,
-        max_otm_pct: float,
-    ) -> Optional[dict]:
-        today = datetime.now(pytz.timezone("US/Eastern")).date()
-        from_date = (today + timedelta(days=min_dte)).strftime("%Y-%m-%d")
-        to_date = (today + timedelta(days=max_dte)).strftime("%Y-%m-%d")
-        contract_type = option_types[0] if len(option_types) == 1 else "ALL"
-
-        try:
-            # Schwab has no "strikes within X% of spot" filter on this
-            # client, so over-fetch strikes and apply the moneyness band
-            # below once the spot price is known from the response itself.
-            option_chain = self.client.get_chain(
-                symbol, from_date, to_date, strike_count=200, contract_type=contract_type
-            )
-        except BrokerAuthError:
-            raise
-        except BrokerError as e:
-            logger.error("Failed to fetch screener chain for %s: %s", symbol, e)
-            raise
-
-        spot = option_chain.underlyingPrice
-        if not spot:
-            return None
-
-        def clean(value: Optional[float]) -> Optional[float]:
-            # Schwab reports -999 (and occasionally NaN) for greeks/IV it
-            # couldn't compute, e.g. on a deep-ITM or zero-bid contract.
-            if value is None or value != value or value <= -999:
-                return None
-            return value
-
-        contracts = []
-        for option_type, exp_map in (("CALL", option_chain.callExpDateMap), ("PUT", option_chain.putExpDateMap)):
-            if option_type not in option_types:
-                continue
-            for key, strikes in (exp_map or {}).items():
-                exp_date, dte = key.split(":")
-                if not min_dte <= int(dte) <= max_dte:
-                    continue
-                for strike, options in strikes.items():
-                    if not options or not strike_in_band(float(strike), spot, option_type, min_otm_pct, max_otm_pct):
-                        continue
-                    option = options[0]
-                    iv = clean(option.volatility)
-                    contracts.append({
-                        "symbol": option.symbol,
-                        "type": option_type,
-                        "expirationDate": exp_date,
-                        "dte": int(dte),
-                        "strike": float(strike),
-                        "bid": option.bid,
-                        "ask": option.ask,
-                        "delta": clean(option.delta),
-                        # Schwab's per-contract volatility is in percent
-                        # points (25.0); normalize to a fraction like
-                        # Tastytrade's so the screener sees one unit.
-                        "iv": iv / 100 if iv is not None else None,
-                        "volume": option.totalVolume,
-                        "openInterest": option.openInterest,
-                    })
-
-        contracts, truncated = _cap_contracts(contracts, spot, key=lambda c: c["strike"])
-        return {"symbol": option_chain.symbol, "spot": spot, "truncated": truncated, "contracts": contracts}
-
-
 class TastytradeOptionChainProvider:
     """Options-chain fetching backed by TastytradeClient."""
 
@@ -306,8 +108,8 @@ class TastytradeOptionChainProvider:
         try:
             spot = self.client.get_live_underlying_price(symbol)
             # Tastytrade's num_strikes keeps the N strikes closest to the
-            # underlying total (not per side), so double it to match Schwab's
-            # "strike_count above/below ATM" convention.
+            # underlying total (not per side), so double it to match the
+            # "strike_count above/below ATM" convention callers use.
             contracts = self.client.get_options_chain(
                 symbol,
                 dte=dte,
@@ -317,8 +119,7 @@ class TastytradeOptionChainProvider:
                 fetch_live_price=False,
             )
         except (TastytradeAPIError, ValueError, TimeoutError) as e:
-            # Same reasoning as SchwabOptionChainProvider above: a fetch
-            # failure must not read as "no listed options" — raise so
+            # A fetch failure must not read as "no listed options" — raise so
             # TastytradeAPIError hits app.py's 502 handler (ValueError/
             # TimeoutError here are rarer configuration/timeout cases and
             # still surface as a real error, just via FastAPI's default
@@ -348,8 +149,8 @@ class TastytradeOptionChainProvider:
         volume: Optional[dict[str, float]] = None,
         open_interest: Optional[dict[str, float]] = None,
     ) -> Optional[dict]:
-        """Merge Tastytrade's flat contract list into the same strike-indexed
-        shape SchwabOptionChainProvider produces."""
+        """Merge Tastytrade's flat contract list into the strike-indexed
+        shape OptionChainProvider.get_option_chain documents."""
         volume = volume or {}
         open_interest = open_interest or {}
 
@@ -518,11 +319,6 @@ def symbol_from_contracts(contracts: list[dict]) -> Optional[str]:
 
 
 def get_option_chain_provider() -> OptionChainProvider:
-    """Select the option-chain provider based on the CHAIN_PROVIDER env var
-    (set in .env). Defaults to Tastytrade."""
-    provider = os.environ.get("CHAIN_PROVIDER", "tastytrade").strip().lower()
-    if provider == "tastytrade":
-        return TastytradeOptionChainProvider()
-    if provider == "schwab":
-        return SchwabOptionChainProvider()
-    raise ValueError(f"Unknown CHAIN_PROVIDER {provider!r}; expected 'schwab' or 'tastytrade'")
+    """The option-chain provider. Market data is Tastytrade only — Schwab is
+    the Portfolio broker and never serves chains."""
+    return TastytradeOptionChainProvider()

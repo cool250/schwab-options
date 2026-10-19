@@ -92,7 +92,7 @@ async def broker_auth_error_handler(request: Request, exc: BrokerAuthError):
 async def broker_error_handler(request: Request, exc: BrokerError):
     return JSONResponse(status_code=502, content={"detail": str(exc)})
 
-# Tastytrade is the default market-data/option-chain provider (see
+# Tastytrade is the market-data/option-chain provider (see
 # service/option_chain_providers.get_option_chain_provider) and has no
 # separate auth-vs-transient exception split like Schwab's BrokerError does —
 # every failure surfaces the same way, as a system error rather than an

@@ -170,6 +170,20 @@ export function startSchwabReconnect() {
   return request('/auth/schwab/start')
 }
 
+// Accounts the broker login covers — [{ id, label: "…6112", type, value,
+// positions, selected }] — and choosing which one Portfolio pages read.
+export function getAccounts() {
+  return request('/positions/accounts')
+}
+
+export function setAccount(id) {
+  return request('/positions/account', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })
+}
+
 export function getPriceHistory(symbol, range = '1M') {
   const p = new URLSearchParams({ symbol, range })
   return request(`/market/price-history?${p}`)

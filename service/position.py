@@ -2,15 +2,11 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 import logging
 
-from broker.schwab.exceptions import BrokerAuthError, BrokerError
-from broker.tastytrade import TastytradeAPIError
-from service.account_data_providers import (
+from broker.exceptions import BrokerAuthError, BrokerError
+from service.portfolio.providers import (
     PositionProvider,
-    get_account_broker_provider,
     get_contract_multiplier,
     get_position_provider,
-    parse_tastytrade_future_option_symbol,
-    resolve_tastytrade_account_number,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,15 +30,7 @@ class PositionService:
             # get_futures_position's identical handling below). Let it
             # propagate so app.py's global handler turns it into a 503.
             raise
-        except (BrokerError, TastytradeAPIError) as e:
-            # TastytradeAPIError alongside BrokerError: when
-            # ACCOUNT_BROKER_PROVIDER=tastytrade, self.provider is a
-            # TastytradePositionProvider and raises Tastytrade's own
-            # exception type instead — it doesn't distinguish auth vs other
-            # failures the way Schwab's BrokerAuthError/BrokerError split
-            # does (see api/app.py's tastytrade_error_handler), so every
-            # TastytradeAPIError here degrades the same way a generic
-            # BrokerError would rather than propagating as a 503.
+        except BrokerError as e:
             logger.error("Failed to fetch positions: %s", e)
             self._snapshot = None
             self._init_error = e
@@ -125,14 +113,9 @@ class PositionService:
     def get_futures_position(self, lookback_days: int = 30):
         """Currently-open outright futures positions (e.g. root 'ES', 'NQ').
 
-        Dispatches on ACCOUNT_BROKER_PROVIDER, same as the equity/option
-        snapshot above:
-        - tastytrade: sourced directly from Tastytrade's own positions
-          endpoint ("Future" instrument-type entries) — authoritative, not a
-          reconstruction, not bounded to lookback_days.
-        - schwab: Schwab's positions endpoint omits futures entirely, so this
-          falls back to FIFO-reconstructing them from transaction history —
-          a best-effort approximation bounded to the trailing lookback_days.
+        Schwab's positions endpoint omits futures entirely, so these are
+        FIFO-reconstructed from Schwab transaction history — a best-effort
+        approximation bounded to the trailing lookback_days.
 
         Deliberately excludes current_price: pricing these requires
         Tastytrade's DXLink feed and can take a few seconds per open root
@@ -143,59 +126,10 @@ class PositionService:
         Returns:
             list: [{"symbol", "quantity", "trade_price"}, ...]
         """
-        if get_account_broker_provider() == "tastytrade":
-            return self._get_futures_position_native()
         return self._get_futures_position_from_transactions(lookback_days)
 
-    def _get_futures_position_native(self):
-        """See get_futures_position() — the ACCOUNT_BROKER_PROVIDER=tastytrade path."""
-        from broker.tastytrade import TastytradeAPIError, TastytradeClient
-
-        try:
-            client = TastytradeClient.from_config()
-            account_number = resolve_tastytrade_account_number(client)
-            raw_positions = client.get_positions(account_number)
-        except (TastytradeAPIError, ValueError) as e:
-            # This is the position list itself, not a quote enrichment layer
-            # (contrast get_futures_quotes below) — a fetch failure must not
-            # read as "no open futures", so it propagates (TastytradeAPIError
-            # hits app.py's registered 502 handler; ValueError — missing/bad
-            # credentials — via FastAPI's default handler).
-            logger.error("Failed to fetch futures positions: %s", e)
-            raise
-
-        futures = []
-        for position in raw_positions:
-            if position.get("instrument-type") != "Future":
-                continue
-            symbol = position.get("symbol")
-            if not symbol:
-                continue
-
-            try:
-                root = client.get_future(symbol)["product-code"]
-            except (TastytradeAPIError, KeyError) as e:
-                # Best-effort fallback so a lookup hiccup doesn't drop the
-                # position from the table entirely — bare contract symbol
-                # (e.g. "ESM7") instead of the clean root ("ES").
-                logger.error("Failed to resolve root symbol for future %s: %s", symbol, e)
-                root = symbol.lstrip("/")
-
-            quantity = float(position.get("quantity") or 0)
-            direction = (position.get("quantity-direction") or "").strip().lower()
-            signed_quantity = quantity if direction == "long" else -quantity
-            avg_price = float(position.get("average-open-price") or 0)
-
-            futures.append({
-                "symbol": root,
-                "quantity": f"{signed_quantity:,.0f}",
-                "trade_price": f"${avg_price:,.2f}",
-            })
-        return futures
-
     def _get_futures_position_from_transactions(self, lookback_days: int):
-        """See get_futures_position() — the ACCOUNT_BROKER_PROVIDER=schwab
-        path: reconstructs open futures positions by FIFO-matching
+        """See get_futures_position(): reconstructs open futures positions by FIFO-matching
         transaction history (see TransactionService.get_equity_transactions)
         and netting whatever's left open per root symbol (e.g. 'ES', 'NQ').
 
@@ -255,11 +189,8 @@ class PositionService:
         so that table renders immediately without waiting on Tastytrade's
         DXLink feed, same rationale as get_futures_option_quotes.
 
-        Unlike get_futures_position/get_futures_option_position/
-        get_futures_option_quotes above, this doesn't dispatch on
-        ACCOUNT_BROKER_PROVIDER — live futures pricing is always Tastytrade's
-        DXLink feed regardless of path (Schwab has no futures quote source at
-        all), so there's nothing to fall back to on the schwab side.
+        Live futures pricing is Tastytrade's DXLink feed — Schwab has no
+        futures quote source at all.
 
         Any symbol whose live price can't be fetched in time is simply
         omitted — this is a display nicety, not something that should ever
@@ -287,90 +218,17 @@ class PositionService:
                 continue
         return result
 
-    def _get_open_futures_option_legs_native(self) -> list[dict]:
-        """Currently-open futures-option positions (options on /ES, /NQ,
-        etc.), sourced directly from Tastytrade's own positions endpoint —
-        "Future Option" instrument-type entries, one dict per contract the
-        broker already nets to a single signed quantity+price. The
-        ACCOUNT_BROKER_PROVIDER=tastytrade path (see get_futures_option_position).
-
-        Unlike the transaction-derived legs the schwab path below produces,
-        there is no "opened together" signal here (the broker only reports
-        where things stand now, not how they got there) — a ratio spread
-        shows as two independent contract rows instead of one merged row.
-
-        symbol's trailing "<YYMMDD><P|C><strike>" segment (e.g.
-        "./ESU6 E3DU6 260917P7480") is the only place strike/option-type live
-        on a position row — confirmed against a live position matched to its
-        option-chain contract (strike "7480" == that contract's
-        strike-price "7480.0", unscaled, unlike equity OCC symbols).
-
-        Returns: [{"symbol", "underlying_symbol", "expirationDate",
-                   "strike_price", "option_type", "quantity", "open_price"}, ...]
-        """
-        from broker.tastytrade import TastytradeClient
-
-        client = TastytradeClient.from_config()
-        account_number = resolve_tastytrade_account_number(client)
-        raw_positions = client.get_positions(account_number)
-
-        legs = []
-        for position in raw_positions:
-            if position.get("instrument-type") != "Future Option":
-                continue
-            symbol = position.get("symbol")
-            underlying = position.get("underlying-symbol")
-            if not symbol or not underlying:
-                continue
-
-            strike_price, _, option_type = parse_tastytrade_future_option_symbol(symbol)
-            if strike_price is None:
-                continue
-
-            try:
-                root = client.get_future(underlying)["product-code"]
-            except (TastytradeAPIError, KeyError) as e:
-                logger.error("Failed to resolve root symbol for future option %s: %s", symbol, e)
-                root = underlying.lstrip("/")
-
-            # expires-at is only present on position rows (not transaction
-            # records, which is why fetch_option_legs in
-            # account_data_providers.py parses the date out of the symbol
-            # instead) — preferred here since it's already authoritative,
-            # no string-slicing needed.
-            expires_at = position.get("expires-at") or ""
-            expiration_date = expires_at[:10] if expires_at else None
-
-            quantity = float(position.get("quantity") or 0)
-            direction = (position.get("quantity-direction") or "").strip().lower()
-            signed_quantity = quantity if direction == "long" else -quantity
-
-            legs.append({
-                "symbol": symbol,
-                "underlying_symbol": root,
-                "expirationDate": expiration_date,
-                "strike_price": strike_price,
-                "option_type": option_type,
-                "quantity": signed_quantity,
-                "open_price": float(position.get("average-open-price") or 0),
-            })
-        return legs
-
     def get_futures_option_position(self, lookback_days: int = 30):
         """Currently-open futures-option positions (options on /ES, /NQ, etc.).
 
-        Dispatches on ACCOUNT_BROKER_PROVIDER, same as get_futures_position():
-        - tastytrade: sourced directly from Tastytrade's own positions
-          endpoint (see _get_open_futures_option_legs_native) — one row per
-          held contract, no ratio-spread grouping (no "opened together"
-          signal on a native position row).
-        - schwab: reconstructed from transaction history, same as before —
-          ratio-spread legs (buy 1 / sell 2+ at a different strike, opened
-          together) are merged into one row with both strikes shown in
-          strike_price and a net entry price in trade_price. A grouped row's
-          own `symbol` is synthetic and won't match a real quote, so it also
-          carries `long_leg`/`short_leg` for the frontend's live Current
-          Price calc — see TransactionService.group_open_ratio_spreads.
+        Reconstructed from Schwab transaction history (Schwab's positions
+        endpoint omits futures options). Ratio-spread legs (buy 1 / sell 2+
+        at a different strike, opened together) are merged into one row with
+        both strikes shown in strike_price and a net entry price in
+        trade_price. A grouped row's own `symbol` is synthetic and won't
+        match a real quote, so it also carries `long_leg`/`short_leg` for the
+        frontend's live Current Price calc — see
+        TransactionService.group_open_ratio_spreads.
 
         Deliberately excludes current_price: pricing these requires Tastytrade's
         DXLink feed and can add several seconds per open expiration, so the
@@ -391,68 +249,15 @@ class PositionService:
                 reprice the position at the live quote and show P&L as
                 total_value minus that live-priced value.
         """
-        if get_account_broker_provider() == "tastytrade":
-            return self._get_futures_option_position_native()
         return self._get_futures_option_position_from_transactions(lookback_days)
 
-    def _get_futures_option_position_native(self):
-        """See get_futures_option_position() — the
-        ACCOUNT_BROKER_PROVIDER=tastytrade path."""
-        try:
-            legs = self._get_open_futures_option_legs_native()
-        except (TastytradeAPIError, ValueError) as e:
-            # This is the position list, not the quote enrichment
-            # (get_futures_option_quotes), so a failure here must surface as
-            # a system error, not "no open futures options".
-            logger.error("Failed to fetch futures option positions: %s", e)
-            raise
-
-        puts, calls = [], []
-        for leg in legs:
-            expiration_date = leg.get("expirationDate")
-            days_to_expiry = None
-            if expiration_date:
-                try:
-                    days_to_expiry = (datetime.strptime(expiration_date, "%Y-%m-%d").date() - date.today()).days
-                except ValueError:
-                    days_to_expiry = None
-
-            multiplier = get_contract_multiplier(leg.get("underlying_symbol", ""))
-            quantity = leg["quantity"]
-            trade_price = leg["open_price"]
-            # Same sign convention as the equity-option total_value: short
-            # (negative quantity) shows a positive credit received, long
-            # (positive quantity) shows a negative debit paid.
-            total_value = trade_price * -quantity * multiplier
-
-            option_details = {
-                "ticker": leg.get("underlying_symbol"),
-                "symbol": leg.get("symbol"),
-                "strike_price": f"${leg.get('strike_price', 0):,.0f}",
-                "expiration_date": expiration_date,
-                "days_to_expiry": days_to_expiry,
-                "quantity": f"{quantity:,.0f}",
-                "trade_price": f"${trade_price:,.2f}",
-                "total_value": total_value,
-                # Carried through (rather than baked only into total_value) so
-                # the frontend can price the *same* position at the live quote
-                # once futuresQuotes loads, and derive P&L as the difference —
-                # see futuresPnLColumn() in Positions.jsx.
-                "multiplier": multiplier,
-            }
-            (puts if leg.get("option_type") == "PUT" else calls).append(option_details)
-        return puts, calls
-
     def _get_open_futures_option_legs_from_transactions(self, lookback_days: int) -> list:
-        """See get_futures_option_position() — the ACCOUNT_BROKER_PROVIDER=schwab
-        path: reconstructed from transaction history, same rationale and
-        lookback as get_futures_position()'s transaction fallback, since
+        """See get_futures_option_position(): reconstructed from transaction
+        history, same rationale and lookback as get_futures_position(), since
         Schwab's positions endpoint doesn't return these either. Flat,
-        ungrouped legs — mirrors _get_open_futures_option_legs_native()'s
-        shape/contract; pair with group_open_ratio_spreads() (see
+        ungrouped legs — pair with group_open_ratio_spreads() (see
         _get_futures_option_position_from_transactions below) when the
-        caller wants ratio spreads merged, same as the native path never
-        does (no "opened together" signal there either way)."""
+        caller wants ratio spreads merged."""
         from service.transactions import TransactionService  # local: avoid import cost when unused
 
         try:
@@ -468,9 +273,8 @@ class PositionService:
             raise
 
     def _get_futures_option_position_from_transactions(self, lookback_days: int):
-        """See get_futures_option_position() — the ACCOUNT_BROKER_PROVIDER=schwab
-        path. Unlike the native path, ratio-spread legs (opened together) are
-        merged into one row via group_open_ratio_spreads — see
+        """See get_futures_option_position(). Ratio-spread legs (opened
+        together) are merged into one row via group_open_ratio_spreads — see
         _get_open_futures_option_legs_from_transactions() for the raw fetch."""
         from service.transactions import TransactionService  # local: avoid import cost when unused
 
@@ -536,21 +340,16 @@ class PositionService:
         """Live bid prices for currently-open futures-option positions, keyed
         by the same `symbol` legs carry in get_futures_option_position() —
         split out from that method so the position table itself can render
-        immediately without waiting on Tastytrade's DXLink feed. Dispatches
-        on ACCOUNT_BROKER_PROVIDER the same way get_futures_option_position()
-        does, but always via the flat/ungrouped leg-fetchers (never the
-        schwab path's group_open_ratio_spreads) — each real contract needs
-        its own symbol to look up a quote for; a grouped row's `symbol` is
-        synthetic.
+        immediately without waiting on Tastytrade's DXLink feed. Uses the
+        flat/ungrouped legs (never group_open_ratio_spreads) — each real
+        contract needs its own symbol to look up a quote for; a grouped row's
+        `symbol` is synthetic.
         """
         try:
-            if get_account_broker_provider() == "tastytrade":
-                legs = self._get_open_futures_option_legs_native()
-            else:
-                legs = self._get_open_futures_option_legs_from_transactions(lookback_days)
+            legs = self._get_open_futures_option_legs_from_transactions(lookback_days)
         except BrokerAuthError:
             raise
-        except (BrokerError, TastytradeAPIError, ValueError) as e:
+        except (BrokerError, ValueError) as e:
             logger.error("Failed to fetch futures option positions for quoting: %s", e)
             return {}
 

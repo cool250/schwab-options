@@ -134,6 +134,10 @@ class Client:
     # Account
     # ------------------------------------------------------------------
 
+    def list_accounts(self) -> list[dict]:
+        """Every account the Schwab login covers (see Accounts.list_accounts)."""
+        return self._accounts.list_accounts()
+
     def fetch_positions(self) -> SecuritiesAccount:
         """Current account positions and balances."""
         return self._accounts.fetch_positions()

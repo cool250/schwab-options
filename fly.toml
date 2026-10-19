@@ -10,7 +10,6 @@ primary_region = 'iad'
   dockerfile = 'Dockerfile'
 
 [env]
-  CHAIN_PROVIDER = 'tastytrade'
   LOG_TO_STDOUT = 'true'
   PORT = '8080'
   TOKEN_FILE = '/data/token.json'

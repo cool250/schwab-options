@@ -1,4 +1,3 @@
-import contextvars
 import logging
 import threading
 import time
@@ -8,7 +7,6 @@ from typing import Optional
 
 import pytz
 
-from broker.schwab.exceptions import BrokerAuthError
 from broker.tastytrade import TastytradeAPIError, TastytradeClient
 from service.option_chain_providers import get_option_chain_provider, otm_pct
 from service import strategy_builder
@@ -60,9 +58,9 @@ _price_history_cache_lock = threading.Lock()
 DEFAULT_PRICE_HISTORY_RANGE = "1M"
 
 # Tickers screened concurrently — each one is a chain fetch plus a DXLink
-# snapshot (Tastytrade) or one large chain request (Schwab), mostly spent
-# waiting on the network, so a small pool cuts a 10-ticker screen from ~10
-# sequential round-trips to ~3 without hammering either broker.
+# snapshot, mostly spent waiting on the network, so a small pool cuts a
+# 10-ticker screen from ~10 sequential round-trips to ~3 without hammering
+# Tastytrade.
 _SCREENER_WORKERS = 4
 
 
@@ -109,8 +107,8 @@ class MarketService:
         "5Y", "MAX"), plus support/resistance levels derived from swing
         highs/lows in that series.
 
-        Backed by Tastytrade's DXLink Candle feed regardless of
-        CHAIN_PROVIDER — no Schwab login needed. A futures root ("/ES")
+        Backed by Tastytrade's DXLink Candle feed — no Schwab login needed.
+        A futures root ("/ES")
         resolves to its active-month contract, so long ranges show that
         contract's own history rather than a continuous back-adjusted series.
 
@@ -206,8 +204,7 @@ class MarketService:
         List every expiration date actually listed for `symbol` within the next
         `days_ahead` days — weekly, monthly, and daily where the underlying
         offers them — rather than guessing at weekly Fridays client-side.
-        Backed by whichever broker CHAIN_PROVIDER selects (see
-        service/option_chain_providers.py).
+        Backed by Tastytrade (see service/option_chain_providers.py).
 
         Returns:
             list[dict]: [{"date": "YYYY-MM-DD", "dte": int}, ...] sorted by dte.
@@ -217,8 +214,8 @@ class MarketService:
     def get_option_chain(self, symbol: str, dte: int, strike_count: int = 20):
         """
         Fetch a normalized option chain (calls + puts merged by strike) for
-        the expiration closest to `dte` days out. Backed by whichever broker
-        CHAIN_PROVIDER selects (see service/option_chain_providers.py).
+        the expiration closest to `dte` days out. Backed by Tastytrade (see
+        service/option_chain_providers.py).
 
         Parameters:
             symbol (str): The ticker symbol for the underlying asset.
@@ -311,17 +308,12 @@ class MarketService:
                 return expiration, self.option_chain_provider.get_option_chain(
                     symbol, expiration["dte"], strategy_builder.STRIKE_COUNT
                 ), None
-            except BrokerAuthError:
-                raise
             except Exception as e:  # one bad expiration shouldn't sink the rest
                 logger.error("Strategy build: chain for %s %s failed: %s", symbol, expiration["date"], e)
                 return expiration, None, str(e) or e.__class__.__name__
 
-        # Same pattern as screen_options: each task runs in its own copy of
-        # this request's context so a Schwab-backed chain keeps the current
-        # user (one copy per task — a Context can't be entered twice at once).
         with ThreadPoolExecutor(max_workers=min(_SCREENER_WORKERS, len(expirations))) as pool:
-            futures = [pool.submit(contextvars.copy_context().run, fetch, e) for e in expirations]
+            futures = [pool.submit(fetch, e) for e in expirations]
             fetched = [f.result() for f in futures]
 
         results, chains, failed, seen_dates = [], [], [], set()
@@ -424,9 +416,7 @@ class MarketService:
                              expiration to break even.
 
         A ticker that fails to load (bad symbol, no listed options, broker
-        hiccup) is reported in "errors" rather than failing the whole screen
-        — except a dead Schwab session, which no other ticker would survive
-        either, so BrokerAuthError still propagates (-> 503).
+        hiccup) is reported in "errors" rather than failing the whole screen.
         """
         option_types = STRATEGY_OPTION_TYPES[strategy]
 
@@ -435,21 +425,18 @@ class MarketService:
                 return symbol, self.option_chain_provider.get_screener_contracts(
                     symbol, min_dte, max_dte, option_types, min_otm_pct, max_otm_pct
                 ), None
-            except BrokerAuthError:
-                raise
             except Exception as e:
                 logger.error("Screener failed for %s: %s", symbol, e)
                 if getattr(e, "status_code", None) == 404:
                     return symbol, None, "Symbol not found, or it has no listed options"
                 return symbol, None, str(e) or e.__class__.__name__
 
-        # Each task runs in a copy of this request's context so it keeps the
-        # current user (broker/schwab/auth/token_provider.py) — a plain
-        # executor thread starts with an empty context, which matters if
-        # CHAIN_PROVIDER=schwab puts Schwab calls in these threads. One copy
-        # per task: a Context can't be entered by two threads at once.
+        # Market data never touches Schwab (only Tastytrade), so these
+        # threads don't need the request's per-user context. Code that adds a
+        # Schwab call to a thread pool must submit via
+        # contextvars.copy_context().run — see AGENTS.md.
         with ThreadPoolExecutor(max_workers=min(_SCREENER_WORKERS, len(symbols) or 1)) as pool:
-            futures = [pool.submit(contextvars.copy_context().run, fetch, s) for s in symbols]
+            futures = [pool.submit(fetch, s) for s in symbols]
             results = [f.result() for f in futures]
 
         delta_filter_on = min_abs_delta is not None or max_abs_delta is not None

@@ -4,6 +4,7 @@ import { getPositions, getFuturesPosition, getFuturesQuotes, getFuturesOptionPos
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
+import AccountPicker from '../components/AccountPicker'
 
 // Position fields come back pre-formatted for display (e.g. "$1,234.56", "-2") —
 // undo that so the value can be passed to StrikeLab as a real number.
@@ -142,14 +143,27 @@ export default function Positions() {
   const [selected, setSelected] = useState(new Map())
   const [analyzeError, setAnalyzeError] = useState(null)
 
+  // Bumped when the account picker switches Schwab accounts: everything
+  // loaded for the old account is dropped and reloaded for the new one.
+  const [accountVersion, setAccountVersion] = useState(0)
+  function handleAccountChanged() {
+    setData(null); setLoading(true); setError(null)
+    setFuturesData(null); setFuturesError(null)
+    setFuturesQuotes({}); setFuturesContractQuotes({})
+    setSelected(new Map()); setAnalyzeError(null) // picks belonged to the old account
+    setAccountVersion((v) => v + 1)
+  }
+
   useEffect(() => {
+    let cancelled = false // a slower response for a previous account must not land
     getPositions()
-      .then((d) => setData(d))
+      .then((d) => !cancelled && setData(d))
       .catch((err) => {
-        setError(friendlyErrorMessage(err, 'Failed to load positions. Make sure the API server is running.'))
+        if (!cancelled) setError(friendlyErrorMessage(err, 'Failed to load positions. Make sure the API server is running.'))
       })
-      .finally(() => setLoading(false))
-  }, [])
+      .finally(() => !cancelled && setLoading(false))
+    return () => { cancelled = true }
+  }, [accountVersion])
 
   useEffect(() => {
     // Deliberately excludes futuresLoading from the guard/deps: including it
@@ -158,17 +172,20 @@ export default function Positions() {
     // -> fails again), so the error banner never stayed on screen long enough
     // to read. Re-fetching now only happens on an actual tab switch.
     if (tab !== 'futures' || futuresData) return
+    let cancelled = false
     setFuturesLoading(true)
     setFuturesError(null)
     Promise.all([getFuturesPosition(), getFuturesOptionPosition()])
       .then(([futures, futuresOptions]) => {
-        setFuturesData({ futures, ...futuresOptions })
+        if (!cancelled) setFuturesData({ futures, ...futuresOptions })
       })
       .catch((err) => {
-        setFuturesError(friendlyErrorMessage(err, 'Failed to load futures positions. Make sure the API server is running.'))
+        if (!cancelled) setFuturesError(friendlyErrorMessage(err, 'Failed to load futures positions. Make sure the API server is running.'))
       })
-      .finally(() => setFuturesLoading(false))
-  }, [tab, futuresData])
+      .finally(() => !cancelled && setFuturesLoading(false))
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, futuresData, accountVersion])
 
   useEffect(() => {
     if (!futuresData) return
@@ -421,6 +438,9 @@ export default function Positions() {
 
   return (
     <div className="page">
+      {/* Only shown when the Schwab login covers more than one account. */}
+      <AccountPicker inline onChanged={handleAccountChanged} />
+
       <div className="tab-bar">
         <div className="tab-row">
           <button

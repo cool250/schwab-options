@@ -381,6 +381,7 @@ def set_token_owner(user_id: Optional[int]) -> Token:
     return _token_owner.set(user_id)
 
 
+
 def require_token_owner() -> None:
     global _owner_required
     _owner_required = True

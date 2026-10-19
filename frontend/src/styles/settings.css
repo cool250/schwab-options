@@ -28,6 +28,7 @@
 .settings-status--warning { color: var(--warning); }
 .settings-status--error   { color: var(--error); }
 .settings-status--muted   { color: var(--text-muted); font-weight: 500; }
+.account-picker { max-width: 420px; }
 
 /* Account card sub-sections (Profile, Change password). */
 .settings-subtitle { margin: 8px 0 0; font-size: 0.95rem; font-weight: 600; color: var(--text); }
@@ -57,3 +58,12 @@
 .settings-btn-sm { padding: 5px 12px; font-size: 0.8rem; white-space: nowrap; }
 .settings-btn-danger { color: var(--error); }
 .settings-btn-danger:hover:not(:disabled) { border-color: var(--error); }
+
+/* Account picker, compact one-row form (top of Positions). */
+.account-picker-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.account-picker-inline label {
+  font-size: var(--label-font-size); font-weight: 700; color: var(--text);
+  text-transform: uppercase; letter-spacing: 0.8px;
+}
+.account-picker-inline .input { width: auto; min-width: 0; max-width: 100%; padding: 6px 0; font-weight: 600; }
+.account-picker-error { color: var(--error); }

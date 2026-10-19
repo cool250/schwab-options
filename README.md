@@ -101,8 +101,6 @@ ADMIN_USERNAME=pick-a-username
 ADMIN_PASSWORD=pick-a-password
 
 # --- Optional ---
-CHAIN_PROVIDER=tastytrade     # 'schwab' or 'tastytrade' — which broker serves option chains
-                                # (positions/transactions always use Schwab; Charts always uses Tastytrade)
 OPENAI_API_KEY=sk-...           # only needed for the Copilot chat feature
 OPENAI_MODEL=gpt-4o             # defaults to gpt-4o if unset
 ```
@@ -187,7 +185,7 @@ The **Screener** page ranks single puts or calls — or two multi-leg credit str
 
 - Each ticker is capped at 600 contracts per scan so one live-quote snapshot fills reliably. Over the cap, the strikes nearest the money are kept and the page shows a warning — narrow the DTE or moneyness range to see everything.
 - A ticker that fails (bad symbol, no listed options) is reported as a per-ticker warning; the rest of the scan still returns.
-- Option chains come from whichever broker `CHAIN_PROVIDER` selects. A scan of several tickers typically takes ~10–15 s.
+- Option chains come from Tastytrade. A scan of several tickers typically takes ~10–15 s.
 - For futures options, ROI is still premium ÷ strike, which doesn't reflect the margin actually tied up.
 
 ---
@@ -227,11 +225,11 @@ fly volumes create data --size 1 --region iad
 
 # 4. Set secrets from your local .env (see the note below)
 {
-  grep -E '^(SCHWAB_APP_KEY|SCHWAB_APP_SECRET|TASTY_CLIENT_ID|TASTY_CLIENT_SECRET|TASTY_REFRESH_TOKEN|OPENAI_API_KEY|OPENAI_MODEL|ACCOUNT_BROKER_PROVIDER|ADMIN_USERNAME|ADMIN_PASSWORD|SECRET_KEY)=' .env \
+  grep -E '^(SCHWAB_APP_KEY|SCHWAB_APP_SECRET|TASTY_CLIENT_ID|TASTY_CLIENT_SECRET|TASTY_REFRESH_TOKEN|OPENAI_API_KEY|OPENAI_MODEL|ADMIN_USERNAME|ADMIN_PASSWORD|SECRET_KEY)=' .env \
     | sed -E "s/^([A-Z_]+)=[\"'](.*)[\"']$/\1=\2/"
   echo "SCHWAB_APP_CALLBACK_URL=https://your-app-name.fly.dev/api/auth/schwab/callback"
 } | fly secrets import
-fly secrets list    # should list all 12 names
+fly secrets list    # should list all 11 names
 
 # 5. Deploy as a single machine (a volume attaches to exactly one machine)
 fly deploy --ha=false
@@ -239,11 +237,10 @@ fly deploy --ha=false
 
 About step 4:
 - It copies the needed keys from `.env` without printing them, strips surrounding quotes (`fly secrets import` would otherwise keep them as part of the value), and swaps in the Fly callback URL.
-- It copies only the keys the app needs as secrets; `CHAIN_PROVIDER` is left out because it's already in `fly.toml`.
 - Prefer this over a long multi-line `fly secrets set … \` command: one broken line continuation there silently sets only the first secret, which leaves login failing with 401.
 - To use a different `SECRET_KEY` in production than locally, drop it from the `grep` list and add `echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"`.
 
-Non-secret settings (`PORT`, `TOKEN_FILE=/data/token.json`, `LOG_TO_STDOUT`, `CHAIN_PROVIDER`) are in `fly.toml`'s `[env]` block — edit them there.
+Non-secret settings (`PORT`, `TOKEN_FILE=/data/token.json`, `LOG_TO_STDOUT`) are in `fly.toml`'s `[env]` block — edit them there.
 
 ### Connect Schwab (and reconnect every 7 days)
 

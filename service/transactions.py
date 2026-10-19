@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
 import math
-from broker.schwab.exceptions import BrokerAuthError, BrokerError
-from service.account_data_providers import (
+from broker.exceptions import BrokerAuthError, BrokerError
+from service.portfolio.providers import (
     CONTRACT_MULTIPLIER,
     TransactionProvider,
     get_contract_multiplier,
@@ -52,8 +52,8 @@ class TransactionService:
     option transactions, including matching opening and closing trades.
     """
 
-    # Canonical source of truth now lives in service/account_data_providers.py
-    # (shared with SchwabTransactionProvider, which needs it at parse time) —
+    # Canonical source of truth lives in service/portfolio/providers/base.py
+    # (shared with the providers, which need it at parse time) —
     # kept as a class attribute here too since callers reference
     # TransactionService._CONTRACT_MULTIPLIER / self._CONTRACT_MULTIPLIER
     # directly (see get_open_futures_options, get_option_quotes below, and
