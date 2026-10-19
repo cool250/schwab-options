@@ -1,6 +1,6 @@
 """Live-streaming companion to /api/market/options/chain.
 
-The REST endpoint (service/option_chain_providers.py) is a one-shot snapshot:
+The REST endpoint (service/market/chain_providers.py) is a one-shot snapshot:
 every load re-fetches quotes and closes the DXLink session. This route keeps
 one DXLink session open per connected client and pushes bid/ask updates as
 they arrive, using the same TastytradeClient/DXLinkStreamer building blocks —
@@ -25,7 +25,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from api.auth import verify_token
 from broker.tastytrade import DXLinkStreamer, TastytradeAPIError, TastytradeClient
 from broker.tastytrade.client import _finite_float
-from service.option_chain_providers import TastytradeOptionChainProvider
+from service.market.chain_providers import TastytradeOptionChainProvider
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

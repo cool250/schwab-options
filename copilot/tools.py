@@ -1,8 +1,8 @@
 """Read-only tools the copilot agent can call.
 
 Every tool here is a thin wrapper around an already-existing, already-used
-service-layer method (service/position.py, service/transactions.py,
-service/market.py) — no new broker calls are written for this feature.
+service-layer method (service/portfolio/positions.py, service/portfolio/transactions.py,
+service/market/market.py) — no new broker calls are written for this feature.
 
 Deliberately NOT wrapped as a tool, on purpose: TastytradeClient.place_order /
 .cancel_order / .get_orders (broker/tastytrade/client.py). Those methods
@@ -17,18 +17,24 @@ kept in sync with the matching function's signature.
 
 import json
 import logging
-from datetime import date, timedelta
+from datetime import timedelta
 
 from broker.exceptions import BrokerError
-from service import MarketService, PositionService, TransactionService
-from service.strategy_builder import ANCHOR_MODES, TEMPLATES, WING_MODES, StrategyParamError
+from pydantic_core import to_jsonable_python
+
+from service.market import MarketService
+from service.portfolio import PositionService, TransactionService
+from service.portfolio.ratio_spreads import group_ratio_spreads
+from utils.market_time import market_today
+from service.market.strategy_builder import ANCHOR_MODES, TEMPLATES, WING_MODES, StrategyParamError
 
 logger = logging.getLogger(__name__)
 
 
 def _default_date_range(days: int) -> tuple[str, str]:
-    end = date.today() + timedelta(days=1)  # see PositionService.get_futures_position for why +1
-    start = date.today() - timedelta(days=days)
+    today = market_today()
+    end = today + timedelta(days=1)  # see PositionService.get_futures_position for why +1
+    start = today - timedelta(days=days)
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
@@ -38,7 +44,8 @@ def _safe(fn, *args, **kwargs) -> str:
     reported back to the model as data instead, letting it explain the
     problem to the user rather than the whole request erroring out."""
     try:
-        return json.dumps(fn(*args, **kwargs), default=str)
+        # to_jsonable_python: services return typed models (service/portfolio/models.py)
+        return json.dumps(fn(*args, **kwargs), default=to_jsonable_python)
     except BrokerError as e:
         logger.error("Copilot tool %s failed: %s", getattr(fn, "__qualname__", fn), e)
         return json.dumps({"error": str(e)})
@@ -54,7 +61,7 @@ def get_stock_positions() -> str:
 
 def get_option_positions() -> str:
     puts, calls = PositionService().get_option_position()
-    return json.dumps({"puts": puts, "calls": calls}, default=str)
+    return json.dumps({"puts": puts, "calls": calls}, default=to_jsonable_python)
 
 
 def get_futures_positions(lookback_days: int = 30) -> str:
@@ -86,7 +93,7 @@ def get_option_trade_history(
         # into one grouped record — see group_ratio_spreads' docstring. Lets
         # the model report an actual ratio-spread position directly instead
         # of inferring the structure itself from a flat leg list.
-        return service.group_ratio_spreads(trades)
+        return group_ratio_spreads(trades)
 
     return _safe(
         _fetch_and_group,
@@ -137,7 +144,7 @@ def build_strategy(
     max_dte: int | None = None,
 ) -> str:
     """Place a named strategy's legs on the live chain — the same solver as
-    the Analyze page's Strategy Builder (service/strategy_builder.py)."""
+    the Analyze page's Strategy Builder (service/market/strategy_builder.py)."""
     strategy = strategy.strip().upper()
     if strategy not in COPILOT_STRATEGIES:
         return json.dumps({"error": f"Unsupported strategy {strategy!r}; use one of {COPILOT_STRATEGIES}"})

@@ -19,7 +19,12 @@ async function request(path, options = {}) {
     let message = text || res.statusText
     try {
       const json = JSON.parse(text)
-      if (json.detail) message = json.detail
+      // A validation error (422) lists each bad field: [{loc, msg}, ...].
+      if (Array.isArray(json.detail)) {
+        message = json.detail.map((d) => `${d.loc?.[d.loc.length - 1] ?? 'input'}: ${d.msg}`).join('; ')
+      } else if (json.detail) {
+        message = json.detail
+      }
     } catch {}
     const err = new Error(message)
     err.status = res.status
@@ -84,7 +89,7 @@ export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyn
   return request(`/market/options/screener?${p}`)
 }
 
-// Strategy Builder (Analyze page overlay) — see service/strategy_builder.py.
+// Strategy Builder (Analyze page overlay) — see service/market/strategy_builder.py.
 export function getStrategyTemplates() {
   return request('/market/strategies')
 }
@@ -173,11 +178,11 @@ export function startSchwabReconnect() {
 // Accounts the broker login covers — [{ id, label: "…6112", type, value,
 // positions, selected }] — and choosing which one Portfolio pages read.
 export function getAccounts() {
-  return request('/positions/accounts')
+  return request('/portfolio/positions/accounts')
 }
 
 export function setAccount(id) {
-  return request('/positions/account', {
+  return request('/portfolio/positions/account', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }),
@@ -190,23 +195,15 @@ export function getPriceHistory(symbol, range = '1M') {
 }
 
 export function getPositions() {
-  return request('/positions/')
+  return request('/portfolio/positions/')
 }
 
 export function getFuturesPosition() {
-  return request('/positions/futures')
-}
-
-export function getFuturesQuotes() {
-  return request('/positions/futures/quotes')
+  return request('/portfolio/positions/futures')
 }
 
 export function getFuturesOptionPosition() {
-  return request('/positions/futures/options')
-}
-
-export function getFuturesOptionQuotes() {
-  return request('/positions/futures/options/quotes')
+  return request('/portfolio/positions/futures/options')
 }
 
 export function getOptionTransactions(stockTicker, startDate, endDate, contractType, realizedGainsOnly, unrealizedOnly = false, groupRatioSpreads = true) {
@@ -219,17 +216,31 @@ export function getOptionTransactions(stockTicker, startDate, endDate, contractT
     unrealized_only: unrealizedOnly,
     group_ratio_spreads: groupRatioSpreads,
   })
-  return request(`/transactions/options?${p}`)
+  return request(`/portfolio/transactions/options?${p}`)
 }
 
-export function getOptionQuotes(stockTicker, startDate, endDate, contractType) {
-  const p = new URLSearchParams({
-    stock_ticker: stockTicker,
-    start_date: startDate,
-    end_date: endDate,
-    contract_type: contractType,
+// Live prices for what Schwab can't quote (futures, futures options) and
+// open option legs — from Market (Tastytrade), combined with Portfolio rows
+// in the page. Anything that couldn't be priced is absent from the result.
+//   futures: ['ES', 'NQ']
+//   options: [{ key, underlying, expiration: 'YYYY-MM-DD', strike, type: 'PUT'|'CALL' }]
+// -> { futures: { ES: 7712.25 }, options: { [key]: { bid, ask, mid } } }
+export function getMarketQuotes({ futures = [], options = [] }) {
+  return request('/market/quotes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ futures, options }),
   })
-  return request(`/transactions/options/quotes?${p}`)
+}
+
+// { [key]: bid } for option contracts — the price Positions and
+// Transactions value open legs at.
+export async function getOptionBids(options) {
+  if (!options.length) return {}
+  const { options: quotes } = await getMarketQuotes({ options })
+  const bids = {}
+  for (const [key, q] of Object.entries(quotes)) if (q.bid != null) bids[key] = q.bid
+  return bids
 }
 
 export function getEquityTransactions(stockTicker, startDate, endDate, assetType, realizedGainsOnly) {
@@ -240,7 +251,7 @@ export function getEquityTransactions(stockTicker, startDate, endDate, assetType
     asset_type: assetType,
     realized_gains_only: realizedGainsOnly,
   })
-  return request(`/transactions/equity?${p}`)
+  return request(`/portfolio/transactions/equity?${p}`)
 }
 
 export function sendCopilotMessage(messages, context) {
@@ -259,5 +270,5 @@ export function getAllocations(startDate, endDate, realizedGainsOnly) {
     contract_type: 'ALL',
     realized_gains_only: realizedGainsOnly,
   })
-  return request(`/transactions/options?${p}`)
+  return request(`/portfolio/transactions/options?${p}`)
 }

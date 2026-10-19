@@ -11,7 +11,8 @@ from typing import Optional
 
 from broker.schwab import Client
 from broker.schwab.data.account_data import Position, SecuritiesAccount
-from service.portfolio.providers.base import get_contract_multiplier, parse_option_symbol
+from service.portfolio.providers.base import OptionTransaction
+from service.shared.contracts import get_contract_multiplier, parse_option_symbol
 from utils.utils import get_date_string
 
 logger = logging.getLogger(__name__)
@@ -223,12 +224,6 @@ class SchwabTransactionProvider:
         return None
 
     def fetch_option_legs(self, start_date: str, end_date: str) -> list[dict]:
-        # Local import: OptionTransaction lives on the service module, and
-        # importing it at module level here would make service/transactions.py
-        # -> service/portfolio/providers -> service/transactions.py a
-        # circular import.
-        from service.transactions import OptionTransaction
-
         transactions = self.fetch_raw_transactions(start_date, end_date)
         parsed_transactions = []
         for transaction in transactions:

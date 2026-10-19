@@ -28,7 +28,7 @@ expiration, divided by capital.
 
 from typing import Callable, Optional
 
-from service.strategy_math import net_premium, payoff, payoff_profile
+from service.shared.strategy_math import net_premium, payoff, payoff_profile
 
 # Widest call spread considered for a jade lizard, in strike steps above the
 # short call. Wings are typically narrow (the credit has to cover the

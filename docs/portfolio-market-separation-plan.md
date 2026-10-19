@@ -1,6 +1,6 @@
 # Portfolio / Market Separation — Plan
 
-_Drafted 2026-10-19. Status: Tastytrade-as-account-source and Schwab-as-chain-provider removed (2026-10-19); the rest is still a proposal._
+_Drafted 2026-10-19. **Status: done (2026-10-19).** All phases are complete; this is now a record of what was done and why. Open questions 1, 3 and 4 were settled on the recommended defaults (see below)._
 
 ## Goal
 
@@ -14,14 +14,14 @@ _Drafted 2026-10-19. Status: Tastytrade-as-account-source and Schwab-as-chain-pr
    separate packages, separate URL prefixes, and an automated check that
    fails if Portfolio code imports Tastytrade.
 
-## Where Portfolio uses Tastytrade today
+## Where Portfolio used Tastytrade (all removed)
 
 | # | Use | Where | Why it's there |
 |---|---|---|---|
 | A | ✅ **Removed 2026-10-19.** Tastytrade **as the account source** (`ACCOUNT_BROKER_PROVIDER=tastytrade`): positions, balances and transactions from a Tastytrade account | `TastytradePositionProvider`, `TastytradeTransactionProvider`, `resolve_tastytrade_account_number` (`service/account_data_providers.py`); the `_native` branches in `PositionService` (`_get_futures_position_native`, `_get_open_futures_option_legs_native`, `_get_futures_option_position_native`) | An alternative account broker. **Unused**: `.env` says `schwab`, and `fly.toml` doesn't set it. |
-| B | Live price of **outright futures** on Positions | `PositionService.get_futures_quotes` → `GET /api/positions/futures/quotes` | Schwab has no futures quotes. |
-| C | Live price of **futures options** on Positions | `PositionService.get_futures_option_quotes` / `_quote_futures_option_legs` → `GET /api/positions/futures/options/quotes` | Schwab rejects futures-option symbols. |
-| D | Live price of **open option legs** in Transactions (unrealized P&L): equity legs and futures-option legs | `TransactionService.get_option_quotes` / `_get_equity_option_quotes` → `GET /api/transactions/options/quotes` | Equity legs could use Schwab; futures-option legs can't. |
+| B | ✅ **Moved to Market.** Live price of **outright futures** on Positions | `PositionService.get_futures_quotes` → `GET /api/positions/futures/quotes` | Schwab has no futures quotes. |
+| C | ✅ **Moved to Market.** Live price of **futures options** on Positions | `PositionService.get_futures_option_quotes` → `service/portfolio/live_quotes.quote_futures_option_legs` → `GET /api/positions/futures/options/quotes` | Schwab rejects futures-option symbols. |
+| D | ✅ **Moved to Market.** Live price of **open option legs** in Transactions (unrealized P&L): equity legs and futures-option legs | `service/portfolio/live_quotes.quote_option_legs` / `quote_equity_option_legs` → `GET /api/transactions/options/quotes` | Equity legs could use Schwab; futures-option legs can't. |
 
 Stocks and equity options on Positions are priced by **Schwab's** own quotes
 (`SchwabPositionProvider.get_quotes`). No Tastytrade is involved there.
@@ -87,7 +87,7 @@ The repo's first automated test, `tests/test_layer_boundaries.py`:
 - **fails if any of them imports `broker.tastytrade`**, directly or through
   `service.market`.
 
-It needs `uv add --dev pytest`. That's what keeps the separation from quietly
+It also checks the reverse (Market never imports Portfolio or Schwab). That's what keeps the separation from quietly
 eroding later.
 
 ### New Market quotes endpoint
@@ -108,8 +108,9 @@ D):
 { "futures": { "ES": 7712.25 }, "options": { "<row id>": { "bid": 18.5, "ask": 19.0, "mid": 18.75 } } }
 ```
 
-`QuoteService` is today's `_quote_futures_option_legs` and
-`_get_equity_option_quotes`, moved over and merged. Behavior stays the same:
+`QuoteService` is today's `service/portfolio/live_quotes.py` (already
+isolated as the only Portfolio module that imports `broker.tastytrade`),
+moved over to Market. Behavior stays the same:
 - chains are grouped by underlying and expiration, so each chain is fetched
   only once;
 - one DXLink snapshot covers all contracts;
@@ -168,7 +169,7 @@ tools are Market. No tool needs the new quotes endpoint.
 - ✅ The three `_native` branches in `PositionService`, and the
   `TastytradeAPIError` handling in Portfolio code.
 - ✅ `parse_tastytrade_future_option_symbol` (Market didn't need it).
-- The three Portfolio quote endpoints and their service methods (B, C, D).
+- ✅ The three Portfolio quote endpoints and their service methods (B, C, D).
 
 ## Phases
 
@@ -176,33 +177,40 @@ Each phase leaves the app working. Every phase ends with the usual check:
 the dev servers, Positions, Transactions and Reports on real data, plus the
 Market pages.
 
-1. **Boundary test and shared module.** Add pytest and the boundary test,
+1. ✅ **Boundary test and shared module.** Add pytest and the boundary test,
    marked expected-to-fail for now. Move `strategy_math.py` and the contract
    helpers into `service/shared/`. No behavior change.
-2. **Market quotes.** Add `QuoteService` and `POST /api/market/quotes`,
+2. ✅ **Market quotes.** Add `QuoteService` and `POST /api/market/quotes`,
    ported from the existing Tastytrade quote code. Run the old and new
    endpoints on the same open positions and check they return the same
    prices.
-3. **Switch the pages.** Positions and Transactions price through
+3. ✅ **Switch the pages.** Positions and Transactions price through
    `getMarketQuotes`. Delete the three Portfolio quote endpoints and their
    service code.
 4. ✅ **Remove the Tastytrade account path.** Done 2026-10-19.
-5. **Restructure.** Move modules into `service/portfolio|market|shared` and
+5. ✅ **Restructure.** Move modules into `service/portfolio|market|shared` and
    `api/portfolio|market`. Mount `/api/portfolio`. Update `client.js`, the
    copilot imports, `AGENTS.md` and the README. The boundary test now passes,
    and is no longer marked expected-to-fail.
 
+   As built: phases 1, 2, 3 and 5 landed together, so the boundary test was
+   never marked expected-to-fail. The new endpoint was checked against the
+   old ones on the same open futures-option positions (every contract
+   priced; values within normal minutes-apart market movement). Unknown
+   `/api` paths now return 404 instead of the SPA's `index.html`, so a stale
+   tab calling a removed route fails clearly.
+
 ## Open questions
 
-1. **Stock and equity-option prices on Positions:** keep Schwab's quotes
+1. ✅ **Decided: keep Schwab's quotes.** **Stock and equity-option prices on Positions:** keep Schwab's quotes
    (recommended: same broker as the account, per user), or move all live
    pricing to the Market endpoint for one consistent source?
 2. ✅ **`ACCOUNT_BROKER_PROVIDER`:** decided — removed; the app reads a
    Schwab account only.
-3. **URL change:** OK to move `/api/positions` and `/api/transactions` under
+3. ✅ **Decided: moved, no aliases.** **URL change:** OK to move `/api/positions` and `/api/transactions` under
    `/api/portfolio` with no aliases? Anything outside the app calling them,
    such as scripts or bookmarks, would break.
-4. **Futures quotes:** today a futures position is priced by its *root*,
+4. **Still open — kept root pricing (no behavior change).** **Futures quotes:** today a futures position is priced by its *root*,
    which gives the front-month price. Near a roll, a position in the next
    contract month would get the wrong price. The new endpoint could quote
    the exact contract (e.g. `/ESZ26`) instead. Worth fixing as part of this?

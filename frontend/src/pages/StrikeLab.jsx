@@ -213,7 +213,7 @@ function upsideSlope(legs) {
 
 /** Estimated chance the position finishes above zero P&L at expiration,
  *  under a driftless lognormal model at volatility `iv` (a fraction) — the
- *  same model the Strategy Builder uses (service/strategy_math.py's
+ *  same model the Strategy Builder uses (service/shared/strategy_math.py's
  *  probability_of_profit), so the two pages agree. The breakevens split the
  *  price axis into regions of constant sign; each profitable region adds its
  *  probability. Null without legs, a spot or an IV. */
@@ -641,7 +641,7 @@ export default function StrikeLab() {
 
       socket.onclose = (event) => {
         if (cancelled) return;
-        // 4401: token rejected/expired server-side (api/market_stream.py) —
+        // 4401: token rejected/expired server-side (api/market/stream.py) —
         // retrying with the same stale token would just loop forever, so
         // send the user back through the same re-auth path the REST client
         // uses on a 401 instead.
@@ -670,13 +670,13 @@ export default function StrikeLab() {
   }, [symbol, dte]);
 
   // The Range ±% slider below only ever *widens* what's already on screen —
-  // it resubscribes on the same open socket (api/market_stream.py's
+  // it resubscribes on the same open socket (api/market/stream.py's
   // subscribe handler supports repeat "subscribe" messages, tearing down and
   // rebuilding just the DXLink quote stream) with a bigger strike_count
   // rather than reconnecting, and only when the desired count actually grows
   // past what's already been fetched — never on every slider drag tick,
   // since each one re-fetches the whole chain (a few hundred ms to a few
-  // seconds, per api/market_stream.py's own timing log).
+  // seconds, per api/market/stream.py's own timing log).
   // useCallback so this stays referentially stable across renders that
   // don't actually change symbol/dte — otherwise every live quote tick
   // (which updates `chain` state, re-rendering this component) would hand

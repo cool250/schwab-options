@@ -115,7 +115,8 @@ def get_access_token() -> str:
         headers=init_token_headers, payload=init_token_payload
     )
 
-    logger.debug(init_tokens_dict)
+    # Never log the token response itself: it holds the access and refresh tokens.
+    logger.debug("Received Schwab tokens (fields: %s)", ", ".join(sorted(init_tokens_dict)))
 
     from broker.schwab.auth.token_provider import FileTokenProvider
     FileTokenProvider().save_tokens(init_tokens_dict)

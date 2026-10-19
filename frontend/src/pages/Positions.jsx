@@ -1,17 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getPositions, getFuturesPosition, getFuturesQuotes, getFuturesOptionPosition, getFuturesOptionQuotes, friendlyErrorMessage } from '../api/client'
+import { getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionBids, friendlyErrorMessage } from '../api/client'
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 import AccountPicker from '../components/AccountPicker'
-
-// Position fields come back pre-formatted for display (e.g. "$1,234.56", "-2") —
-// undo that so the value can be passed to StrikeLab as a real number.
-function toNumber(value) {
-  const n = Number(String(value ?? '').replace(/[$,]/g, ''))
-  return Number.isFinite(n) ? n : 0
-}
+import { money, count } from '../utils/numberFormat'
 
 // Survives unmounting/remounting this page (e.g. navigating to Analyze and
 // back) within the same browser session — only a full page reload clears it.
@@ -32,18 +26,24 @@ function stockTradePriceColumn() {
     label: 'Trade Price',
     align: 'right',
     render: (row) => (
-      row.broker_cost_basis && row.broker_cost_basis !== row.trade_price
-        ? `${row.trade_price} (broker: ${row.broker_cost_basis})`
-        : row.trade_price
+      row.broker_cost_basis != null && Math.abs(row.broker_cost_basis - (row.trade_price ?? 0)) >= 0.005
+        ? `${money(row.trade_price)} (broker: ${money(row.broker_cost_basis)})`
+        : money(row.trade_price)
     ),
   }
 }
 
+// Positions arrive as plain numbers; prices/strikes/quantities are formatted
+// here (P&L and exposure keep DataTable's own number formatting + coloring).
+const quantityColumn = { key: 'quantity', label: 'Quantity', align: 'right', render: (row) => count(row.quantity) }
+const tradePriceColumn = { key: 'trade_price', label: 'Trade Price', align: 'right', render: (row) => money(row.trade_price) }
+const currentPriceColumn = { key: 'current_price', label: 'Current Price', align: 'right', render: (row) => money(row.current_price, 3) }
+
 const STOCK_COLUMNS = [
   { key: 'symbol',              label: 'Symbol' },
-  { key: 'quantity',            label: 'Quantity',           align: 'right' },
+  quantityColumn,
   stockTradePriceColumn(),
-  { key: 'current_price',       label: 'Current Price',      align: 'right' },
+  currentPriceColumn,
   { key: 'broker_pl',           label: 'P&L',                align: 'right' },
 ]
 
@@ -51,25 +51,32 @@ const STOCK_COLUMNS = [
 // being built for) on both equity and futures option rows here — unlike
 // Transactions' rows, a position row has no option_type field of its own,
 // since it's only known from which of the two tables (Puts vs Calls) it's
-// rendered in. strike_price arrives pre-formatted ("$175") rather than a raw
-// number, so it's run through toNumber first. A grouped ratio-spread row
-// (long_leg/short_leg present, see toggleSelected et al.) has no single
-// strike to show — toNumber can't detect that on its own (it maps an
-// unparseable "$7,695/$7,640" to 0, not NaN), so it's checked explicitly and
-// falls back to the row's own synthetic symbol.
+// rendered in. A grouped ratio-spread row (long_leg/short_leg present, see
+// toggleSelected et al.) has no single strike, so it falls back to the
+// row's own synthetic symbol.
 function positionOptionSymbol(row, optionType) {
   if (row.long_leg && row.short_leg) return row.symbol
-  return formatOptionSymbol(row.ticker, row.expiration_date, toNumber(row.strike_price), optionType) ?? row.symbol
+  return formatOptionSymbol(row.ticker, row.expiration_date, row.strike_price, optionType) ?? row.symbol
+}
+
+// A ratio spread shows both strikes ("$7,695/$7,640") and its ratio ("1:2")
+// where a single contract shows its strike and quantity.
+const strikeColumn = {
+  key: 'strike_price',
+  label: 'Strike',
+  render: (row) => (row.long_leg && row.short_leg
+    ? `${money(row.long_leg.strike_price, 0)}/${money(row.short_leg.strike_price, 0)}`
+    : money(row.strike_price, 0)),
 }
 
 function optionColumns(optionType) {
   return [
     { key: 'ticker',          label: 'Ticker' },
-    { key: 'strike_price',    label: 'Strike' },
+    strikeColumn,
     { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
-    { key: 'quantity',        label: 'Quantity',     align: 'right' },
-    { key: 'trade_price',     label: 'Trade Price',  align: 'right' },
-    { key: 'current_price',   label: 'Current Price',  align: 'right' },
+    quantityColumn,
+    tradePriceColumn,
+    currentPriceColumn,
     { key: 'total_value',     label: 'P&L',          align: 'right' },
     { key: 'exposure',        label: 'Exposure',     align: 'right' },
     { key: 'symbol',          label: 'Symbol', render: (row) => positionOptionSymbol(row, optionType) },
@@ -82,8 +89,8 @@ function optionColumns(optionType) {
 // plain key, same pattern as the futures-option tables' Current Price.
 const FUTURES_COLUMNS = [
   { key: 'symbol',      label: 'Symbol' },
-  { key: 'quantity',    label: 'Quantity',   align: 'right' },
-  { key: 'trade_price', label: 'Trade Price', align: 'right' },
+  quantityColumn,
+  tradePriceColumn,
 ]
 
 // Same column set, order, and labels as optionColumns() above minus
@@ -97,10 +104,10 @@ const FUTURES_COLUMNS = [
 function futuresOptionColumns() {
   return [
     { key: 'ticker',          label: 'Ticker' },
-    { key: 'strike_price',    label: 'Strike' },
+    strikeColumn,
     { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
-    { key: 'quantity',        label: 'Quantity',    align: 'right' },
-    { key: 'trade_price',     label: 'Trade Price', align: 'right' },
+    { ...quantityColumn, render: (row) => row.ratio ?? count(row.quantity) },
+    tradePriceColumn,
   ]
 }
 
@@ -187,10 +194,22 @@ export default function Positions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, futuresData, accountVersion])
 
+  // Live prices come from Market (Schwab can't quote futures or futures
+  // options): every real contract on the page — both legs of a grouped
+  // ratio-spread row — keyed by its symbol. Two requests, so each table
+  // fills in as soon as its own prices land.
   useEffect(() => {
     if (!futuresData) return
+    const contracts = []
+    for (const [rows, type] of [[futuresData.puts ?? [], 'PUT'], [futuresData.calls ?? [], 'CALL']]) {
+      for (const row of rows) {
+        for (const leg of row.long_leg ? [row.long_leg, row.short_leg] : [row]) {
+          contracts.push({ key: leg.symbol, underlying: `/${row.ticker}`, expiration: row.expiration_date, strike: leg.strike_price, type })
+        }
+      }
+    }
     setFuturesQuotesLoading(true)
-    getFuturesOptionQuotes()
+    getOptionBids(contracts)
       .then((quotes) => setFuturesQuotes(quotes))
       // Prices are a nicety layered on top of the position list — a failure
       // here shouldn't surface an error banner over an otherwise-fine table.
@@ -200,9 +219,11 @@ export default function Positions() {
 
   useEffect(() => {
     if (!futuresData) return
+    const roots = (futuresData.futures ?? []).map((f) => f.symbol).filter(Boolean)
+    if (!roots.length) return
     setFuturesContractQuotesLoading(true)
-    getFuturesQuotes()
-      .then((quotes) => setFuturesContractQuotes(quotes))
+    getMarketQuotes({ futures: roots })
+      .then((quotes) => setFuturesContractQuotes(quotes.futures))
       .catch(() => {})
       .finally(() => setFuturesContractQuotesLoading(false))
   }, [futuresData])
@@ -218,14 +239,17 @@ export default function Positions() {
   const totalPutExposure = puts.reduce((sum, p) => sum + (p.exposure ?? 0), 0)
   const totalPutValue = puts.reduce((sum, p) => sum + (p.total_value ?? 0), 0)
   const totalCallValue = calls.reduce((sum, c) => sum + (c.total_value ?? 0), 0)
+  // Rows with no live quote have no P&L (null) — say so beside the total
+  // rather than letting it silently cover fewer positions.
+  const unpricedNote = (rows) => {
+    const n = rows.filter((r) => r.total_value == null).length
+    return n ? ` (${n} unpriced)` : ''
+  }
   const totalStockPL = stocks.reduce((sum, s) => sum + (s.broker_pl ?? 0), 0)
 
-  // A grouped ratio-spread row's own strike_price ("$7,695/$7,640") and
-  // quantity ("1:2") are display-only composites — toNumber() on either
-  // silently produces NaN, which is what broke "Analyze Selected" for these
-  // rows after grouping was added. Real per-leg strike/quantity/price live on
-  // long_leg/short_leg instead, so such a row expands to two selection
-  // entries (one per real leg) rather than one row => one entry.
+  // A grouped ratio-spread row has no single strike or quantity — its real
+  // per-leg strike/quantity/price live on long_leg/short_leg, so such a row
+  // expands to two selection entries (one per real leg).
   function groupLegKeys(row) {
     return [`${row.symbol}::long`, `${row.symbol}::short`]
   }
@@ -273,10 +297,10 @@ export default function Positions() {
       } else {
         next.set(row.symbol, {
           symbol: underlyingSymbol,
-          strike: toNumber(row.strike_price),
+          strike: row.strike_price,
           optionType,
-          quantity: toNumber(row.quantity),
-          premium: toNumber(row.trade_price),
+          quantity: row.quantity,
+          premium: row.trade_price,
           dte: row.days_to_expiry,
           ticker: row.ticker,
           expirationDate: row.expiration_date,
@@ -319,7 +343,7 @@ export default function Positions() {
       align: 'right',
       render: (row) => {
         const price = futuresContractQuotes[row.symbol]
-        if (price != null) return `$${price.toFixed(2)}`
+        if (price != null) return money(price)
         return futuresContractQuotesLoading ? 'Loading...' : '—'
       },
     }
@@ -342,12 +366,12 @@ export default function Positions() {
           const shortPrice = futuresQuotes[row.short_leg.symbol]
           if (longPrice != null && shortPrice != null) {
             const net = (row.short_leg.amount * shortPrice) - (row.long_leg.amount * longPrice)
-            return net >= 0 ? `$${net.toFixed(2)}` : `-$${Math.abs(net).toFixed(2)}`
+            return money(net)
           }
           return futuresQuotesLoading ? 'Loading...' : '—'
         }
         const price = futuresQuotes[row.symbol]
-        if (price != null) return `$${price.toFixed(2)}`
+        if (price != null) return money(price)
         return futuresQuotesLoading ? 'Loading...' : '—'
       },
     }
@@ -368,7 +392,7 @@ export default function Positions() {
       }
     } else {
       const price = futuresQuotes[row.symbol]
-      if (price != null) currentValue = price * -toNumber(row.quantity) * multiplier
+      if (price != null) currentValue = price * -(row.quantity ?? 0) * multiplier
     }
     return currentValue == null ? null : (row.total_value ?? 0) - currentValue
   }
@@ -383,7 +407,7 @@ export default function Positions() {
       render: (row) => {
         const pl = futuresRowPL(row)
         if (pl == null) return futuresQuotesLoading ? 'Loading...' : '—'
-        const text = pl >= 0 ? `$${pl.toFixed(2)}` : `-$${Math.abs(pl).toFixed(2)}`
+        const text = money(pl)
         return <span className={pl > 0 ? 'cell-positive' : pl < 0 ? 'cell-negative' : ''}>{text}</span>
       },
     }
@@ -488,19 +512,19 @@ export default function Positions() {
                       </span>
                     </div>
                   )}
-                  {balances.mutualFundValue != null && (
+                  {balances.mutual_fund_value != null && (
                     <div className="metric">
                       <span className="metric-label">Mutual Fund</span>
                       <span className="metric-value">
-                        ${balances.mutualFundValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        ${balances.mutual_fund_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
                   )}
-                  {balances.account != null && (
+                  {balances.account_value != null && (
                     <div className="metric">
                       <span className="metric-label">Account Value</span>
                       <span className="metric-value highlight">
-                        ${balances.account.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        ${balances.account_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
                   )}
@@ -528,7 +552,7 @@ export default function Positions() {
                   <p className="summary-line">
                     Total: {puts.length}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(puts)}
                   </p>
                   <DataTable data={puts} columns={withSelectCheckbox(optionColumns('PUT'), 'PUT')} defaultSortKey="days_to_expiry" />
                 </div>
@@ -542,7 +566,7 @@ export default function Positions() {
                   <h3 className="section-title">Calls</h3>
                   <p className="summary-line">
                     Total: {calls.length}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(calls)}
                   </p>
                   <DataTable data={calls} columns={withSelectCheckbox(optionColumns('CALL'), 'CALL')} defaultSortKey="days_to_expiry" />
                 </div>

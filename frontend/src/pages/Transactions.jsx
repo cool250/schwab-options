@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { getOptionTransactions, getOptionQuotes, getEquityTransactions, friendlyErrorMessage } from '../api/client'
+import { getOptionTransactions, getOptionBids, getEquityTransactions, friendlyErrorMessage } from '../api/client'
 import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
 import { formatDate } from '../utils/dateFormat'
 import { formatOptionSymbol } from '../utils/optionSymbol'
@@ -166,19 +166,17 @@ export default function Transactions() {
         : data
       setTransactions(filtered)
 
-      // Current price for still-open (unrealized) rows comes from Tastytrade
-      // (Schwab has no quote endpoint we can use here either) — fetched
+      // Current price for still-open (TRADE) rows comes from Market
+      // (Tastytrade; Schwab can't quote futures options) — fetched
       // separately so the table itself renders immediately instead of
-      // blocking on it. Needed whenever open rows can appear in the result:
-      // either the unrealized-only view, or the unfiltered "show everything"
-      // view (realizedVal false, unrealizedVal false) which mixes open and
-      // closed rows together. Realized-only never has open rows, so skip it.
-      if (!realizedVal && filtered.length > 0) {
+      // blocking on it. Keyed by each contract's own symbol.
+      const open = filtered.filter((t) => t.type === 'TRADE' && t.strike_price != null)
+      if (open.length > 0) {
         setOptionQuotesLoading(true)
-        // Quotes are keyed by each contract's own symbol, and the filtered-out
-        // futures rows above are never rendered — so their quotes (if any come
-        // back) simply sit unused in this dict, no separate filtering needed.
-        getOptionQuotes(tickerUpper, startVal, endVal, contractTypeVal)
+        getOptionBids(open.map((t) => ({
+          key: t.symbol, underlying: t.underlying_symbol, expiration: t.expirationDate,
+          strike: t.strike_price, type: t.option_type,
+        })))
           .then(setOptionQuotes)
           .catch(() => {})
           .finally(() => setOptionQuotesLoading(false))

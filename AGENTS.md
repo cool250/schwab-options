@@ -21,10 +21,10 @@ their own Schwab connection** (positions/transactions are per-user);
 |---|---|
 | `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, price history and option chains (neither used by the app any more — market data is Tastytrade's), positions, transactions. No order-placement code exists here at all. |
 | `broker/tastytrade/` | Tastytrade REST + DXLink WebSocket client — chains, live quotes/greeks via streaming. Has `place_order`/`cancel_order`/`get_orders` methods that exist in the SDK but are **never called anywhere in the app** — see Guardrails below. |
-| `service/` | Business logic: `PositionService`, `TransactionService`, `MarketService`, `portfolio/providers/` (the Portfolio broker seam — see "Adding a Portfolio broker" below), `option_chain_providers.py` (option chains — Tastytrade only). `strategy_builder.py` is the Analyze page's Strategy Builder: data-driven templates (adding a strategy = one `TEMPLATES` entry) solved against one expiration's chain at mid prices; it and `screener_strategies.py` share the payoff math in `strategy_math.py`. This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
-| `api/` | FastAPI routers: `auth.py`, `market.py`, `market_stream.py` (WebSocket), `position.py`, `transactions.py`, `copilot.py`. Registered in `api/app.py`. |
+| `service/` | Business logic, in three packages kept apart by `tests/test_layer_boundaries.py`. **`portfolio/`** (Schwab only — never imports `broker.tastytrade` or `service.market`): `PositionService` (`positions.py`; fetches the account snapshot lazily, so futures endpoints never hit Schwab's positions API), `TransactionService` (`transactions.py`), `providers/` (the broker seam — see "Adding a Portfolio broker" below), `models.py` (typed rows — the services' return types and the API's `response_model`s; plain numbers, `None` when unknown, never pre-formatted strings), and the domain logic as pure functions: `option_matching.py` (open/close matching + CLOSED/EXPIRED/ASSIGNED/EXERCISED), `equity_matching.py` (FIFO round-trips), `ratio_spreads.py`, `date_windows.py` (named lookback windows). **`market/`** (Tastytrade only — never imports Portfolio or Schwab): `MarketService` (`market.py`), `chain_providers.py`, `quotes.py` (`QuoteService` — live prices for contracts described as underlying/expiration/strike/type), `strategy_builder.py` (the Analyze page's Strategy Builder: data-driven templates, adding a strategy = one `TEMPLATES` entry, solved against one expiration's chain at mid prices), `screener_strategies.py`. **`shared/`** (broker-neutral, imported by both): `strategy_math.py` (payoff math for the builder and screener), `contracts.py` (contract multipliers, OCC symbol parsing). `service/__init__.py` re-exports the four services. This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
+| `api/` | FastAPI routers: `auth.py`, `admin.py`, `copilot.py`; `portfolio/` (mounted at `/api/portfolio`: `positions.py`, `transactions.py`) and `market/` (mounted at `/api/market`: `chains.py`, `screener.py`, `strategy.py`, `history.py`, `quotes.py` — `POST /api/market/quotes` — and `stream.py`, the WebSocket at `/api/market/ws`). Registered in `api/app.py`; unknown `/api` paths are a 404, not the SPA's `index.html`. |
 | `copilot/` | The read-only financial-copilot agent — see its own section below. |
-| `frontend/src/pages/` | `Landing` (public page at `/`; Log in / Register open as overlays on it, and `/login` — where `ProtectedRoute` sends logged-out visitors, remembering the page they wanted — is the same page with the login overlay open. Its screenshots in `frontend/public/landing/` are real captures, and since the page is public they must never show real account data or the real user: market-data pages (Screener, Analyze/Strategy Builder, Charts) are shot on live market data, and the hero's Reports shot uses **sample P&L** via mocked API responses, with the sidebar user mocked as "Demo Trader" — never capture Positions/Transactions/Reports on real data. Register only explains that the admin creates accounts — there's no self-service sign-up), `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Screener` (top puts/calls to sell across tickers, ranked by annualized ROI — backed by `MarketService.screen_options` + each chain provider's `get_screener_contracts`; multi-leg Ratio Put / Jade Lizard combinations are built in `service/screener_strategies.py`), `Settings` (account/change password, Schwab connection, light/dark theme — not in the navbar — and the admin-only Users card, `components/AccountSettings.jsx`), `Login`. |
+| `frontend/src/pages/` | `Landing` (public page at `/`; Log in / Register open as overlays on it, and `/login` — where `ProtectedRoute` sends logged-out visitors, remembering the page they wanted — is the same page with the login overlay open. Its screenshots in `frontend/public/landing/` are real captures, and since the page is public they must never show real account data or the real user: market-data pages (Screener, Analyze/Strategy Builder, Charts) are shot on live market data, and the hero's Reports shot uses **sample P&L** via mocked API responses, with the sidebar user mocked as "Demo Trader" — never capture Positions/Transactions/Reports on real data. Register only explains that the admin creates accounts — there's no self-service sign-up), `Positions`, `Transactions`, `Reports`, `StrikeLab` (routed as `/analyze`), `Charts`, `Screener` (top puts/calls to sell across tickers, ranked by annualized ROI — backed by `MarketService.screen_options` + each chain provider's `get_screener_contracts`; multi-leg Ratio Put / Jade Lizard combinations are built in `service/market/screener_strategies.py`), `Settings` (account/change password, Schwab connection, light/dark theme — not in the navbar — and the admin-only Users card, `components/AccountSettings.jsx`), `Login`. |
 | `frontend/src/components/` | `Navbar`, `CopilotWidget` (floating chat, mounted globally in `App.jsx`), `DataTable`, `ErrorBoundary`, `RequireSchwab` (wraps the Portfolio routes in `App.jsx`: checks the user's Schwab connection first and shows a connect/reconnect notice instead of the page when it's missing or expired — wrap any new page that reads Schwab account data the same way), `LoginCard` (the login form, used by the landing page's overlay), `HelpTip` ("?" button + pop-up beside a form label — use it for field help text instead of a paragraph under the form), `ReportViews` (the Reports page's views — key numbers, P&L calendars, running totals, per-symbol and symbol-by-month tables; the math is in `utils/reportStats.js`, the gain/loss heat colors are the `--pnl-*` tokens), `StrategyBuilderOverlay` (the Analyze page's "Build Strategy" overlay — its form is generated from `GET /api/market/strategies`; applied legs go through StrikeLab's `applyLegs`, which the copilot Apply also uses), `Spinner`, `ProtectedRoute`. |
 | `frontend/src/context/` | `AuthContext`, `ThemeContext` (dark mode). |
 | `frontend/src/utils/` | Small shared helpers, not page-specific: `optionSymbol.js` (the one canonical "TICKER MM/DD/YYYY STRIKE.00 P/C" formatter — every page showing an option contract should call this, not re-derive its own), `dateFormat.js` (MM/DD/YYYY), `contractMultiplier.js` (equity=100 vs futures-root multipliers + `isFuturesRoot`), `copilotContext.js` (see Copilot section below), `symbolStore.js` (see below). |
@@ -41,8 +41,8 @@ their own Schwab connection** (positions/transactions are per-user);
   fact. Don't add a tool that can place, modify, or cancel anything.
 - **Futures symbols use the `"/ES"`/`"/NQ"` convention (leading slash)**
   consistently across `MarketService`, `TastytradeClient`, and the copilot's
-  tools. `TransactionService._populate_options`/`_populate_equity_futures`
-  strip a leading `/` before matching against Schwab's internally-normalized
+  tools. `TransactionService.get_option_transactions`/`get_equity_transactions`
+  and `QuoteService` strip a leading `/` before matching against Schwab's internally-normalized
   bare-root symbols — if you add a new ticker-filtering code path, make sure
   it accepts both forms, or it'll silently return zero results for a
   perfectly valid futures query (this exact bug shipped once already).
@@ -62,10 +62,13 @@ their own Schwab connection** (positions/transactions are per-user);
   screener, the strategy builder, Charts' price history via DXLink `Candle`
   events / `TastytradeClient.get_candles`) is **Tastytrade only**. There's no
   setting to swap either (the old `ACCOUNT_BROKER_PROVIDER` and
-  `CHAIN_PROVIDER` switches are gone). Exception still pending (see
-  `docs/portfolio-market-separation-plan.md`): Positions' and Transactions'
-  live futures / option prices come from Tastytrade, because Schwab can't
-  quote futures or futures options at all. DXLink's history depth varies by bar size (monthly: decades;
+  `CHAIN_PROVIDER` switches are gone). Schwab can't quote futures or
+  futures options at all, so Positions and Transactions get those prices
+  (and open option legs') from `POST /api/market/quotes` and combine them
+  with the Portfolio rows **in the page** — Portfolio code never calls
+  Tastytrade (`tests/test_layer_boundaries.py` fails if it does). Stocks and
+  equity options on Positions are still priced by Schwab's own quotes.
+  DXLink's history depth varies by bar size (monthly: decades;
   daily: ~2 years; weekly: only months) and repeat long-history requests
   can come back empty, which is why 5Y/MAX use monthly bars and
   `MarketService` caches results per (symbol, range).
@@ -75,8 +78,9 @@ their own Schwab connection** (positions/transactions are per-user);
 Portfolio flows read the broker through `service/portfolio/providers/`:
 `base.py` holds the Protocols (`PositionProvider`: snapshot, quotes,
 `list_accounts`; `TransactionProvider`: raw history, option legs,
-equity/futures legs, futures-root normalization) and broker-neutral helpers
-(contract multipliers, OCC parsing); `schwab.py` is the only implementation;
+equity/futures legs, futures-root normalization) and the `OptionTransaction`
+leg model (broker-neutral helpers — contract multipliers, OCC parsing — are
+in `service/shared/contracts.py`); `schwab.py` is the only implementation;
 `__init__.py` is the registry (`register()`, `ACTIVE_BROKER`). A new broker
 is a new module implementing both Protocols plus one `register()` line —
 `PositionService`, `TransactionService` and the API routes don't change.
@@ -123,8 +127,8 @@ level — services are built per request, and that's what keeps users apart.
 **Multiple accounts.** One broker login can cover several accounts.
 `require_auth` also calls `broker.request_context.set_selected_account(user.broker_account)`
 (saved per user in SQLite, chosen with `components/AccountPicker.jsx` — top
-of Positions and in Settings — via `GET /api/positions/accounts` and
-`PUT /api/positions/account`), and the broker client reads it when resolving
+of Positions and in Settings — via `GET /api/portfolio/positions/accounts` and
+`PUT /api/portfolio/positions/account`), and the broker client reads it when resolving
 the account (Schwab: `Accounts._initialize_account_hash`), falling back to
 the broker's first when none is chosen or the chosen one is no longer
 authorized. Full account numbers never go to the browser: it gets a masked
@@ -175,14 +179,15 @@ manually inside the handler — follow that same pattern for any new WS route.
   system prompt (no RAG — the set is small enough that retrieval would be
   pure overhead for an app this size). Adding a new strategy = adding a new
   `.md` file here; nothing else needs to change to pick it up.
-- `TransactionService.group_ratio_spreads()` (closed/historical trades) and
-  `.group_open_ratio_spreads()` (currently-open legs, used by the Positions
+- `group_ratio_spreads()` (closed/historical trades) and
+  `group_open_ratio_spreads()` (currently-open legs, used by the Positions
   page's futures-option tables) both merge matched trade legs that form a
   ratio spread into one record — same qualification rules (exactly two
   strikes, one side net long/short, whole-number ratio ≥ 2), same internal
   consistency guard (total P&L for closed, total quantity for open) that
   falls back to the ungrouped result rather than risk silently misstating a
-  number. If you touch either method, keep that guard.
+  number. Both live in `service/portfolio/ratio_spreads.py` (covered by
+  `tests/test_ratio_spreads.py`); if you touch either, keep that guard.
 - The copilot can see **what the user is currently looking at**, not just
   brokerage data: a page sets `frontend/src/utils/copilotContext.js`
   (`setCopilotContext(page, data)`) whenever its relevant state changes —
@@ -198,6 +203,10 @@ manually inside the handler — follow that same pattern for any new WS route.
 
 ## Frontend conventions
 
+- **The API returns numbers; the UI formats them.** Portfolio rows
+  (`service/portfolio/models.py`) carry plain numbers and `None` for
+  unknown — no "$1,234.00" strings. Format in the page (`utils/numberFormat.js`:
+  `money`, `count`), and show unknown as "—", never "$0".
 - Plain CSS with design tokens (`frontend/src/styles/tokens.css`) — no
   Tailwind, no CSS-in-JS. `.tab-row`/`.tab-item` for in-page view switchers
   (Chain/Table/Graph-style), deliberately styled differently from `.btn` so
@@ -257,12 +266,21 @@ own sessionStorage login.
 - Python deps: `uv add <pkg>` / `uv remove <pkg>` (keeps `pyproject.toml`
   and `uv.lock` in sync — don't hand-edit the lock file).
 - JS deps: `npm install <pkg>` from `frontend/`.
-- No automated test suite exists (`tests/` is empty) — verify changes by
-  running the dev servers and exercising the feature directly, or with
-  targeted one-off scripts for backend logic.
+- Tests: `uv run pytest` (`tests/`, well under a second). They cover the
+  Portfolio money math — option matching (closed / expired / assigned /
+  exercised, partial and split fills), equity & futures FIFO, ratio-spread
+  grouping, Schwab record classification, position pricing — plus Market
+  quote matching (`test_market_quotes.py`, a stand-in Tastytrade client),
+  API input validation, and the Portfolio/Market import boundary
+  (`test_layer_boundaries.py`), all through stand-ins
+  (`tests/conftest.py`), so no broker or login is needed. Add a test with any change to that logic; for
+  UI or live-broker behavior, still run the dev servers and exercise it.
 - Logs: `logs/api.log` (rotating), useful for debugging live broker/DXLink
   behavior — `--log-level debug` on uvicorn surfaces the raw WebSocket
-  frames, which has been the fastest way to diagnose several past bugs here.
+  frames, which has been the fastest way to diagnose several past bugs here. Never log
+  credentials or account data at any level: Schwab token responses and
+  response bodies are deliberately not logged (only sizes), since logs reach
+  `fly logs`.
 
 ## Key env vars
 

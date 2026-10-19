@@ -38,8 +38,8 @@ screener's builders.
 import math
 from typing import Optional
 
-from service.option_chain_providers import otm_pct
-from service.strategy_math import net_premium, payoff, payoff_profile, probability_of_profit
+from service.market.chain_providers import otm_pct
+from service.shared.strategy_math import net_premium, payoff, payoff_profile, probability_of_profit
 
 ANCHOR_MODES = ("atm", "delta", "otm_pct", "sigma", "strike")
 WING_MODES = ("width", "steps", "delta", "otm_pct")
@@ -491,8 +491,6 @@ def build(template_id: str, params: dict, chain: dict, target: Optional[float] =
             start[spec["key"]] = i
     if reasons:
         return {"best": None, "alternatives": [], "reasons": reasons, "params": resolved}
-
-    specs = {s["key"]: s for s in template["legs"]}
 
     def resolve(offsets: tuple[int, ...]) -> Optional[dict[str, dict]]:
         placed = {}

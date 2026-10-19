@@ -8,9 +8,9 @@ from typing import Optional
 import pytz
 
 from broker.tastytrade import TastytradeAPIError, TastytradeClient
-from service.option_chain_providers import get_option_chain_provider, otm_pct
-from service import strategy_builder
-from service.screener_strategies import (
+from service.market.chain_providers import get_option_chain_provider, otm_pct
+from service.market import strategy_builder
+from service.market.screener_strategies import (
     LONG_STRATEGIES,
     MULTI_LEG_STRATEGIES,
     STRATEGY_BUILDERS,
@@ -204,7 +204,7 @@ class MarketService:
         List every expiration date actually listed for `symbol` within the next
         `days_ahead` days — weekly, monthly, and daily where the underlying
         offers them — rather than guessing at weekly Fridays client-side.
-        Backed by Tastytrade (see service/option_chain_providers.py).
+        Backed by Tastytrade (see service/market/chain_providers.py).
 
         Returns:
             list[dict]: [{"date": "YYYY-MM-DD", "dte": int}, ...] sorted by dte.
@@ -215,7 +215,7 @@ class MarketService:
         """
         Fetch a normalized option chain (calls + puts merged by strike) for
         the expiration closest to `dte` days out. Backed by Tastytrade (see
-        service/option_chain_providers.py).
+        service/market/chain_providers.py).
 
         Parameters:
             symbol (str): The ticker symbol for the underlying asset.
@@ -228,7 +228,7 @@ class MarketService:
         return self.option_chain_provider.get_option_chain(symbol, dte, strike_count)
 
     def get_strategy_templates(self) -> list[dict]:
-        """Strategy Builder templates (service/strategy_builder.py) — the one
+        """Strategy Builder templates (service/market/strategy_builder.py) — the one
         definition the Analyze page's builder form is generated from."""
         return strategy_builder.list_templates()
 
@@ -364,7 +364,7 @@ class MarketService:
         moneyness window by how much it returns to *sell* it, best first.
         Backs the Options Screener page.
 
-        `strategy` is one of service.screener_strategies.STRATEGIES: "PUT" /
+        `strategy` is one of service.market.screener_strategies.STRATEGIES: "PUT" /
         "CALL" rank single contracts to sell (fields below); "LONG_PUT" /
         "LONG_CALL" rank single contracts to *buy*, by leverage — see the
         long-option fields further down; "RATIO_PUT" /

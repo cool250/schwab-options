@@ -24,7 +24,7 @@ const DEFAULT_CRITERIA = {
 }
 
 // Dropdown choices — values match the API's `strategy` param
-// (service/screener_strategies.py STRATEGIES).
+// (service/market/screener_strategies.py STRATEGIES).
 const OPTION_TYPES = [
   { value: 'PUT', label: 'Short Puts' },
   { value: 'CALL', label: 'Short Calls' },

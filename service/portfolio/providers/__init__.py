@@ -17,13 +17,7 @@ pass it straight to PositionService(provider=...) / TransactionService(...).
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from service.portfolio.providers.base import (
-    CONTRACT_MULTIPLIER,
-    PositionProvider,
-    TransactionProvider,
-    get_contract_multiplier,
-    parse_option_symbol,
-)
+from service.portfolio.providers.base import PositionProvider, TransactionProvider
 from service.portfolio.providers.schwab import SchwabPositionProvider, SchwabTransactionProvider
 
 
@@ -61,7 +55,6 @@ def get_transaction_provider() -> TransactionProvider:
 
 
 __all__ = [
-    "CONTRACT_MULTIPLIER", "PositionProvider", "TransactionProvider", "PortfolioBroker",
-    "get_contract_multiplier", "parse_option_symbol",
+    "PositionProvider", "TransactionProvider", "PortfolioBroker",
     "register", "get_broker", "get_position_provider", "get_transaction_provider", "ACTIVE_BROKER",
 ]

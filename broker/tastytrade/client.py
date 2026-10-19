@@ -392,7 +392,7 @@ class TastytradeClient:
 
         Split out of get_live_underlying_price() so a caller that wants to
         keep a *subscription* open on this symbol (e.g. the live chain
-        WebSocket in api/market_stream.py, which already has its own
+        WebSocket in api/market/stream.py, which already has its own
         DXLinkStreamer session) doesn't have to duplicate this lookup.
         """
         if ticker.strip().startswith("/"):

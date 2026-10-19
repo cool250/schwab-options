@@ -1,6 +1,6 @@
-from service.transactions import TransactionService
+from service.portfolio import TransactionService
 from broker.schwab.auth.authenticate import get_access_token
-from service.position import PositionService
+from service.portfolio import PositionService
 
 
 def authenticate():

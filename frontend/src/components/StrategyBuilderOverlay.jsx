@@ -10,7 +10,7 @@ import HelpTip from './HelpTip'
  * Strategy Builder — an overlay on the Analyze page, opened once a ticker is
  * loaded there. Pick Net Credit / Net Debit, a strategy template, how to
  * place each leg (delta, % OTM, expected move, strike, wing width), then
- * Build: the backend (service/strategy_builder.py) places the legs on the
+ * Build: the backend (service/market/strategy_builder.py) places the legs on the
  * live chain at mid prices and returns the best match plus alternatives.
  * "Apply" hands the chosen legs back to Analyze via onApply.
  *

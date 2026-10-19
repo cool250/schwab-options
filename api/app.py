@@ -51,21 +51,21 @@ from api.admin import router as admin_router
 from api.auth import router as auth_router, require_admin, require_auth
 from broker.schwab.auth import require_token_owner
 from api.copilot import router as copilot_router
-from api.market import router as market_router
-from api.market_stream import router as market_stream_router
-from api.position import router as position_router
-from api.transactions import router as transactions_router
+from api.market import router as market_router, stream_router as market_stream_router
+from api.portfolio import router as portfolio_router
 
 
 class _SPAStaticFiles(StaticFiles):
     """Serve a React SPA: fall back to index.html for unknown paths so
-    client-side routing continues to work after a hard refresh."""
+    client-side routing continues to work after a hard refresh. Unknown
+    /api paths stay a 404: an HTML 200 there would read as a broken JSON
+    response instead of a missing route."""
 
     async def get_response(self, path: str, scope):
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            if exc.status_code == 404:
+            if exc.status_code == 404 and not (path == "api" or path.startswith("api/")):
                 return await super().get_response("index.html", scope)
             raise
 
@@ -93,7 +93,7 @@ async def broker_error_handler(request: Request, exc: BrokerError):
     return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 # Tastytrade is the market-data/option-chain provider (see
-# service/option_chain_providers.get_option_chain_provider) and has no
+# service/market/chain_providers.get_option_chain_provider) and has no
 # separate auth-vs-transient exception split like Schwab's BrokerError does —
 # every failure surfaces the same way, as a system error rather than an
 # empty/"not found" result.
@@ -115,8 +115,7 @@ app.include_router(market_router, prefix="/api/market", tags=["Market"], depende
 # Authorization header, so this route verifies the token itself (passed as a
 # query param) inside the handler instead.
 app.include_router(market_stream_router, prefix="/api/market/ws", tags=["Market"])
-app.include_router(position_router, prefix="/api/positions", tags=["Positions"], dependencies=[Depends(require_auth)])
-app.include_router(transactions_router, prefix="/api/transactions", tags=["Transactions"], dependencies=[Depends(require_auth)])
+app.include_router(portfolio_router, prefix="/api/portfolio", dependencies=[Depends(require_auth)])
 # Copilot is admin-only: it's billed to the admin's OpenAI key.
 app.include_router(copilot_router, prefix="/api/copilot", tags=["Copilot"], dependencies=[Depends(require_admin)])
 

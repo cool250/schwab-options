@@ -15,11 +15,11 @@ import { symbolStore } from "../utils/symbolStore";
 const isNum = (x) => typeof x === "number" && Number.isFinite(x);
 
 // Every button on the Charts page's timeframe row, in display order — see
-// service/market.py's _RANGE_PARAMS for what each one actually fetches
+// service/market/market.py's _RANGE_PARAMS for what each one actually fetches
 // (bar size and how far back).
 const RANGES = ["1D", "5D", "1M", "6M", "YTD", "1Y", "5Y", "MAX"];
 
-// Candle timestamps are a full ISO datetime now (see service/market.py),
+// Candle timestamps are a full ISO datetime now (see service/market/market.py),
 // not just a date, since 1D/5D are intraday bars — but how much of that to
 // actually show depends on the selected range: a time-of-day for a single
 // day, a coarser month/day for the middle ranges, and just month/year once
@@ -275,7 +275,7 @@ function OptionsSnapshotBody({ chain }) {
 
   // ATM = the strike closest to spot; average of its call/put IV, same
   // convention the chain provider uses for this chain's own chain-level
-  // "iv" field (see service/option_chain_providers.py).
+  // "iv" field (see service/market/chain_providers.py).
   const atmRow = rows.reduce((a, b) =>
     Math.abs(b.strikePrice - chain.spot) < Math.abs(a.strikePrice - chain.spot) ? b : a
   );
@@ -469,7 +469,7 @@ function Candle({ x, y, width, height, payload }) {
 }
 
 /** Candlesticks for the selected range with swing support/resistance
- *  levels (see service/market.py's _swing_levels) drawn as horizontal
+ *  levels (see service/market/market.py's _swing_levels) drawn as horizontal
  *  reference lines. Backed by Tastytrade's DXLink Candle feed
  *  (MarketService.get_price_history) — no Schwab login needed. A futures root like "/NQ" charts its active-month contract. */
 function PriceHistoryChart({ history, loading, error, noSymbol }) {

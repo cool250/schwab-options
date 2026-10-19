@@ -4,7 +4,15 @@ from pydantic import BaseModel
 from api import users
 from api.auth import require_auth
 from api.users import User
-from service import PositionService
+from service.portfolio import PositionService
+from service.portfolio.models import (
+    Balances,
+    FuturesOptionPositions,
+    FuturesPosition,
+    OptionPositions,
+    PositionsSummary,
+    StockPosition,
+)
 from service.portfolio.providers import get_position_provider
 
 router = APIRouter()
@@ -14,63 +22,48 @@ def get_service() -> PositionService:
     return PositionService()
 
 
-@router.get("/", summary="All positions, balances, and stocks")
+@router.get("/", summary="All positions, balances, and stocks", response_model=PositionsSummary)
 def populate_positions(service: PositionService = Depends(get_service)):
-    option_positions, balances, stocks = service.populate_positions()
-    puts, calls = option_positions
-    return {"puts": puts, "calls": calls, "balances": balances, "stocks": stocks}
+    (puts, calls), balances, stocks = service.populate_positions()
+    return PositionsSummary(puts=puts, calls=calls, balances=balances, stocks=stocks)
 
 
-@router.get("/balances", summary="Account balances")
+@router.get("/balances", summary="Account balances", response_model=Balances)
 def get_balances(service: PositionService = Depends(get_service)):
     return service.get_balances()
 
 
-@router.get("/stocks", summary="Stock / ETF positions")
+@router.get("/stocks", summary="Stock / ETF positions", response_model=list[StockPosition])
 def get_stock_position(service: PositionService = Depends(get_service)):
     return service.get_stock_position()
 
 
 @router.get(
     "/futures",
-    summary="Open futures positions, derived from transaction history (Schwab's positions API doesn't return futures) — no current_price, see /futures/quotes",
+    summary="Open futures positions, derived from transaction history (Schwab's positions API doesn't return futures) — no current_price: the page prices them via POST /api/market/quotes",
+    response_model=list[FuturesPosition],
 )
 def get_futures_position(service: PositionService = Depends(get_service)):
     return service.get_futures_position()
 
 
 @router.get(
-    "/futures/quotes",
-    summary="Live current prices for open outright futures positions, keyed by symbol (slow — Tastytrade DXLink)",
-)
-def get_futures_quotes(service: PositionService = Depends(get_service)):
-    return service.get_futures_quotes()
-
-
-@router.get(
     "/futures/options",
-    summary="Open futures-option positions (puts and calls), derived from transaction history — no current_price, see /futures/options/quotes",
+    summary="Open futures-option positions (puts and calls), derived from transaction history — no current_price: the page prices each contract via POST /api/market/quotes",
+    response_model=FuturesOptionPositions,
 )
 def get_futures_option_position(service: PositionService = Depends(get_service)):
     puts, calls = service.get_futures_option_position()
-    return {"puts": puts, "calls": calls}
+    return FuturesOptionPositions(puts=puts, calls=calls)
 
 
-@router.get(
-    "/futures/options/quotes",
-    summary="Live current prices for open futures-option positions, keyed by symbol (slow — Tastytrade DXLink per expiration)",
-)
-def get_futures_option_quotes(service: PositionService = Depends(get_service)):
-    return service.get_futures_option_quotes()
-
-
-@router.get("/options", summary="Open option positions (puts and calls)")
+@router.get("/options", summary="Open option positions (puts and calls)", response_model=OptionPositions)
 def get_option_position(service: PositionService = Depends(get_service)):
     puts, calls = service.get_option_position()
-    return {"puts": puts, "calls": calls}
+    return OptionPositions(puts=puts, calls=calls)
 
 
-@router.get("/exposure", summary="Total dollar exposure by ticker")
+@router.get("/exposure", summary="Total dollar exposure by ticker", response_model=dict[str, float])
 def get_total_exposure(service: PositionService = Depends(get_service)):
     return service.get_total_exposure()
 

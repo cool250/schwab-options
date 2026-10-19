@@ -14,7 +14,7 @@ function optionLabel(a) {
 /**
  * Which broker account the Portfolio pages (Positions, Transactions,
  * Reports) read, when the user's broker login covers more than one. The
- * choice is saved per user on the server (api/position.py's /accounts and
+ * choice is saved per user on the server (api/portfolio/positions.py's /accounts and
  * /account), so it applies on every page and device.
  *
  * Props:

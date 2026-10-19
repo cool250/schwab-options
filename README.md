@@ -197,10 +197,10 @@ Rather than a hand-maintained list here (which drifts fast), the full live endpo
 | Prefix | Covers |
 |---|---|
 | `/api/auth` | Login, session verification |
-| `/api/market` | Option chains, expirations, options screener, price history (REST) |
+| `/api/market` | Option chains, expirations, options screener, strategy builder, price history, live quotes (`POST /quotes`) — Tastytrade |
 | `/api/market/ws` | Live option chain streaming (WebSocket) |
-| `/api/positions` | Balances, stocks, options, futures, futures options |
-| `/api/transactions` | Raw history, matched option transactions, equity transactions |
+| `/api/portfolio/positions` | Balances, stocks, options, futures, futures options, account picker — Schwab |
+| `/api/portfolio/transactions` | Raw history, matched option transactions, equity transactions — Schwab |
 | `/api/copilot` | The Copilot chat endpoint |
 
 ---

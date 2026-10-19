@@ -211,7 +211,7 @@ class TokenProvider(ABC):
             raise RuntimeError(f"Token refresh failed ({response.status_code}): {response.text}")
 
         token_data = response.json()
-        logger.debug(token_data)
+        # Never log token_data: it holds the access and refresh tokens.
         self.save_tokens(token_data)
         logger.info("Tokens refreshed successfully.")
 

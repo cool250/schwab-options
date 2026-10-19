@@ -168,7 +168,9 @@ class BaseClient:
 
         if response.status_code == 200:
             data = response.json()
-            logger.debug("response body: %s", data)
+            # Size only: bodies are account data (positions, balances,
+            # transactions), which shouldn't end up in logs or `fly logs`.
+            logger.debug("response: %d bytes, %s", len(response.content), type(data).__name__)
             return data
 
         if response.status_code == 401:

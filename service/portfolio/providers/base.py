@@ -1,6 +1,5 @@
 """The broker seam for Portfolio flows: what a broker must provide, in a
-broker-neutral shape, plus the broker-neutral domain helpers every provider
-can use.
+broker-neutral shape.
 
 PositionService and TransactionService only ever talk to these Protocols,
 never to a broker SDK — so a broker is one module implementing them (see
@@ -12,43 +11,34 @@ the services reconstruct them from transaction history
 (TransactionProvider below).
 """
 
-import logging
-from typing import Protocol
+from typing import Optional, Protocol
 
-logger = logging.getLogger(__name__)
-
-
-# ─── Broker-neutral domain helpers ──────────────────────────────────────
-
-# Contract multipliers (points per contract) for non-standard underlyings —
-# CME contract specs, the same whichever broker reports the trade.
-CONTRACT_MULTIPLIER = {
-    "ES": 50,
-    "NQ": 20,
-}
+from pydantic import BaseModel
 
 
-def get_contract_multiplier(underlying_symbol: str) -> int:
-    return CONTRACT_MULTIPLIER.get(underlying_symbol, 100)
+# ─── The leg shape providers return ──────────────────────────────────
 
-
-def parse_option_symbol(symbol: str):
-    """Parse an OCC option symbol (the industry-standard format, e.g.
-    'SPY   260918P00675000') into (ticker, strike_price, expiration_date).
-
-    expiration_date is full 4-digit-year ISO ("2026-09-18"), matching the
-    convention used everywhere else in the app (futures options,
-    Transactions' expirationDate) — the OCC symbol itself only carries a
-    2-digit year.
-    """
-    try:
-        strike_price = float(symbol[13:21]) / 1000
-        ticker = symbol[:6].strip()
-        expiration_date = f"20{symbol[6:8]}-{symbol[8:10]}-{symbol[10:12]}"
-        return ticker, strike_price, expiration_date
-    except ValueError as e:
-        logger.error(f"Error parsing option symbol {symbol}: {e}")
-        return None, None, None
+class OptionTransaction(BaseModel):
+    """One option leg (TransactionProvider.fetch_option_legs), and the
+    matched trade the matcher builds from an open + close pair."""
+    date: str
+    close_date: str
+    underlying_symbol: str
+    expirationDate: str
+    strike_price: float
+    symbol: str
+    price: float
+    open_price: float = 0.0
+    close_price: float = 0.0
+    amount: float
+    position_effect: Optional[str] = None
+    option_type: str
+    type: str
+    # "EXPIRATION" | "ASSIGNMENT" | "EXERCISE" | None — how a closing leg
+    # closed, classified by the provider (see TransactionProvider).
+    close_event: Optional[str] = None
+    total_amount: Optional[float] = 0.0
+    open_type: Optional[str] = None
 
 
 # ─── The seam ──────────────────────────────────────────────────────────

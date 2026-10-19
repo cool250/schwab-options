@@ -1,6 +1,6 @@
 """Expiration payoff math for multi-leg option positions, shared by the
-Options Screener's strategy builders (service/screener_strategies.py) and
-the Analyze page's Strategy Builder (service/strategy_builder.py).
+Options Screener's strategy builders (service/market/screener_strategies.py) and
+the Analyze page's Strategy Builder (service/market/strategy_builder.py).
 
 A leg here is a dict with at least "type" ("PUT"/"CALL"), "strike", and a
 signed "qty" (positive = bought, negative = sold). Every figure is per share
