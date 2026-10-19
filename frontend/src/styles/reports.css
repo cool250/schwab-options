@@ -1,0 +1,151 @@
+/* ─── Reports page (pages/Reports.jsx, components/ReportViews.jsx) ─── */
+
+.report-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+/* A chart that fills whatever height its card has left (see CHART_MIN_HEIGHT). */
+.report-chart-fill { flex: 1; min-height: 260px; min-width: 0; }
+.report-card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+.report-card-note { font-size: 0.8rem; color: var(--text-muted); }
+/* In-card source switch: sized to its tabs, not stretched like a page-level .tab-row. */
+.report-source-tabs { flex: none; }
+
+.pnl-up { color: var(--success); }
+.pnl-down { color: var(--error); }
+
+/* Key numbers */
+/* Hero tile, the wider Trades tile (its breakdown stays on one line), then four. */
+.report-kpis { display: grid; grid-template-columns: 1.3fr 1.6fr repeat(4, minmax(0, 1fr)); }
+.report-kpi { display: flex; flex-direction: column; gap: 4px; padding: 2px 18px; border-left: 1px solid var(--border); min-width: 0; }
+.report-kpi:first-child { border-left: none; padding-left: 0; }
+.report-kpi-label { font-size: 0.75rem; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+.report-kpi-value { font-size: 1.25rem; font-weight: 700; color: var(--text); white-space: nowrap; }
+.report-kpi--hero .report-kpi-value { font-size: 2rem; line-height: 1.1; }
+.report-kpi-sub { font-size: 0.78rem; color: var(--text-muted); }
+/* Trades tile: "3 closed · 13 expired · 2 exercised" on one line. */
+.report-kpi-breakdown { display: flex; flex-wrap: nowrap; gap: 6px; white-space: nowrap; }
+.report-kpi-breakdown > span { cursor: help; }
+.report-kpi-breakdown > span + span::before { content: "·"; margin-right: 6px; color: var(--text-faint); }
+.report-kpi-inline { margin-left: 4px; font-size: 0.78rem; font-weight: 500; color: var(--text-muted); }
+
+/* Period filters: Year, Month and Submit on one row. */
+.report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
+.report-filters .form-group { flex: 1 1 180px; min-width: 0; }
+.report-filters .btn { flex: none; }
+.report-kpi-extra { margin: 0; padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* Month calendar */
+.pnl-cal { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 0.9fr); gap: 4px; }
+.pnl-cal-row { display: contents; }
+.pnl-cal-head { font-size: 0.72rem; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; padding: 0 4px 2px; }
+.pnl-cal-head--week { text-align: right; }
+.pnl-day {
+  display: flex; flex-direction: column; justify-content: space-between; min-height: 58px; min-width: 0;
+  padding: 6px 7px; border: none; border-radius: var(--radius-sm);
+  background: var(--pnl-neutral); color: var(--text); font: inherit; text-align: left;
+}
+button.pnl-day { cursor: pointer; }
+button.pnl-day:hover { box-shadow: inset 0 0 0 2px var(--border-strong); }
+button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.pnl-day-num { font-size: 0.72rem; opacity: 0.8; }
+.pnl-day-value { font-size: 0.86rem; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pnl-day--empty .pnl-day-value { color: var(--text-faint); font-weight: 500; }
+.pnl-day--out { background: transparent; color: var(--text-faint); }
+.pnl-day--future { background: transparent; border: 1px solid var(--border); color: var(--text-faint); }
+.pnl-week {
+  display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 2px;
+  padding: 6px 4px; border: none; border-radius: var(--radius-sm); background: transparent;
+  font: inherit; color: var(--text); cursor: pointer; font-variant-numeric: tabular-nums; min-width: 0;
+}
+.pnl-week:hover { background: var(--bg); }
+.pnl-week--empty { cursor: default; color: var(--text-faint); }
+.pnl-week-value { font-weight: 700; font-size: 0.9rem; white-space: nowrap; }
+.pnl-week-days { font-size: 0.72rem; color: var(--text-muted); }
+.pnl-short { display: none; }
+
+/* Heat color scale */
+.pnl-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-muted); }
+.pnl-scale-swatches { display: inline-flex; gap: 2px; }
+.pnl-scale-swatches i { width: 14px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* Chart legend + labels + tooltip */
+.report-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.78rem; color: var(--text-muted); }
+.report-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.report-key-bar { width: 8px; height: 12px; border-radius: 2px; display: inline-block; }
+.report-key-line { width: 16px; height: 2px; border-radius: 1px; background: var(--primary); display: inline-block; margin-left: 6px; }
+.report-end-label { fill: var(--text); font-size: 12px; font-weight: 600; }
+.report-tooltip { min-width: 170px; }
+.report-tooltip-title { font-weight: 700; color: var(--text); margin-bottom: 4px; font-size: 0.85rem; }
+.report-tooltip-row { display: flex; justify-content: space-between; gap: 16px; font-size: 0.8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.report-tooltip-row span:last-child { color: var(--text); font-weight: 600; }
+.report-tooltip-row span.pnl-up { color: var(--success); }
+.report-tooltip-row span.pnl-down { color: var(--error); }
+
+/* Tables (by symbol, symbol by month) */
+.report-table-wrap { overflow-x: auto; }
+.report-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.report-table th {
+  text-align: left; font-size: 0.72rem; font-weight: 600; color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 10px;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.report-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; color: var(--text); }
+.report-table tbody tr:last-child td { border-bottom: none; }
+.report-table tfoot td { font-weight: 700; border-top: 1px solid var(--border); border-bottom: none; }
+.report-table .num { text-align: right; }
+.report-table td.pnl-up { color: var(--success); }
+.report-table td.pnl-down { color: var(--error); }
+.report-sym { font-weight: 600; }
+.report-exercised {
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  background: var(--warning-bg); color: var(--warning);
+  font-size: 0.72rem; font-weight: 600; white-space: nowrap; cursor: help;
+}
+.report-footnote { margin: 8px 0 0; font-size: 0.78rem; color: var(--text-muted); white-space: normal; }
+.report-row-link { cursor: pointer; }
+.report-table tbody tr.report-row-link:hover td { background: var(--bg); }
+.report-row-link:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.report-net-col { width: 38%; }
+.report-barcell { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.report-track { position: relative; flex: 1; min-width: 80px; height: 10px; }
+.report-track i { position: absolute; top: 0; height: 10px; border-radius: 0 4px 4px 0; }
+.report-track i.neg { border-radius: 4px 0 0 4px; }
+.report-track b { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--border-strong); }
+.report-amt { min-width: 76px; text-align: right; font-weight: 600; }
+
+.report-heat td.report-heat-cell {
+  font-size: 0.82rem; font-weight: 600; cursor: pointer;
+  border-bottom: 2px solid var(--card-bg); border-left: 2px solid var(--card-bg); border-radius: 4px;
+}
+.report-heat td.report-heat-cell:hover { box-shadow: inset 0 0 0 2px var(--border-strong); }
+.report-heat td.report-heat-cell:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.report-heat td.report-heat-zero { color: var(--text-faint); }
+.report-heat td.report-heat-total { font-weight: 700; }
+
+/* Year calendar */
+.report-ycal { overflow-x: auto; }
+.report-ycal svg { display: block; }
+.report-ycal-label { font-size: 11px; fill: var(--text-muted); }
+.report-ycal-cell { cursor: pointer; }
+.report-ycal-cell:hover, .report-ycal-cell:focus-visible { outline: none; stroke: var(--text); stroke-width: 1.5; }
+
+/* Below this the six tiles can't keep the Trades breakdown on one line:
+   two rows of three. */
+@media (max-width: 1240px) {
+  .report-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 14px; }
+  .report-kpi:nth-child(4) { border-left: none; padding-left: 0; }
+}
+@media (max-width: 960px) {
+  .report-row { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-kpi { border-left: none; padding-left: 0; }
+  .report-kpi--hero { grid-column: 1 / -1; }
+  .report-kpi--wide { grid-column: 1 / -1; }
+  .pnl-cal { gap: 3px; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1fr); }
+  .pnl-day { min-height: 46px; padding: 4px 5px; }
+  .pnl-day-value { font-size: 0.72rem; }
+  .pnl-week { padding: 4px 0; }
+  .pnl-week-value { font-size: 0.74rem; }
+  .pnl-full { display: none; }
+  .pnl-short { display: inline; }
+}

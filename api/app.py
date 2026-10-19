@@ -46,7 +46,10 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from broker.schwab.exceptions import BrokerAuthError, BrokerError
 from broker.tastytrade import TastytradeAPIError
-from api.auth import router as auth_router, require_auth
+from api import users
+from api.admin import router as admin_router
+from api.auth import router as auth_router, require_admin, require_auth
+from broker.schwab.auth import require_token_owner
 from api.copilot import router as copilot_router
 from api.market import router as market_router
 from api.market_stream import router as market_stream_router
@@ -98,7 +101,15 @@ async def broker_error_handler(request: Request, exc: BrokerError):
 async def tastytrade_error_handler(request: Request, exc: TastytradeAPIError):
     return JSONResponse(status_code=502, content={"detail": str(exc)})
 
+# Multi-user: accounts live in SQLite next to the Schwab token store (see
+# api/users.py), and every Schwab call must belong to a logged-in user —
+# require_token_owner() makes a call with no user context fail instead of
+# silently using the admin's token (broker/schwab/auth/token_provider.py).
+users.init_db()
+require_token_owner()
+
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
+app.include_router(admin_router, prefix="/api/admin", tags=["Admin"], dependencies=[Depends(require_admin)])
 app.include_router(market_router, prefix="/api/market", tags=["Market"], dependencies=[Depends(require_auth)])
 # Not gated by Depends(require_auth) — a WebSocket handshake carries no
 # Authorization header, so this route verifies the token itself (passed as a
@@ -106,7 +117,8 @@ app.include_router(market_router, prefix="/api/market", tags=["Market"], depende
 app.include_router(market_stream_router, prefix="/api/market/ws", tags=["Market"])
 app.include_router(position_router, prefix="/api/positions", tags=["Positions"], dependencies=[Depends(require_auth)])
 app.include_router(transactions_router, prefix="/api/transactions", tags=["Transactions"], dependencies=[Depends(require_auth)])
-app.include_router(copilot_router, prefix="/api/copilot", tags=["Copilot"], dependencies=[Depends(require_auth)])
+# Copilot is admin-only: it's billed to the admin's OpenAI key.
+app.include_router(copilot_router, prefix="/api/copilot", tags=["Copilot"], dependencies=[Depends(require_admin)])
 
 # Serve the React SPA from frontend/dist when it has been built (production).
 # This mount must come AFTER all API routers so API routes take priority.

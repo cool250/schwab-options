@@ -1,0 +1,252 @@
+/* ─── Strategy Builder overlay (Analyze page) ───────────────
+   components/StrategyBuilderOverlay.jsx. Backdrop/centering follows the
+   landing page's login overlay; everything colored goes through tokens. */
+
+.sb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  background: var(--overlay-backdrop);
+  backdrop-filter: blur(3px);
+}
+
+/* Fits the viewport: only .sb-body scrolls, so the footer's Build/Apply
+   are always on screen. */
+.sb-dialog {
+  width: 100%;
+  max-width: 880px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.sb-top {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.sb-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px 20px;
+}
+.sb-body:empty { display: none; }
+.sb-empty { margin: 0; }
+.sb-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--card-bg);
+}
+.sb-apply { margin-left: auto; min-width: 96px; }
+
+.sb-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sb-title { margin: 0 0 2px; font-size: 1.15rem; font-weight: 700; }
+.sb-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.sb-close:hover { color: var(--text); background: var(--bg); }
+.sb-close:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* .tab-row is flex: 1 for its usual place in a row — not here, inside a column. */
+.sb-direction { flex: none; }
+
+/* ─── Strategy cards: one row, scrolls sideways when they don't fit ─── */
+.sb-cards {
+  position: relative; /* offsetParent for the cards (selected-card scroll) */
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px; /* room for the scrollbar under the cards */
+  scrollbar-width: thin;
+}
+.sb-cards .sb-card { flex: 0 0 132px; }
+.sb-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.sb-card:hover { border-color: var(--border-strong); }
+.sb-card.active { border-color: var(--primary); background: var(--primary-light); }
+.sb-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sb-card-name { font-size: 0.85rem; font-weight: 600; }
+.sb-sketch { width: 100%; height: 40px; overflow: visible; }
+.sb-sketch-zero { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.sb-sketch-line { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+
+/* ─── Parameter form ─── */
+.sb-form { display: flex; flex-direction: column; gap: 16px; }
+.sb-description { margin: 0; color: var(--text-muted); font-size: 0.9rem; }
+.sb-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.sb-exp-group { grid-column: span 2; }
+.sb-exp-range { display: flex; align-items: center; gap: 10px; }
+.sb-exp-range .input { flex: 1; min-width: 0; }
+.sb-grid .form-group label { display: flex; align-items: center; gap: 6px; }
+
+.sb-legs-form { display: flex; flex-direction: column; gap: 4px; }
+.sb-leg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+.sb-leg-label { font-size: 0.9rem; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sb-leg-label .text-muted { font-weight: 400; }
+.sb-leg-value { font-size: 0.85rem; }
+
+.sb-side {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+.sb-side.sell { color: var(--error); background: var(--error-bg); }
+.sb-side.buy { color: var(--success); background: var(--success-bg); }
+.sb-hint { font-size: 0.8rem; }
+
+/* ─── Result ─── */
+.sb-result { display: flex; flex-direction: column; gap: 14px; }
+.sb-result .alert { margin: 0; }
+/* All six figures on one line: values 20% smaller than the standard
+   .metric-value (1.25rem), tighter separators, nothing wraps. Where even
+   that can't fit (phones), the row scrolls sideways rather than wrapping. */
+.sb-metrics {
+  flex-direction: row; /* overrides metrics.css's stacked phone layout */
+  align-items: flex-start;
+  gap: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  margin-bottom: 0;
+}
+.sb-metrics .metric { flex: none; padding-right: 16px; margin-right: 16px; border-right: 1px solid var(--border); }
+.sb-metrics .metric:last-child { border-right: none; }
+.sb-metrics .metric:last-child { padding-right: 0; margin-right: 0; }
+.sb-metrics .metric-label { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 0.72rem; }
+.sb-metrics .metric-value { font-size: 1rem; white-space: nowrap; }
+.sb-table-wrap { overflow-x: auto; }
+.sb-table td, .sb-table th { white-space: nowrap; }
+
+.sb-alternatives { display: flex; flex-direction: column; gap: 8px; }
+.sb-alt-list { display: flex; flex-direction: column; gap: 6px; }
+.sb-alt {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+.sb-alt:hover { border-color: var(--border-strong); }
+.sb-alt.active { border-color: var(--primary); background: var(--primary-light); }
+.sb-alt-exp { font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.sb-alt-strikes { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 0; }
+.sb-alt .positive { color: var(--success); }
+.sb-alt .negative { color: var(--error); }
+.sb-alt-tag {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* ─── Analyze page: Strike card header (Build Strategy + applied badge) ─── */
+.strike-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.strategy-builder-btn { padding: 6px 14px; white-space: nowrap; }
+/* Inline text-style button inside a sentence (the empty-state hint). */
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.link-button:hover { color: var(--primary-hover); }
+.link-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
+.strategy-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  vertical-align: middle;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+@media (max-width: 640px) {
+  .sb-overlay { padding: 0; }
+  .sb-dialog { height: 100%; border-radius: 0; border: none; }
+  .sb-top, .sb-body, .sb-footer { padding-left: 16px; padding-right: 16px; }
+  .sb-grid { grid-template-columns: 1fr; }
+  .sb-exp-group { grid-column: auto; }
+  .sb-leg-row { grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .sb-leg-label { grid-column: 1 / -1; }
+  .sb-cards .sb-card { flex-basis: 120px; }
+}

@@ -1,6 +1,6 @@
 # Options Wheel
 
-Options Wheel is a Python-based trading dashboard for running an options-wheel strategy against a real brokerage account. It's a single-user personal app: FastAPI backend, React + Vite frontend, backed by the Schwab API (positions, balances, transaction history — always read-only, no order placement exists anywhere in this app) and Tastytrade (live option chains, streaming quotes via DXLink). It also ships a read-only AI "Copilot" chat for asking questions about your own account and market data.
+Options Wheel is a Python-based trading dashboard for running options strategies against real brokerage accounts. It's a small multi-user app (you as admin, plus friends you create accounts for): FastAPI backend, React + Vite frontend, backed by the Schwab API (positions, balances, transaction history — always read-only, no order placement exists anywhere in this app) and Tastytrade (live option chains, streaming quotes via DXLink). It also ships a read-only AI "Copilot" chat for asking questions about your own account and market data.
 
 For a deeper architectural tour (service layer, broker clients, copilot subsystem, frontend conventions), see [`AGENTS.md`](./AGENTS.md). This README is the practical "get it running" guide.
 
@@ -14,6 +14,7 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 - Reports page: P&L broken down by symbol/week/day, with drill-through into the underlying transactions.
 - Price charts with support/resistance overlays.
 - Options Screener: scan a list of tickers for the short puts/calls, 1×2 ratio puts, or jade lizards that pay the most to sell (ranked by annualized ROI), or the long puts/calls with the most leverage to buy — filtered by moneyness, DTE, and (optionally) delta — then send the picks straight to Analyze.
+- Multiple users: you (admin) create accounts for friends in Settings → Users. Each user connects their own Schwab account; live market data is shared; the Copilot is admin-only.
 - Dark mode.
 - Copilot: a read-only chat agent (OpenAI) with tool access to your real positions, transactions, and live market data, plus built-in knowledge of common options strategies.
 - FastAPI REST layer with auto-generated OpenAPI docs at `/docs`.
@@ -94,7 +95,7 @@ TASTY_CLIENT_ID=your-tastytrade-client-id
 TASTY_CLIENT_SECRET=your-tastytrade-client-secret
 TASTY_REFRESH_TOKEN=your-tastytrade-refresh-token
 
-# --- App auth (required — this is a single-user app) ---
+# --- App auth (required) — ADMIN_* create the first admin account on an empty user database ---
 SECRET_KEY=generate-a-long-random-string
 ADMIN_USERNAME=pick-a-username
 ADMIN_PASSWORD=pick-a-password
@@ -104,7 +105,6 @@ CHAIN_PROVIDER=tastytrade     # 'schwab' or 'tastytrade' — which broker serves
                                 # (positions/transactions always use Schwab; Charts always uses Tastytrade)
 OPENAI_API_KEY=sk-...           # only needed for the Copilot chat feature
 OPENAI_MODEL=gpt-4o             # defaults to gpt-4o if unset
-USE_DB=false                    # true = store the Schwab token in Redis instead of token.json
 ```
 
 A quick way to generate `SECRET_KEY`:
@@ -149,7 +149,7 @@ npm run dev
 - **Analyze** (StrikeLab) — option chain browser and payoff builder.
 - **Charts** — price charts with support/resistance.
 - **Screener** — top short puts/calls, ratio puts, or jade lizards to sell, or long puts/calls to buy, across a list of tickers (see [Options Screener](#options-screener) below).
-- **Settings** (bottom of the menu) — appearance, including the light/dark theme.
+- **Settings** (bottom of the menu) — your account (change password), Schwab connection, light/dark theme, and — for admins — **Users** (create accounts, reset passwords, disable/delete).
 - **Copilot** (chat icon, bottom-right) — only appears functional if `OPENAI_API_KEY` is set.
 
 ---
@@ -209,7 +209,7 @@ Rather than a hand-maintained list here (which drifts fast), the full live endpo
 
 ## Deploying to Fly.io
 
-The app runs as **one small Fly machine** (shared-cpu-1x, 512MB — about $3.69/month if always on, less with the auto-stop below) from the repo's `Dockerfile` and `fly.toml`. The Docker build compiles the React app and FastAPI serves it alongside the API, same single-process layout as local. The Schwab token lives in `token.json` on a **1GB Fly volume** mounted at `/data`, so it survives restarts and redeploys — no Redis needed.
+The app runs as **one small Fly machine** (shared-cpu-1x, 512MB — about $3.69/month if always on, less with the auto-stop below) from the repo's `Dockerfile` and `fly.toml`. The Docker build compiles the React app and FastAPI serves it alongside the API, same single-process layout as local. Schwab tokens and the user database live on a **1GB Fly volume** mounted at `/data`, so they survive restarts and redeploys.
 
 ### One-time setup
 
@@ -239,7 +239,7 @@ fly deploy --ha=false
 
 About step 4:
 - It copies the needed keys from `.env` without printing them, strips surrounding quotes (`fly secrets import` would otherwise keep them as part of the value), and swaps in the Fly callback URL.
-- It deliberately leaves out `USE_DB`, `REDIS_URL`, `TOKEN_JSON` (unused on Fly — the token is on the volume) and `CHAIN_PROVIDER` (already in `fly.toml`).
+- It copies only the keys the app needs as secrets; `CHAIN_PROVIDER` is left out because it's already in `fly.toml`.
 - Prefer this over a long multi-line `fly secrets set … \` command: one broken line continuation there silently sets only the first secret, which leaves login failing with 401.
 - To use a different `SECRET_KEY` in production than locally, drop it from the `grep` list and add `echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"`.
 
@@ -306,15 +306,24 @@ fly deploy --image registry.fly.io/your-app-name:<previous-image-tag>
 ### Day to day
 
 - **Open:** `https://your-app-name.fly.dev` (log in with `ADMIN_USERNAME`/`ADMIN_PASSWORD`).
-- **Weekly:** Settings → **Reconnect Schwab** when it turns amber or expires.
+- **Weekly:** Settings → **Reconnect Schwab** when it turns amber or expires (each user does their own).
+- **Add a friend:** Settings → **Users** → enter a username, click **Generate** for a password, **Create user**, and send them both. They log in at your app URL, change their password in Settings, and click **Connect Schwab**. Their Schwab token is stored separately (`/data/schwab_tokens/user_<id>.json`) — they never see your data, and you never see theirs in the app.
+- **Accounts live in** `/data/nutrade.db` (SQLite on the volume), so they survive redeploys. `ADMIN_USERNAME`/`ADMIN_PASSWORD` only create the very first admin when that database is empty — after that, change your password in Settings, not in secrets.
 - **Logs:** `fly logs` (the app mirrors its log to stdout on Fly via `LOG_TO_STDOUT`).
 - **Auto-stop:** the machine stops when nothing is connected and starts on the next request, so you mostly pay for hours actually used — the first page load after idle takes a few seconds. An open Analyze chain stream counts as a connection and keeps it running. Set `min_machines_running = 1` in `fly.toml` (then `fly deploy`) to keep it always on instead.
+- **Sessions:** you're signed out after **15 minutes of inactivity** (clicks, typing, scrolling); while you're using the app it renews itself in the background. Background refreshes and the Analyze live stream don't count as activity, so an idle tab signs out and the machine can auto-stop.
 - **Shell into the machine:** `fly ssh console` (start it first with `fly machine start` if it's auto-stopped).
 
 ### Troubleshooting
 
 **Login fails (wrong username/password, `401` in `fly logs`)**
-Usually missing secrets — with no `ADMIN_USERNAME`/`ADMIN_PASSWORD` set, no login can ever match. Run `fly secrets list`; if names are missing, re-run step 4 of the one-time setup.
+- On a brand-new deploy: the first admin comes from `ADMIN_USERNAME`/`ADMIN_PASSWORD` — check `fly secrets list` and re-run step 4 if they're missing.
+- After that, passwords live in the database, so changing those secrets does nothing. A friend who forgot theirs: Settings → Users → **Reset password**. If *you* are locked out:
+  ```bash
+  fly ssh console -C "python -m api.users reset-password <your-username>"
+  ```
+  (locally: `uv run python -m api.users reset-password <your-username>`). It prompts for the new password and re-enables the account.
+- Disabled accounts can't log in (same "invalid" message, by design).
 
 **Checking a secret's value**
 `fly secrets list` shows names and digests only, never values. To read one: `fly ssh console -C "printenv ADMIN_USERNAME"`. To confirm it matches `.env` without printing it, compare fingerprints:
@@ -324,7 +333,7 @@ grep '^SECRET_KEY=' .env | cut -d= -f2- | tr -d "\"'\n" | shasum -a 256
 ```
 
 **Pages say "Broker authentication failed — … Reconnect Schwab in Settings"**
-Schwab isn't connected yet on this deploy, or its 7-day login expired. Settings → **Connect / Reconnect Schwab**. Charts, Screener and Analyze don't depend on Schwab (they use Tastytrade), so they keep working meanwhile.
+Schwab isn't connected yet for *this user*, or their 7-day login expired — each user connects their own. Settings → **Connect / Reconnect Schwab**. Charts, Screener and Analyze don't depend on Schwab (they use Tastytrade), so they keep working meanwhile.
 
 **Schwab shows "We are unable to complete your request. Please contact customer support…"**
 Schwab rejected the `redirect_uri` — it must match a callback URL registered in Schwab's developer portal **exactly** (`https`, host, port, path, no trailing slash). Check:
@@ -334,7 +343,7 @@ Schwab rejected the `redirect_uri` — it must match a callback URL registered i
 Locally the same error usually means a **stale backend**: `.env` changes are only read at startup — `--reload` and the VS Code debugger keep the old value — so fully stop and restart the backend.
 
 **After Schwab login you land on `/login` instead of Settings**
-The Schwab connection itself still succeeded (check `fly logs` for `Schwab reconnected via the in-app flow`); only the app login was lost on the way back. Log in again — Settings shows the new expiry. (The app hands its login across the redirect; if this keeps happening, the app login itself may have expired — it lasts 8 hours.)
+The Schwab connection itself still succeeded (check `fly logs` for `Schwab reconnected via the in-app flow`); only the app login was lost on the way back. Log in again — Settings shows the new expiry. (The app hands its login across the redirect; if this keeps happening, the app login may have timed out — sessions end after 15 minutes without activity, and time on Schwab's page counts.)
 
 **Deploy fails: volume / mount error**
 The `data` volume doesn't exist in the machine's region: `fly volumes list`, then `fly volumes create data --size 1 --region iad`. Deploy with `--ha=false` the first time — a volume attaches to only one machine.
@@ -367,36 +376,13 @@ Keep those lines in `.dockerignore`, and add any new secret file you create.
 
 ## Token Storage
 
-The app supports two backends for storing the Schwab OAuth token, controlled by the `USE_DB` environment variable.
+Each user's Schwab OAuth token is stored as a JSON file:
 
-| `USE_DB` | Backend | When to use |
-|---|---|---|
-| `false` / unset | `token.json` file — at `TOKEN_FILE` if set, else `./token.json`. `TOKEN_JSON` isn't read in this mode | Local development, and Fly.io (`TOKEN_FILE=/data/token.json` on its volume) |
-| `true` | Redis (`REDIS_URL`), re-seeded from `TOKEN_JSON` if the Redis copy ever expires | A host with no persistent disk |
+| User | File |
+|---|---|
+| The original admin | `TOKEN_FILE` if set, else `./token.json` in the project root (Fly sets `TOKEN_FILE=/data/token.json`) |
+| Everyone else | `schwab_tokens/user_<id>.json` in the same folder |
 
-### File (default — no Redis needed)
+Files are written atomically and readable only by the app's own user (mode 0600). No extra configuration is needed locally; on Fly they're on the `/data` volume.
 
-Token is read from `token.json` in the project root locally, or wherever `TOKEN_FILE` points (Fly.io sets `/data/token.json`). No extra configuration required.
-
-### Local development with Redis
-
-```bash
-# Start Redis
-brew services start redis
-
-# Seed Redis with your current token
-python3 -c "
-import json, redis
-r = redis.from_url('redis://localhost:6379', decode_responses=True)
-r.set('TOKEN_JSON', open('token.json').read())
-print('Token seeded to Redis')
-"
-```
-
-Add to `.env`:
-```
-USE_DB=true
-REDIS_URL=redis://localhost:6379
-```
-
-Either way, the access token is refreshed automatically on every `401` response and written back to the store. The refresh token itself expires after 7 days — reconnect from **Settings → Schwab Connection** (or re-run `main.py`).
+The access token is refreshed automatically (shortly before it expires, or on a `401`) and written back to the file. The refresh token itself expires after 7 days — reconnect from **Settings → Schwab Connection** (or, for the admin locally, re-run `main.py`).

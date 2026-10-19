@@ -22,3 +22,7 @@ __pycache__/
 test-data.json
 market-data.json
 portfolio.csv
+
+# Local user database — on Fly it lives on the /data volume
+nutrade.db
+nutrade.db-*

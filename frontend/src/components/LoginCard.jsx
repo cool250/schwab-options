@@ -10,6 +10,16 @@ export function LoginCard({ onSuccess, onClose }) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  // Set when the session ended (idle sign-out, or a 401) — shown once.
+  const [notice] = useState(() => {
+    try {
+      const n = sessionStorage.getItem('auth_notice')
+      sessionStorage.removeItem('auth_notice')
+      return n
+    } catch {
+      return null
+    }
+  })
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -25,8 +35,8 @@ export function LoginCard({ onSuccess, onClose }) {
         setError('Invalid username or password.')
         return
       }
-      const { token } = await res.json()
-      login(token)
+      const { token, user } = await res.json()
+      login(token, user)
       onSuccess?.()
     } catch {
       setError('Could not reach the server. Please try again.')
@@ -46,6 +56,8 @@ export function LoginCard({ onSuccess, onClose }) {
         <img src="/nutrade_icon.svg" alt="NuTrade" className="login-logo" />
         <p className="login-subtitle" id="login-title">Sign in to continue</p>
       </div>
+
+      {notice && <div className="alert warning">{notice}</div>}
 
       <form onSubmit={handleSubmit} className="login-form">
         <div className="form-group">

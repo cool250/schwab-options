@@ -73,7 +73,9 @@
 .screener-fields > .screener-range:last-child .help-tip-popup { left: auto; right: 0; }
 
 @media (max-width: 600px) {
-  .screener-fields { flex-direction: column; align-items: stretch; }
+  /* nowrap: a *wrapping* column sizes items to their widest content rather
+     than the screen, which pushed the fields past the right edge. */
+  .screener-fields { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
   .screener-tickers,
   .screener-option-types,
   .screener-fields > .screener-range { flex-basis: auto; }

@@ -37,6 +37,25 @@ function UserIcon() {
 // component's own state for as long as the tab is open. Resets on a full
 // page reload, matching the "in-memory only" chat-history decision —
 // nothing is persisted server-side.
+// Shown instead of the widget to non-admin users: the same launcher,
+// greyed out and inert. aria-disabled rather than `disabled` so the hover
+// tooltip still appears (Chrome shows no title on a disabled button).
+export function CopilotDisabledLauncher() {
+  return (
+    <div className="copilot-widget">
+      <button
+        type="button"
+        className="copilot-launcher copilot-launcher--disabled"
+        aria-disabled="true"
+        aria-label="Copilot is available to admins only"
+        title="Copilot is available to admins only"
+      >
+        <CopilotIcon size={22} />
+      </button>
+    </div>
+  );
+}
+
 export default function CopilotWidget() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);

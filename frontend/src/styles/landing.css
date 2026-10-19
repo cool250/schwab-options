@@ -47,8 +47,7 @@
   align-items: center;
   gap: 12px;
 }
-.landing-header .btn-primary,
-.landing-cta-band .btn-primary { text-decoration: none; }
+.landing-header .btn-primary { text-decoration: none; }
 .landing-link-btn {
   background: none;
   border: none;
@@ -85,6 +84,8 @@
   color: var(--primary-hover);
 }
 .landing-eyebrow--muted { color: var(--primary); }
+/* On the dark hero band, yellow reads far better than blue. */
+.landing-hero .landing-eyebrow { color: var(--nav-highlight); }
 .landing-hero h1 {
   margin: 0 0 20px;
   font-size: clamp(2rem, 4vw, 3rem);
@@ -194,32 +195,6 @@
 .landing-showcase-copy li { line-height: 1.55; color: var(--text-muted); }
 .landing-showcase-copy li::marker { color: var(--primary); }
 
-/* ─── Closing CTA + footer ─── */
-.landing-cta-band { background: var(--nav-bg); color: var(--text-inverse); padding: 64px 0; }
-.landing-cta-band-inner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-.landing-cta-band h2 { margin: 0; font-size: clamp(1.4rem, 2.6vw, 1.9rem); font-weight: 800; }
-.landing-cta-band .landing-link-btn { color: var(--text-inverse); }
-
-.landing-footer {
-  background: var(--nav-bg);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 28px 0;
-}
-.landing-footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.landing-footer-logo { height: 28px; width: auto; }
-.landing-footer p { margin: 0; font-size: 0.85rem; color: rgba(255, 255, 255, 0.6); }
 
 /* ─── Overlay (login / register) ─── */
 .landing-overlay {

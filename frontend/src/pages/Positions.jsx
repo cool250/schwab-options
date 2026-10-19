@@ -16,12 +16,7 @@ function toNumber(value) {
 // back) within the same browser session — only a full page reload clears it.
 // Positions don't change fast enough to justify refetching (and, for futures
 // options, re-paying the several-seconds DXLink quote lookup) on every visit.
-const positionsCache = {
-  data: null,
-  futuresData: null,
-  futuresQuotes: null,
-  futuresContractQuotes: null,
-}
+
 
 // broker_cost_basis (Schwab's own tax-lot-aware cost basis — see
 // PositionService.get_stock_position) matches trade_price in the common
@@ -116,28 +111,30 @@ function futuresSymbolColumn(optionType) {
 export default function Positions() {
   const navigate = useNavigate()
   const [tab, setTab] = useState('equity') // 'equity' | 'futures'
-  const [data, setData] = useState(positionsCache.data)
-  const [loading, setLoading] = useState(!positionsCache.data)
+  // Account data is loaded fresh on every visit — never cached in memory,
+  // so it can't carry over to another user signing in on the same tab.
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   // Futures data is fetched lazily — the futures-option lookup goes through
   // Tastytrade's DXLink feed per open expiration (Schwab's quote endpoint
   // rejects futures-option symbols outright) and can take several seconds,
   // so it's only worth paying for once the user actually opens this tab.
-  const [futuresData, setFuturesData] = useState(positionsCache.futuresData)
+  const [futuresData, setFuturesData] = useState(null)
   const [futuresLoading, setFuturesLoading] = useState(false)
   const [futuresError, setFuturesError] = useState(null)
 
   // current_price for futures options is fetched separately, after the
   // position list itself, so the table renders with everything except price
   // right away instead of blocking on the slow DXLink lookup. Keyed by symbol.
-  const [futuresQuotes, setFuturesQuotes] = useState(positionsCache.futuresQuotes ?? {})
+  const [futuresQuotes, setFuturesQuotes] = useState({})
   const [futuresQuotesLoading, setFuturesQuotesLoading] = useState(false)
 
   // Same idea, for the outright Futures table — keyed by root symbol (e.g.
   // "ES"), not a contract symbol, so it's a separate state/cache from
   // futuresQuotes above rather than sharing one dict.
-  const [futuresContractQuotes, setFuturesContractQuotes] = useState(positionsCache.futuresContractQuotes ?? {})
+  const [futuresContractQuotes, setFuturesContractQuotes] = useState({})
   const [futuresContractQuotesLoading, setFuturesContractQuotesLoading] = useState(false)
 
   // Options picked (across either tab) to send to StrikeLab — keyed by the
@@ -146,12 +143,8 @@ export default function Positions() {
   const [analyzeError, setAnalyzeError] = useState(null)
 
   useEffect(() => {
-    if (positionsCache.data) return
     getPositions()
-      .then((d) => {
-        positionsCache.data = d
-        setData(d)
-      })
+      .then((d) => setData(d))
       .catch((err) => {
         setError(friendlyErrorMessage(err, 'Failed to load positions. Make sure the API server is running.'))
       })
@@ -169,9 +162,7 @@ export default function Positions() {
     setFuturesError(null)
     Promise.all([getFuturesPosition(), getFuturesOptionPosition()])
       .then(([futures, futuresOptions]) => {
-        const combined = { futures, ...futuresOptions }
-        positionsCache.futuresData = combined
-        setFuturesData(combined)
+        setFuturesData({ futures, ...futuresOptions })
       })
       .catch((err) => {
         setFuturesError(friendlyErrorMessage(err, 'Failed to load futures positions. Make sure the API server is running.'))
@@ -180,13 +171,10 @@ export default function Positions() {
   }, [tab, futuresData])
 
   useEffect(() => {
-    if (!futuresData || positionsCache.futuresQuotes) return
+    if (!futuresData) return
     setFuturesQuotesLoading(true)
     getFuturesOptionQuotes()
-      .then((quotes) => {
-        positionsCache.futuresQuotes = quotes
-        setFuturesQuotes(quotes)
-      })
+      .then((quotes) => setFuturesQuotes(quotes))
       // Prices are a nicety layered on top of the position list — a failure
       // here shouldn't surface an error banner over an otherwise-fine table.
       .catch(() => {})
@@ -194,13 +182,10 @@ export default function Positions() {
   }, [futuresData])
 
   useEffect(() => {
-    if (!futuresData || positionsCache.futuresContractQuotes) return
+    if (!futuresData) return
     setFuturesContractQuotesLoading(true)
     getFuturesQuotes()
-      .then((quotes) => {
-        positionsCache.futuresContractQuotes = quotes
-        setFuturesContractQuotes(quotes)
-      })
+      .then((quotes) => setFuturesContractQuotes(quotes))
       .catch(() => {})
       .finally(() => setFuturesContractQuotesLoading(false))
   }, [futuresData])
@@ -354,32 +339,61 @@ export default function Positions() {
   // Unrealized P&L: total_value (trade_price-based cost basis, computed on
   // the backend) minus the same position re-priced at the live quote — so it
   // needs futuresQuotes the same way Current Price does, and can't be a plain
-  // data key. cell-positive/cell-negative applied manually since DataTable
-  // only auto-colors non-render columns.
+  // data key. Null until that row's quote(s) are in.
+  function futuresRowPL(row) {
+    const multiplier = row.multiplier ?? 100
+    let currentValue = null
+    if (row.long_leg && row.short_leg) {
+      const longPrice = futuresQuotes[row.long_leg.symbol]
+      const shortPrice = futuresQuotes[row.short_leg.symbol]
+      if (longPrice != null && shortPrice != null) {
+        currentValue = ((row.short_leg.amount * shortPrice) - (row.long_leg.amount * longPrice)) * multiplier
+      }
+    } else {
+      const price = futuresQuotes[row.symbol]
+      if (price != null) currentValue = price * -toNumber(row.quantity) * multiplier
+    }
+    return currentValue == null ? null : (row.total_value ?? 0) - currentValue
+  }
+
+  // cell-positive/cell-negative applied manually since DataTable only
+  // auto-colors non-render columns.
   function futuresPnLColumn() {
     return {
       key: 'pl',
       label: 'P&L',
       align: 'right',
       render: (row) => {
-        const multiplier = row.multiplier ?? 100
-        let currentValue = null
-        if (row.long_leg && row.short_leg) {
-          const longPrice = futuresQuotes[row.long_leg.symbol]
-          const shortPrice = futuresQuotes[row.short_leg.symbol]
-          if (longPrice != null && shortPrice != null) {
-            currentValue = ((row.short_leg.amount * shortPrice) - (row.long_leg.amount * longPrice)) * multiplier
-          }
-        } else {
-          const price = futuresQuotes[row.symbol]
-          if (price != null) currentValue = price * -toNumber(row.quantity) * multiplier
-        }
-        if (currentValue == null) return futuresQuotesLoading ? 'Loading...' : '—'
-        const pl = (row.total_value ?? 0) - currentValue
+        const pl = futuresRowPL(row)
+        if (pl == null) return futuresQuotesLoading ? 'Loading...' : '—'
         const text = pl >= 0 ? `$${pl.toFixed(2)}` : `-$${Math.abs(pl).toFixed(2)}`
         return <span className={pl > 0 ? 'cell-positive' : pl < 0 ? 'cell-negative' : ''}>{text}</span>
       },
     }
+  }
+
+  // Summary line over a futures-option table, matching the equity tables'
+  // "Total: N | P&L: $X". The P&L total waits for the live quotes; if some
+  // rows never got one, it sums the rest and says how many are missing
+  // rather than presenting a partial total as complete.
+  function futuresSummary(rows) {
+    const pls = rows.map(futuresRowPL)
+    const priced = pls.filter((pl) => pl != null)
+    let plText
+    if (priced.length === 0) {
+      plText = futuresQuotesLoading ? 'Loading...' : '—'
+    } else {
+      const total = priced.reduce((sum, pl) => sum + pl, 0)
+      plText = `${total < 0 ? '-' : ''}$${Math.abs(total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      if (priced.length < rows.length) {
+        plText += futuresQuotesLoading ? ' (loading…)' : ` (${rows.length - priced.length} unpriced)`
+      }
+    }
+    return (
+      <p className="summary-line">
+        Total: {rows.length}&nbsp;&nbsp;|&nbsp;&nbsp;P&amp;L: {plText}
+      </p>
+    )
   }
 
   // StrikeLab's payoff graph prices one spot for one underlying at one point
@@ -541,6 +555,7 @@ export default function Positions() {
               {futuresPuts.length > 0 ? (
                 <div className="card">
                   <h3 className="section-title">Futures Puts</h3>
+                  {futuresSummary(futuresPuts)}
                   <DataTable
                     data={futuresPuts}
                     columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresSymbolColumn('PUT')], 'PUT', true)}
@@ -555,6 +570,7 @@ export default function Positions() {
               {futuresCalls.length > 0 ? (
                 <div className="card">
                   <h3 className="section-title">Futures Calls</h3>
+                  {futuresSummary(futuresCalls)}
                   <DataTable
                     data={futuresCalls}
                     columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresSymbolColumn('CALL')], 'CALL', true)}
@@ -565,9 +581,6 @@ export default function Positions() {
                 <div className="alert warning">No open futures CALL positions found.</div>
               )}
 
-              <p className="text-muted">
-                Derived from transaction history — Schwab's positions API doesn't report futures contracts or futures options directly, so this only looks back 30 days and may miss a position opened earlier than that.
-              </p>
             </>
           )}
         </>

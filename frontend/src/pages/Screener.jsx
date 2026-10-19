@@ -7,6 +7,7 @@ import { setCopilotContext, clearCopilotContext } from '../utils/copilotContext'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 import HelpTip from '../components/HelpTip'
+import { createSessionCache } from '../utils/sessionCaches'
 
 // Survives navigating away and back within a session (same pattern as
 // strikeLabCache in StrikeLab.jsx) — a screen across several tickers takes
@@ -36,13 +37,13 @@ const MULTI_LEG = ['RATIO_PUT', 'JADE_LIZARD']
 const LONG = ['LONG_PUT', 'LONG_CALL']
 const OPTION_TYPE_LABELS = Object.fromEntries(OPTION_TYPES.map((o) => [o.value, o.label]))
 
-const screenerCache = {
+const screenerCache = createSessionCache(() => ({
   criteria: DEFAULT_CRITERIA,
   result: null,
   // Rows ticked for Analyze Selected — kept with `result` so they're still
   // ticked after a trip to Analyze and back.
   selected: new Map(),
-}
+}))
 
 // A blank field becomes null — for delta that means "no limit on that side"
 // (distinct from an explicit 0); for moneyness it's rejected as missing.

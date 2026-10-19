@@ -1,3 +1,5 @@
+import { registerSessionReset } from "./sessionCaches";
+
 // One-way bridge FROM the copilot chat TO StrikeLab — the mirror of
 // copilotContext.js, which flows the other way (page -> copilot). Plain
 // module state rather than React context, same reasoning as
@@ -14,6 +16,8 @@
 //    existed to hear it.
 const EVENT = "copilot-legs-applied";
 let pending = null;
+
+registerSessionReset(() => { pending = null; });
 
 export function applyProposedLegs(legs) {
   pending = legs;

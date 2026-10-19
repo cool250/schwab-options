@@ -408,7 +408,7 @@ class TransactionProvider(Protocol):
          type: "TRADE",   # broker-neutral "not yet triaged" sentinel —
                            # matching logic in the service promotes this to
                            # CLOSED/EXPIRED/ASSIGNED once a leg is matched
-         close_event: "EXPIRATION" | "ASSIGNMENT" | None,
+         close_event: "EXPIRATION" | "ASSIGNMENT" | "EXERCISE" | None,
          total_amount, open_price, close_price, open_type}
         close_event is what replaces the old raw Schwab
         RECEIVE_AND_DELIVER-type + English-description sniffing
@@ -500,17 +500,34 @@ class SchwabTransactionProvider:
 
     @staticmethod
     def _identify_close_event(raw_type: str, description: str, symbol: str) -> Optional[str]:
-        """Relocated verbatim from the old _identify_trade_type — same
-        RECEIVE_AND_DELIVER + English-description sniffing, just computed
-        once at parse time instead of every time a caller needs to know a
-        leg's status. Returns None for a normal trade (not a close-event
-        at all); the service maps EXPIRATION/ASSIGNMENT to its own
-        EXPIRED/ASSIGNED/CLOSED vocabulary."""
+        """Classify a closing option leg from Schwab's transaction type and
+        English description, once at parse time. Returns None for a normal
+        trade (not a close-event at all); the service maps EXPIRATION/
+        ASSIGNMENT/EXERCISE to its own EXPIRED/ASSIGNED/EXERCISED/CLOSED
+        vocabulary.
+
+        Equity options close by expiry or assignment through a
+        RECEIVE_AND_DELIVER ("Removed due to Expiration|Assignment|Exercise
+        …"). Futures options don't: Schwab books both as an ordinary TRADE
+        that closes the option at $0 — "Exercise, future settle 2.0 of
+        /NQZ26 …" or "Removal of option due to expiration of /ESZ26 …" — and
+        delivers the future as a separate fill at the strike ("Opening
+        futures position due to futures option expiration"). Without these
+        checks an exercised futures option read as a buy/sell-to-close at
+        $0: its whole premium a win (short) or a loss (long)."""
+        description = description or ""
+        if raw_type == "TRADE":
+            if description.startswith("Exercise") and "future" in description:
+                return "EXERCISE"
+            if description.startswith("Removal of option due to expiration"):
+                return "EXPIRATION"
+            return None
         if raw_type != "RECEIVE_AND_DELIVER":
             return None
         if "Expiration" in description:
             return "EXPIRATION"
-        if "Assignment" in description:
+        # An equity exercise delivers shares the same way an assignment does.
+        if "Assignment" in description or "Exercise" in description:
             return "ASSIGNMENT"
         logger.warning(
             "Unrecognized RECEIVE_AND_DELIVER description for %s: %r — treating as CLOSED",

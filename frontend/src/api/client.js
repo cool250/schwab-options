@@ -10,6 +10,7 @@ async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, { ...options, headers, cache: 'no-store' })
   if (res.status === 401) {
     sessionStorage.removeItem('auth_token')
+    sessionStorage.setItem('auth_notice', 'Your session expired. Please log in again.')
     window.location.href = '/login'
     throw new Error('Session expired. Please log in again.')
   }
@@ -81,6 +82,83 @@ export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyn
     if (value != null) p.set(key, value)
   }
   return request(`/market/options/screener?${p}`)
+}
+
+// Strategy Builder (Analyze page overlay) — see service/strategy_builder.py.
+export function getStrategyTemplates() {
+  return request('/market/strategies')
+}
+
+// params: { [legKey]: { mode, value } }; target: per-share min credit / max
+// debit, or null for none.
+// maxDte: optional end of an expiration range (builds on every listed
+// expiration from dte through maxDte).
+export function buildStrategy({ symbol, dte, expirationDate, maxDte, strategy, params, target }) {
+  return request('/market/strategy/build', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol, dte, expirationDate, maxDte, strategy, params, target }),
+  })
+}
+
+// Current user / session renewal / own password — see api/auth.py.
+export function refreshSession() {
+  return request('/auth/refresh', { method: 'POST' })
+}
+
+export function getMe() {
+  return request('/auth/me')
+}
+
+// Your own optional profile (first/last name, email); blank clears a field.
+export function updateProfile({ firstName, lastName, email }) {
+  return request('/auth/me', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ firstName, lastName, email }),
+  })
+}
+
+export function changePassword(currentPassword, newPassword) {
+  return request('/auth/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+}
+
+// Admin user management (Settings → Users) — see api/admin.py.
+export function listUsers() {
+  return request('/admin/users')
+}
+
+export function createUser(username, password, isAdmin = false, profile = {}) {
+  const { firstName, lastName, email } = profile
+  return request('/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, isAdmin, firstName, lastName, email }),
+  })
+}
+
+export function resetUserPassword(userId, password) {
+  return request(`/admin/users/${userId}/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+}
+
+export function setUserDisabled(userId, disabled) {
+  return request(`/admin/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ disabled }),
+  })
+}
+
+export function deleteUser(userId) {
+  return request(`/admin/users/${userId}`, { method: 'DELETE' })
 }
 
 // Schwab reconnect (Settings) — see api/auth.py's /schwab/* routes.

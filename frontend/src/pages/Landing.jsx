@@ -9,9 +9,16 @@ import {
 import { CopilotIcon } from '../components/CopilotWidget'
 
 // Public landing page at "/" (and at /login, with the login overlay open).
-// Screenshots in /public/landing are real captures of the market-data
-// pages only — Screener, Analyze, Charts — never Positions/Transactions/
-// Reports, since this page is public and those show account data.
+// Screenshots in /public/landing are real captures of the app. This page is
+// public, so no real account data or identity may appear in them: the
+// market-data pages (Screener, Analyze and its Strategy Builder, Charts) are
+// shot on live market data, and the one account page shown — Reports, the
+// hero — is shot on SAMPLE P&L (its API responses mocked by the capture
+// script), with the signed-in user shown as "Demo Trader". Never capture
+// Positions/Transactions/Reports on real account data.
+
+// Where login (and "Open dashboard") lands: Market → Analyze.
+const DEFAULT_PAGE = '/analyze'
 
 const FEATURES = [
   {
@@ -27,12 +34,12 @@ const FEATURES = [
   {
     Icon: ReportsIcon,
     title: 'Reports',
-    text: 'P&L by symbol, week and day for any month or year to date, with click-through to the trades behind each number.',
+    text: 'Key numbers, a P&L calendar, running totals and results by symbol for any month or year to date, with click-through to the trades behind each number.',
   },
   {
     Icon: AnalyzeIcon,
     title: 'Analyze',
-    text: 'A live-streaming option chain: click a bid or ask to build a position, then see its payoff graph and time decay.',
+    text: 'A live-streaming option chain and a Strategy Builder: set up an iron condor, strangle or jade lizard by delta or moneyness, then see its payoff and time decay.',
   },
   {
     Icon: ChartsIcon,
@@ -47,7 +54,7 @@ const FEATURES = [
   {
     Icon: () => <CopilotIcon size={18} />,
     title: 'Copilot',
-    text: 'An AI assistant that can look up your positions and live market data, and sees the page you have open.',
+    text: 'An AI assistant that can look up your positions and live market data, build strategies on the live chain, and sees the page you have open.',
   },
   {
     Icon: ShieldIcon,
@@ -71,13 +78,27 @@ const SHOWCASES = [
     ],
   },
   {
+    id: 'strategy-builder',
+    eyebrow: 'Strategy Builder',
+    title: 'Build a strategy in a few clicks',
+    img: '/landing/strategy-builder.jpg',
+    alt: 'NuTrade Strategy Builder placing a 16-delta AAPL iron condor with $5 wings, showing its net credit, max loss, breakevens, probability of profit and each leg’s moneyness',
+    points: [
+      'Credit and debit strategies: short puts and calls, spreads, strangles, straddles, iron condors and butterflies, jade lizards and ratio puts',
+      'Place each leg by delta, moneyness, expected move or strike, and set wings by width',
+      'Set a minimum credit and it searches nearby strikes for the closest match',
+      'Max profit and loss, breakevens and probability of profit, then apply it to Analyze',
+    ],
+  },
+  {
     id: 'analyze',
     eyebrow: 'Analyze',
     title: 'See the payoff before you place it',
     img: '/landing/analyze.jpg',
-    alt: 'NuTrade Analyze showing a short AAPL 335 put with its payoff graph, net credit, max loss and breakeven',
+    alt: 'NuTrade Analyze showing an AAPL iron condor built with the Strategy Builder, with its payoff graph, net credit, max loss and breakevens',
     points: [
       'Live, streaming option chain',
+      'Start from the Strategy Builder, or click any bid or ask to add a leg',
       'Net credit, max profit and loss, and breakevens update as you edit legs',
       'Payoff graph plus a strike-by-date table of time decay',
     ],
@@ -125,12 +146,12 @@ function RegisterCard({ onClose, onLogin }) {
         <img src="/nutrade_icon.svg" alt="NuTrade" className="login-logo" />
         <p className="login-subtitle" id="register-title">Create an account</p>
       </div>
-      {/* NuTrade is a single-user app today: one admin login configured on
-          the server, no user accounts to create — so this explains that
-          rather than showing a sign-up form that can't do anything. */}
+      {/* No self-service sign-up: the admin creates accounts (Settings →
+          Users, api/admin.py), so this explains that rather than showing a
+          form that can't do anything. */}
       <p className="landing-register-text">
-        NuTrade is invite-only for now — new accounts can't be created yet. If you already have access, log in
-        with the credentials you were given.
+        NuTrade is invite-only. Accounts are created by the admin — ask them for a username and password, then
+        log in. You can change your password in Settings after you sign in.
       </p>
       <button type="button" className="btn btn-primary login-btn" onClick={onLogin}>Log in instead</button>
     </div>
@@ -150,13 +171,15 @@ export default function Landing({ initialOverlay = null }) {
   }
 
   function afterLogin() {
-    // Back to the page that sent the visitor to /login, else Positions.
+    // Back to the page that sent the visitor to /login, else the Market
+    // section's first page — it works for every user right away, unlike
+    // the Portfolio pages, which need the user's own Schwab connection.
     const from = location.state?.from
-    navigate(from?.pathname ? `${from.pathname}${from.search ?? ''}` : '/positions', { replace: true })
+    navigate(from?.pathname ? `${from.pathname}${from.search ?? ''}` : DEFAULT_PAGE, { replace: true })
   }
 
   const authActions = token ? (
-    <Link to="/positions" className="btn btn-primary">Open dashboard</Link>
+    <Link to={DEFAULT_PAGE} className="btn btn-primary">Open dashboard</Link>
   ) : (
     <>
       <button type="button" className="landing-link-btn" onClick={() => setOverlay('login')}>Log in</button>
@@ -172,6 +195,7 @@ export default function Landing({ initialOverlay = null }) {
           <nav className="landing-nav" aria-label="Page sections">
             <a href="#features">Features</a>
             <a href="#screener">Screener</a>
+            <a href="#strategy-builder">Strategy Builder</a>
             <a href="#analyze">Analyze</a>
             <a href="#charts">Charts</a>
           </nav>
@@ -183,16 +207,16 @@ export default function Landing({ initialOverlay = null }) {
         <section className="landing-hero">
           <div className="landing-container landing-hero-inner">
             <div className="landing-hero-copy">
-              <p className="landing-eyebrow">Options strategy dashboard</p>
+              <p className="landing-eyebrow">Built for premium sellers</p>
               <h1>Run your options strategy with every number in one place.</h1>
               <p className="landing-lede">
-                NuTrade brings your positions and trade history, live option chains, a strike analyzer and an
-                options screener into one read-only dashboard — with an AI copilot that knows
+                NuTrade brings your positions and trade history, live option chains, a strategy builder, a strike
+                analyzer and an options screener into one read-only dashboard — with an AI copilot that knows
                 what you're looking at.
               </p>
               <div className="landing-hero-actions">
                 {token ? (
-                  <Link to="/positions" className="btn btn-primary landing-cta">Open dashboard</Link>
+                  <Link to={DEFAULT_PAGE} className="btn btn-primary landing-cta">Open dashboard</Link>
                 ) : (
                   <>
                     <button type="button" className="btn btn-primary landing-cta" onClick={() => setOverlay('login')}>
@@ -207,8 +231,8 @@ export default function Landing({ initialOverlay = null }) {
             </div>
             <figure className="landing-shot landing-shot--hero">
               <img
-                src="/landing/screener.jpg"
-                alt="NuTrade Screener ranking short puts by annualized ROI"
+                src="/landing/reports.jpg"
+                alt="NuTrade Reports showing a month's P&L, win rate and profit factor, a P&L calendar and a running total (sample data)"
                 width="1600"
                 height="1000"
               />
@@ -248,21 +272,7 @@ export default function Landing({ initialOverlay = null }) {
             </div>
           </section>
         ))}
-
-        <section className="landing-cta-band">
-          <div className="landing-container landing-cta-band-inner">
-            <h2>Ready to look at your book?</h2>
-            <div className="landing-hero-actions">{authActions}</div>
-          </div>
-        </section>
       </main>
-
-      <footer className="landing-footer">
-        <div className="landing-container landing-footer-inner">
-          <img src="/nutrade_icon.svg" alt="NuTrade" className="landing-footer-logo" />
-          <p>Read-only by design · Live market data · Never places an order</p>
-        </div>
-      </footer>
 
       {overlay === 'login' && (
         <Overlay onClose={closeOverlay} labelledBy="login-title">

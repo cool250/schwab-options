@@ -1,3 +1,5 @@
+import { registerSessionReset } from "./sessionCaches";
+
 // Shared "what is the user currently looking at" context, read by
 // CopilotWidget when sending a message so the agent can answer questions
 // about the position/page in front of the user (e.g. "explain this spread",
@@ -10,6 +12,11 @@
 // A page sets this whenever its relevant state changes and clears it on
 // unmount; CopilotWidget just reads whatever's here at send-time.
 export const copilotContext = { page: null, data: null };
+
+registerSessionReset(() => {
+  copilotContext.page = null;
+  copilotContext.data = null;
+});
 
 export function setCopilotContext(page, data) {
   copilotContext.page = page;

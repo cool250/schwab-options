@@ -6,6 +6,13 @@
 :root {
   --sidebar-width: 200px;
 }
+/* Collapsed to an icon rail (Navbar.jsx toggles this class on <html>). */
+:root.sidebar-collapsed {
+  --sidebar-width: 64px;
+}
+/* Collapse toggle (beside the logo) is desktop-only — shown in the sidebar
+   block below. */
+.navbar-rail-toggle { display: none; }
 /* Solid --nav-bg (dark slate / near-black, see tokens.css) + white text,
    shared with the Copilot panel's titlebar (copilot.css's
    .copilot-panel-header) — the two are meant to read as the same "frame"
@@ -138,6 +145,38 @@
    mobile dropdown (one copy of each, shown per breakpoint like Sign out). */
 .navbar-settings--mobile { display: none; }
 
+/* Signed-in user (Navbar's NavUser): bottom of the desktop sidebar, top of
+   the mobile dropdown — one copy each, shown per breakpoint. */
+.navbar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 12px;
+  color: var(--text-inverse);
+  min-width: 0;
+}
+.navbar-user--mobile { display: none; }
+.navbar-user-avatar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--text-inverse);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.navbar-user-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.navbar-user-name { font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navbar-user-role { font-size: 0.72rem; color: rgba(255, 255, 255, 0.6); }
+
 /* ─── Navbar logout button ───────────────────────────── */
 /* Styled entirely by .nav-link (also on the element) so Sign out matches
    every other menu item's size, color, padding and hover; this class only
@@ -159,6 +198,8 @@
   .navbar-logout--desktop { display: none; }
   .navbar-settings--desktop { display: none; }
   .navbar-settings--mobile { display: flex; }
+  .navbar-user--desktop { display: none; }
+  .navbar-user--mobile { display: flex; border-top: none; padding-top: 8px; }
 
   /* Collapsed by default */
   .navbar-links {
@@ -191,7 +232,7 @@
 /* ─── Desktop: sidebar ───────────────────────────────── */
 @media (min-width: 769px) {
   /* Room for the fixed sidebar (App.jsx wraps the navbar + page in this). */
-  .app-shell { padding-left: var(--sidebar-width); }
+  .app-shell { padding-left: var(--sidebar-width); transition: padding-left 0.2s ease; }
 
   .navbar {
     position: fixed;
@@ -207,6 +248,8 @@
     overflow-y: auto;
     border-right: 1px solid var(--nav-border);
     box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+    transition: width 0.2s ease;
+    overflow-x: hidden;
   }
   /* Logo strip: 16px of air above the logo so it doesn't sit tight against
      the top of the window, and 24px below it before the first menu group. */
@@ -215,6 +258,46 @@
   .navbar-links { flex-direction: column; gap: 2px; }
   .nav-link { padding: 9px 14px; }
 
-  /* Settings + Sign out pinned to the bottom of the sidebar. */
-  .navbar-settings--desktop { margin-top: auto; }
+  /* Signed-in user, Settings and Sign out pinned to the bottom of the sidebar. */
+  .navbar-user--desktop { margin-top: auto; }
+
+  /* Logo row: logo on the left, collapse toggle on the right. */
+  .navbar-brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .navbar-rail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+  }
+  .navbar-rail-toggle:hover { color: var(--text-inverse); background: rgba(255, 255, 255, 0.08); }
+  .navbar-rail-toggle:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4); }
+  .navbar-rail-toggle .nav-icon { transition: transform 0.2s ease; }
+  .nav-label { white-space: nowrap; }
+
+  /* ── Collapsed: icon rail ── */
+  .navbar--rail { padding: 0 8px 16px; }
+  .navbar--rail .nav-label,
+  .navbar--rail .nav-group-toggle { display: none; }
+  /* Groups separated by a hairline instead of their headers. */
+  .navbar--rail .nav-group + .nav-group {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .navbar--rail .nav-link,
+  .navbar--rail .nav-link.nav-sublink { justify-content: center; padding: 10px 0; }
+  .navbar--rail .navbar-rail-toggle .nav-icon { transform: rotate(180deg); }
+  .navbar--rail .navbar-user { justify-content: center; padding-left: 0; padding-right: 0; }
+  /* Logo: show just its square mark (the left end of the wordmark image). */
+  /* Rail too narrow for logo + toggle side by side: stack them. */
+  .navbar--rail .navbar-brand { flex-direction: column; justify-content: center; gap: 10px; padding: 16px 0 0; }
+  .navbar--rail .navbar-logo { width: 34px; height: 34px; object-fit: cover; object-position: left center; }
 }

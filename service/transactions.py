@@ -106,7 +106,7 @@ class TransactionService:
 
         return [
             trade for trade in matched
-            if trade["type"] not in ("EXPIRED", "CLOSED", "ASSIGNED")
+            if trade["type"] not in ("EXPIRED", "CLOSED", "ASSIGNED", "EXERCISED")
             and trade["underlying_symbol"] in self._CONTRACT_MULTIPLIER
         ]
 
@@ -198,7 +198,7 @@ class TransactionService:
                 if transaction["type"] != "TRADE":
                     continue
             # Skip if we only want realized gains and anything is still open
-            elif realized_gains_only and transaction["type"] not in ["EXPIRED", "CLOSED"]:
+            elif realized_gains_only and transaction["type"] not in ["EXPIRED", "CLOSED", "EXERCISED"]:
                 continue
 
             # Only include transactions that closed within our original date range
@@ -222,7 +222,7 @@ class TransactionService:
         returns; returns a list of the same shape, except any legs
         identified as one ratio spread are replaced by a single record with
         `"strategy": "RATIO_SPREAD"` as the grouping marker — `"type"` keeps
-        its normal meaning (CLOSED/EXPIRED/ASSIGNED, taken from whichever
+        its normal meaning (CLOSED/EXPIRED/ASSIGNED/EXERCISED, taken from whichever
         leg closed last), since callers like the UI's Status column read it
         directly and it must mean the same thing on every row. The record
         also carries a `"legs"` list of the original member records, and
@@ -254,7 +254,7 @@ class TransactionService:
             # callers use to know a leg's total_amount is just entry credit,
             # not a realized gain — grouping only ever covers closed/settled
             # legs, where total_amount is a real, summable P&L.
-            if trade.get("type") not in ("CLOSED", "EXPIRED", "ASSIGNED"):
+            if trade.get("type") not in ("CLOSED", "EXPIRED", "ASSIGNED", "EXERCISED"):
                 passthrough.append(trade)
                 continue
             # expirationDate is part of the key, not just underlying/type/date:
@@ -342,7 +342,7 @@ class TransactionService:
             net_close_price = (short_qty * _weighted_price("close_price", short_legs)
                                 - long_qty * _weighted_price("close_price", long_legs))
 
-            # Real status (CLOSED/EXPIRED/ASSIGNED), not a grouping marker —
+            # Real status (CLOSED/EXPIRED/ASSIGNED/EXERCISED), not a grouping marker —
             # the UI's Status column reads `type` directly, so it must keep
             # meaning what it means on every other row. Whichever leg closed
             # last determines it, matching how close_date itself is picked.
@@ -1034,6 +1034,10 @@ class TransactionService:
 
                 if trade_type == "ASSIGNED":
                     price_difference = 0  # Neutralize amount for assignments
+                # EXERCISED (a futures option) keeps its premium as P&L: the
+                # delivered future is booked at the strike, so the premium is
+                # the option's whole contribution, and zeroing it like an
+                # equity assignment would drop it from the total entirely.
                 
                 # Use the earliest of close date or expiration date
                 # This handles transactions that might be recorded after expiration
@@ -1080,7 +1084,8 @@ class TransactionService:
 
     def _identify_trade_type(self, close_trade: Dict) -> str:
         """
-        Identify the type of trade (expiration, assignment, or regular close),
+        Identify the type of trade (expiration, assignment, futures-option
+        exercise, or regular close),
         from the close_event the provider already computed at parse time (see
         SchwabTransactionProvider._identify_close_event) — the old raw Schwab
         RECEIVE_AND_DELIVER-type + English-description sniffing now lives
@@ -1090,11 +1095,13 @@ class TransactionService:
             close_trade (dict): The trade record to analyze
 
         Returns:
-            str: The identified trade type - "EXPIRED", "ASSIGNED", or "CLOSED"
+            str: The identified trade type - "EXPIRED", "ASSIGNED", "EXERCISED" or "CLOSED"
         """
         close_event = close_trade.get("close_event")
         if close_event == "EXPIRATION":
             return "EXPIRED"
         if close_event == "ASSIGNMENT":
             return "ASSIGNED"
+        if close_event == "EXERCISE":
+            return "EXERCISED"
         return "CLOSED"

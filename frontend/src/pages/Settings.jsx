@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
-import { getSchwabStatus, startSchwabReconnect } from '../api/client'
-import { stashTokenForRedirect } from '../context/AuthContext'
+import { getSchwabStatus } from '../api/client'
+import { useAuth } from '../context/AuthContext'
+import { beginSchwabConnect } from '../utils/schwabConnect'
+import { AccountCard, UsersCard } from '../components/AccountSettings'
 
 const THEMES = [
   { value: 'light', label: 'Light' },
@@ -36,6 +38,7 @@ function statusLine(status) {
 
 export default function Settings() {
   const { theme, setTheme } = useTheme()
+  const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [schwab, setSchwab] = useState(null)
   const [schwabError, setSchwabError] = useState(null)
@@ -60,13 +63,8 @@ export default function Settings() {
     setReconnecting(true)
     setSchwabError(null)
     try {
-      const { url } = await startSchwabReconnect()
-      // Full-page navigation to Schwab's login; it redirects back to
-      // /api/auth/schwab/callback, which lands on this page again — with
-      // the app login handed off in case the browser drops sessionStorage
-      // on the way (see AuthContext).
-      stashTokenForRedirect()
-      window.location.assign(url)
+      // Full-page navigation to Schwab's login; lands back on this page.
+      await beginSchwabConnect()
     } catch (err) {
       setSchwabError(err.message || 'Could not start the Schwab reconnect.')
       setReconnecting(false)
@@ -81,6 +79,8 @@ export default function Settings() {
       {result.outcome === 'error' && (
         <div className="alert error">Schwab reconnect failed: {result.reason || 'unknown error'}</div>
       )}
+
+      <AccountCard />
 
       <div className="card">
         <h3 className="section-title">Schwab Connection</h3>
@@ -124,6 +124,8 @@ export default function Settings() {
           </div>
         </fieldset>
       </div>
+
+      {user?.isAdmin && <UsersCard />}
     </div>
   )
 }

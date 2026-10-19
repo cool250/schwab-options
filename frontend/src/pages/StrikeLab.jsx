@@ -15,6 +15,9 @@ import { MULTIPLIER, getMultiplier } from "../utils/contractMultiplier";
 import { symbolStore } from "../utils/symbolStore";
 import { setCopilotContext, clearCopilotContext } from "../utils/copilotContext";
 import { consumePendingLegs, onLegsApplied } from "../utils/copilotProposedLegs";
+import { createSessionCache } from "../utils/sessionCaches";
+import StrategyBuilderOverlay from "../components/StrategyBuilderOverlay";
+import HelpTip from "../components/HelpTip";
 
 /** Patches a live bid/ask tick into whichever leg (call or put, on whichever
  *  strike row) carries that streamer-symbol, leaving everything else as-is. */
@@ -198,12 +201,63 @@ function maxLossProfit(legs, lo, hi) {
   return { maxProfit: maxP, maxLoss: minP };
 }
 
+// Net calls held, multiplier-weighted: the P&L slope past the highest
+// strike. > 0 = unlimited profit to the upside, < 0 = unlimited loss.
+function upsideSlope(legs) {
+  return legs.reduce(
+    (sum, leg) =>
+      leg.type === "CALL" ? sum + (leg.side === "BUY" ? 1 : -1) * leg.qty * (leg.multiplier ?? MULTIPLIER) : sum,
+    0
+  );
+}
+
+/** Estimated chance the position finishes above zero P&L at expiration,
+ *  under a driftless lognormal model at volatility `iv` (a fraction) — the
+ *  same model the Strategy Builder uses (service/strategy_math.py's
+ *  probability_of_profit), so the two pages agree. The breakevens split the
+ *  price axis into regions of constant sign; each profitable region adds its
+ *  probability. Null without legs, a spot or an IV. */
+function probabilityOfProfit(legs, spot, iv, dte, breakevens) {
+  if (legs.length === 0 || !(spot > 0) || !(iv > 0)) return null;
+  const sigma = iv * Math.sqrt(Math.max(dte ?? 0, 0.5) / 365);
+  const cdf = (p) => (p <= 0 ? 0 : normCdf((Math.log(p / spot) + (sigma * sigma) / 2) / sigma));
+  const edges = [0, ...[...breakevens].sort((a, b) => a - b), Infinity];
+  const top = Math.max(...legs.map((l) => l.strike));
+  let pop = 0;
+  for (let i = 0; i < edges.length - 1; i++) {
+    const lo = edges[i];
+    const hi = edges[i + 1];
+    const probe = hi === Infinity ? Math.max(lo, top) * 1.5 + 1 : (lo + hi) / 2;
+    if (totalPL(legs, probe) > 0) pop += (hi === Infinity ? 1 : cdf(hi)) - cdf(lo);
+  }
+  return pop;
+}
+
 const DEFAULT_SPOT = 0;
 
 /** Splits a "YYYY-MM-DD" date into the { month, day } shown on an expiration pill. */
-function expPillParts(dateStr) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  return { month: d.toLocaleDateString("en-US", { month: "short" }), day: String(d.getDate()) };
+// Groups expirations (already sorted by date) into consecutive same-month
+// runs for the expiration strip: one month header spanning that month's
+// days. The year is added ("Jan '27") on January and whenever the year
+// changes from the previous group, so far-out dates stay unambiguous.
+function groupExpirationsByMonth(exps) {
+  const groups = [];
+  let prevYear = new Date().getFullYear();
+  exps.forEach((e, index) => {
+    const d = new Date(`${e.date}T00:00:00`);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    let group = groups[groups.length - 1];
+    if (!group || group.key !== key) {
+      const month = d.toLocaleDateString("en-US", { month: "short" });
+      const year = d.getFullYear();
+      const showYear = year !== prevYear || (d.getMonth() === 0 && year !== new Date().getFullYear());
+      group = { key, label: showYear ? `${month} '${String(year).slice(2)}` : month, days: [] };
+      groups.push(group);
+      prevYear = year;
+    }
+    group.days.push({ index, day: String(d.getDate()), date: e.date, dte: e.dte });
+  });
+  return groups;
 }
 
 /* ============================================================================
@@ -226,6 +280,16 @@ const sliderFillStyle = (value, min, max) => {
 
 const formatExpLabel = (dateStr) =>
   new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+// A leg only carries its dte, so its expiration date is looked up in the
+// symbol's listed expirations, falling back to today + dte. Shown as
+// "Oct 17", plus the year ("Jan 15 '27") when it isn't this year.
+function legExpirationLabel(dte, expirations) {
+  const listed = (expirations ?? []).find((e) => e.dte === dte)?.date;
+  const d = listed ? new Date(`${listed}T00:00:00`) : new Date(Date.now() + dte * 86400000);
+  const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.getFullYear() === new Date().getFullYear() ? label : `${label} '${String(d.getFullYear()).slice(2)}`;
+}
 
 // Bid/ask/delta from the backend are usually a number or null/undefined, but
 // a stray non-numeric value (e.g. dxFeed's "NaN" sentinel string slipping
@@ -260,7 +324,7 @@ const fmtCount = (v) => (isNum(v) ? Math.round(v).toLocaleString() : "—");
 // Survives unmounting/remounting this page (e.g. navigating to Positions and
 // back) within the same browser session — only a full page reload, typing a
 // new symbol, or a fresh "Analyze Selected" from Positions replaces it.
-const strikeLabCache = {
+const strikeLabCache = createSessionCache(() => ({
   symbol: null,
   symbolInput: null,
   spot: null,
@@ -271,7 +335,19 @@ const strikeLabCache = {
   chain: null,
   view: null,
   expirations: null,
-};
+  expShown: null,
+  strategyBadge: null,
+}));
+
+// What a strategy badge (see applyLegs) was applied to — only the fields that
+// define the position, so a premium tweak keeps the badge but changing a
+// leg's strike/side/type/quantity, or adding/removing one, drops it.
+const legsSignature = (legs) => legs.map((l) => `${l.side}:${l.qty}:${l.type}:${l.strike}`).join("|");
+
+// Expirations are fetched up to ~2 years out, but the pill row starts with
+// the nearest EXP_PAGE and grows by EXP_PAGE per "+10" click.
+const EXP_PAGE = 10;
+const EXP_DAYS_AHEAD = 730;
 
 export default function StrikeLab() {
   const location = useLocation();
@@ -316,6 +392,26 @@ export default function StrikeLab() {
   );
 
   const [expirations, setExpirations] = useState(strikeLabCache.expirations ?? []); // [{date, dte}] — real listed expirations, incl. daily where offered
+  // Which symbol `expirations` belongs to — on arriving with a new symbol
+  // the cached list is still the previous symbol's until the fetch lands.
+  // A new Analyze request always refetches (and resets the selection), so
+  // it waits for that fresh list even when the symbol is unchanged.
+  const [expirationsSymbol, setExpirationsSymbol] = useState(isNewAnalyzeRequest ? null : strikeLabCache.symbol);
+  // Expiration that legs arriving from elsewhere (Positions/Screener
+  // "Analyze", copilot "Apply") were built on: once this symbol's
+  // expirations load, the expiration row selects it so the chain shown
+  // matches the legs instead of defaulting to the nearest expiration.
+  const [pendingExp, setPendingExp] = useState(() => {
+    const p = pendingPositions.current[0];
+    return p ? { date: p.expirationDate ?? null, dte: p.dte } : null;
+  });
+  const [expShown, setExpShown] = useState(strikeLabCache.expShown ?? EXP_PAGE);
+  // Strategy Builder overlay, and the label of the strategy it last applied
+  // ({label, signature}) — shown above the legs while they still match.
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [strategyBadge, setStrategyBadge] = useState(strikeLabCache.strategyBadge ?? null);
+  const activeStrategy =
+    strategyBadge && legs.length > 0 && strategyBadge.signature === legsSignature(legs) ? strategyBadge.label : null;
   const dte = expirations[expIndex]?.dte;
   // The pill above only controls which chain you're browsing to add new legs —
   // an already-built position keeps the expiration it was actually added at,
@@ -350,6 +446,18 @@ export default function StrikeLab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Replaces whatever's currently built with a complete new position — a
+  // copilot "Apply" or the Strategy Builder overlay. Selects the position's
+  // own expiration (see pendingExp) and widens the Range slider to fit it,
+  // same as arriving via "Analyze Selected". Only touches setters and refs,
+  // so it's safe to call from the mount-once effect below.
+  const applyLegs = (newLegs, { expirationDate = null, dte: legsDte, strategyLabel = null } = {}) => {
+    fitRangeToLegsRef.current = true;
+    setPendingExp({ date: expirationDate, dte: legsDte });
+    setLegs(newLegs);
+    setStrategyBadge(strategyLabel ? { label: strategyLabel, signature: legsSignature(newLegs) } : null);
+  };
+
   // Legs the copilot recommended and the user clicked "Apply" on (see
   // copilotProposedLegs.js) — replaces whatever's currently built, same as
   // arriving via "Analyze Selected" from Positions above, since applying a
@@ -359,13 +467,12 @@ export default function StrikeLab() {
   useEffect(() => {
     function apply(incomingLegs) {
       if (!incomingLegs || incomingLegs.length === 0) return;
-      fitRangeToLegsRef.current = true;
       const legSymbol = incomingLegs[0].symbol;
       if (legSymbol) {
         setSymbol(legSymbol);
         setSymbolInput(legSymbol);
       }
-      setLegs(
+      applyLegs(
         incomingLegs.map((l, i) => ({
           id: `l${Date.now()}-${i}`,
           side: l.side,
@@ -375,7 +482,8 @@ export default function StrikeLab() {
           premium: l.premium,
           dte: l.dte,
           multiplier: getMultiplier(l.symbol),
-        }))
+        })),
+        { expirationDate: incomingLegs[0].expirationDate ?? null, dte: incomingLegs[0].dte }
       );
     }
     apply(consumePendingLegs());
@@ -395,16 +503,20 @@ export default function StrikeLab() {
     let cancelled = false;
     (async () => {
       try {
-        const result = await getExpirationList(symbol);
-        // Sorted by dte ascending — cap to the next 10 so the pill row renders cleanly.
+        // Sorted by dte ascending. The full list is kept; the pill row
+        // shows the first expShown of it (see the "+10" pill).
+        const result = await getExpirationList(symbol, EXP_DAYS_AHEAD);
         if (!cancelled) {
-          setExpirations((result || []).slice(0, 10));
+          setExpirations(result || []);
+          setExpirationsSymbol(symbol);
+          setExpShown(EXP_PAGE);
           setChainError(null);
         }
       } catch (e) {
         console.error("Failed to load expirations:", e);
         if (!cancelled) {
           setExpirations([]);
+          setExpirationsSymbol(symbol);
           setChainError(friendlyErrorMessage(e, e.message || "Failed to load expirations."));
         }
       }
@@ -414,6 +526,21 @@ export default function StrikeLab() {
       cancelled = true;
     };
   }, [symbol]);
+
+  // Select the incoming legs' expiration (see pendingExp): exact date when
+  // the source sent one, else the listed expiration closest in dte.
+  useEffect(() => {
+    if (!pendingExp || expirationsSymbol !== symbol || expirations.length === 0) return;
+    let index = pendingExp.date ? expirations.findIndex((e) => e.date === pendingExp.date) : -1;
+    if (index < 0 && pendingExp.dte != null) {
+      index = expirations.reduce(
+        (best, e, i) => (Math.abs(e.dte - pendingExp.dte) < Math.abs(expirations[best].dte - pendingExp.dte) ? i : best),
+        0
+      );
+    }
+    if (index >= 0) setExpIndex(index);
+    setPendingExp(null);
+  }, [pendingExp, expirations, expirationsSymbol, symbol]);
 
   // Holds the live WebSocket and the strike_count it was last subscribed
   // with — read/written outside React state since requestMoreStrikes below
@@ -616,7 +743,9 @@ export default function StrikeLab() {
     strikeLabCache.chain = chain;
     strikeLabCache.view = view;
     strikeLabCache.expirations = expirations;
-  }, [symbol, symbolInput, spot, expIndex, legs, rangePct, ivPct, chain, view, expirations]);
+    strikeLabCache.expShown = expShown;
+    strikeLabCache.strategyBadge = strategyBadge;
+  }, [symbol, symbolInput, spot, expIndex, legs, rangePct, ivPct, chain, view, expirations, expShown, strategyBadge]);
 
   const lo = spot * (1 - rangePct / 100);
   const hi = spot * (1 + rangePct / 100);
@@ -646,6 +775,18 @@ export default function StrikeLab() {
     () => findBreakevens(legs, Math.max(0.01, spot * 0.01), spot * 4),
     [legs, spot]
   );
+  // Same two figures as the Strategy Builder's result. POP follows the
+  // Implied Vol slider (the chain's ATM IV unless moved).
+  const pop = useMemo(
+    () => probabilityOfProfit(legs, spot, ivPct / 100, positionDte, breakevens),
+    [legs, spot, ivPct, positionDte, breakevens]
+  );
+  // Max profit / max risk — return on the capital at risk for a credit, the
+  // reward-to-risk ratio for a debit. Null when either side is unbounded.
+  const returnOnRisk =
+    legs.length > 0 && upsideSlope(legs) <= 0 && Number.isFinite(maxLoss) && maxLoss < 0 && maxProfit > 0
+      ? maxProfit / -maxLoss
+      : null;
 
   // Widen the Range ±% slider so legs that arrived from elsewhere — every
   // strike and breakeven, plus a 25% margin — are actually on the Table/
@@ -691,6 +832,7 @@ export default function StrikeLab() {
       symbol,
       spot,
       selectedExpirationDte: dte,
+      ...(activeStrategy ? { strategy: activeStrategy } : {}),
       daysToExpiration: positionDte,
       impliedVolatilityPct: ivPct,
       netCreditOrDebit: credit,
@@ -707,7 +849,7 @@ export default function StrikeLab() {
       })),
     });
     return () => clearCopilotContext("StrikeLab");
-  }, [symbol, spot, dte, positionDte, ivPct, credit, maxProfit, maxLoss, breakevens, legs]);
+  }, [symbol, spot, dte, positionDte, ivPct, credit, maxProfit, maxLoss, breakevens, legs, activeStrategy]);
 
   const updateLeg = (id, patch) =>
     setLegs((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -742,6 +884,22 @@ export default function StrikeLab() {
     });
   };
 
+  // Strategy Builder "Apply": the built legs replace the position, on the
+  // expiration they were built for, and the Graph shows the result.
+  const applyBuiltStrategy = ({ legs: built, expirationDate, dte: builtDte, label }) => {
+    const stamp = Date.now();
+    applyLegs(
+      built.map((l, i) => ({ ...l, id: `l${stamp}-${i}`, dte: builtDte, multiplier: getMultiplier(symbol) })),
+      { expirationDate, dte: builtDte, strategyLabel: label }
+    );
+    setView("graph");
+    setBuilderOpen(false);
+  };
+  const closeBuilder = useCallback(() => setBuilderOpen(false), []);
+  // Opens only once the ticker's expirations are in (the builder needs them,
+  // and a spot to show) — not on the previous symbol's stale list.
+  const canBuild = !!symbol && expirationsSymbol === symbol && expirations.length > 0 && spot > 0;
+
   const submitSymbol = (e) => {
     e.preventDefault();
     const s = symbolInput.trim().toUpperCase();
@@ -754,6 +912,17 @@ export default function StrikeLab() {
   return (
     <div className="page">
       {chainError && <div className="alert error">{chainError}</div>}
+      {builderOpen && canBuild && (
+        <StrategyBuilderOverlay
+          symbol={symbol}
+          spot={spot}
+          expirations={expirations}
+          initialExpIndex={expIndex}
+          hasLegs={legs.length > 0}
+          onApply={applyBuiltStrategy}
+          onClose={closeBuilder}
+        />
+      )}
 
       {/* ---------------- Symbol / strategy / expirations / ruler ---------------- */}
       <div className="card">
@@ -761,7 +930,7 @@ export default function StrikeLab() {
           <div className="form-group symbol-group">
             <label htmlFor="strikelab-symbol">Symbol</label>
             <div className="symbol-input-row">
-              <form onSubmit={submitSymbol}>
+              <form onSubmit={submitSymbol} className="symbol-form">
                 <input
                   id="strikelab-symbol"
                   className="input"
@@ -769,6 +938,9 @@ export default function StrikeLab() {
                   value={symbolInput}
                   onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
                 />
+                <button type="submit" className="btn btn-primary symbol-go-btn" disabled={!symbolInput.trim()}>
+                  Go
+                </button>
               </form>
               {symbol && (
                 <span className="price-badge ok">
@@ -780,26 +952,46 @@ export default function StrikeLab() {
           </div>
 
           <div className="exp-group">
-            <span className="metric-label">Expiration{dte != null ? ` · ${dte}d` : ""}</span>
+            <span className="metric-label">Expiration{dte != null ? `: ${dte}d` : ""}</span>
             <div className="exp-pills">
               {expirations.length === 0 && (
                 <span className="text-muted">
                   {!symbol ? "Enter a symbol to get started" : chainError ? "Failed to load expirations" : "Loading expirations…"}
                 </span>
               )}
-              {expirations.map((e, i) => {
-                const { month, day } = expPillParts(e.date);
-                return (
-                  <button
-                    key={e.date}
-                    className={`exp-pill ${i === expIndex ? "active" : ""}`}
-                    onClick={() => setExpIndex(i)}
-                  >
-                    <span className="exp-pill-month">{month}</span>
-                    <span className="exp-pill-day">{day}</span>
-                  </button>
-                );
-              })}
+              {groupExpirationsByMonth(expirations.slice(0, Math.max(expShown, expIndex + 1))).map((g) => (
+                <div key={g.key} className="exp-month">
+                  <span className="exp-month-label">{g.label}</span>
+                  <div className="exp-month-days">
+                    {g.days.map((d) => (
+                      <button
+                        key={d.date}
+                        type="button"
+                        className={`exp-day ${d.index === expIndex ? "active" : ""}`}
+                        onClick={() => setExpIndex(d.index)}
+                        title={`${d.date} · ${d.dte}d`}
+                      >
+                        {d.day}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {expirations.length > Math.max(expShown, expIndex + 1) && (
+                <div className="exp-month">
+                  <span className="exp-month-label">More</span>
+                  <div className="exp-month-days">
+                    <button
+                      type="button"
+                      className="exp-day exp-day-more"
+                      onClick={() => setExpShown((n) => Math.max(n, expIndex + 1) + EXP_PAGE)}
+                      title={`Show the next ${Math.min(EXP_PAGE, expirations.length - Math.max(expShown, expIndex + 1))} expirations`}
+                    >
+                      +{Math.min(EXP_PAGE, expirations.length - Math.max(expShown, expIndex + 1))}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -807,7 +999,23 @@ export default function StrikeLab() {
 
       {/* ---------------- Legs editor ---------------- */}
       <div className="card">
-        <h3 className="section-title">Strike</h3>
+        {/* Build Strategy lives here, not in the symbol row: it replaces these
+            legs, and the badge it leaves sits right beside it. */}
+        <div className="strike-card-header">
+          <h3 className="section-title">
+            Strike
+            {activeStrategy && <span className="strategy-badge">{activeStrategy}</span>}
+          </h3>
+          <button
+            type="button"
+            className="btn btn-primary strategy-builder-btn"
+            onClick={() => setBuilderOpen(true)}
+            disabled={!canBuild}
+            title={canBuild ? "Build an options strategy on this ticker" : "Enter a symbol first"}
+          >
+            Build Strategy
+          </button>
+        </div>
         <StrikeRuler
           legs={legs}
           spot={spot}
@@ -817,13 +1025,26 @@ export default function StrikeLab() {
           onUpdateLeg={updateLeg}
           onRemoveLeg={removeLeg}
           symbol={symbol}
+          expirations={expirations}
           autoOpenLegId={autoOpenLegId}
           onAutoOpenHandled={() => setAutoOpenLegId(null)}
         />
         <span className="summary-line">
-          {legs.length === 0
-            ? "No legs yet — click a bid/ask in the chain below to add one."
-            : `${legs.length} leg${legs.length !== 1 ? "s" : ""} — click a tag above to edit.`}
+          {legs.length === 0 ? (
+            canBuild ? (
+              <>
+                No legs yet — click a bid/ask in the chain below, or{" "}
+                <button type="button" className="link-button" onClick={() => setBuilderOpen(true)}>
+                  build a strategy
+                </button>
+                .
+              </>
+            ) : (
+              "No legs yet — click a bid/ask in the chain below to add one."
+            )
+          ) : (
+            `${legs.length} leg${legs.length !== 1 ? "s" : ""} — click a tag above to edit.`
+          )}
         </span>
       </div>
 
@@ -851,7 +1072,7 @@ export default function StrikeLab() {
             <span className="metric-value highlight">
               {breakevens.length
                 ? breakevens.map((b) => `$${b.toFixed(2)}`).join(" / ")
-                : "None in range"}
+                : "—"}
               {breakevens.length > 0 && (
                 <span className="text-muted metric-subtext">
                   {" "}({(((breakevens[0] - spot) / spot) * 100).toFixed(1)}%)
@@ -859,16 +1080,36 @@ export default function StrikeLab() {
               )}
             </span>
           </div>
+          <div className="metric">
+            <span className="metric-label metric-label--help">
+              POP (est.)
+              <HelpTip label="About probability of profit">
+                Chance of finishing above zero P&amp;L at expiration, from a lognormal model at the Implied Vol
+                slider&apos;s {ivPct.toFixed(1)}%. An estimate: no skew, no early exit.
+              </HelpTip>
+            </span>
+            <span className="metric-value">{pop == null ? "—" : `${(pop * 100).toFixed(1)}%`}</span>
+          </div>
+          <div className="metric">
+            <span className="metric-label">{credit >= 0 ? "Return on Risk" : "Reward / Risk"}</span>
+            <span className="metric-value">
+              {returnOnRisk == null
+                ? "—"
+                : credit >= 0
+                  ? `${(returnOnRisk * 100).toFixed(1)}%`
+                  : `${returnOnRisk.toFixed(2)}×`}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* ---------------- Chain / Table / Graph ---------------- */}
+      {/* ---------------- Chain / Graph / Table ---------------- */}
       <div className="card">
         <div className="tab-row">
           {[
             { id: "chain", label: "Chain" },
-            { id: "table", label: "Table" },
             { id: "graph", label: "Graph" },
+            { id: "table", label: "Table" },
           ].map((t) => (
             <button
               key={t.id}
@@ -910,8 +1151,8 @@ export default function StrikeLab() {
                   tickFormatter={(v) => (v === 0 ? "$0" : `${v > 0 ? "+" : ""}${v}`)}
                   stroke="var(--text-faint)"
                   tick={{ fontSize: 12 }}
-                  tickLine={false}
-                  axisLine={false}
+                  tickLine={{ stroke: "var(--border-strong)" }}
+                  axisLine={{ stroke: "var(--border-strong)" }}
                   width={56}
                 />
                 <Tooltip content={<PayoffTooltip />} />
@@ -1012,7 +1253,7 @@ export default function StrikeLab() {
    SELL=bid convention as clicking a cell directly in the chain table
    (see addLegFromChain/OptionChainTable's onAddLeg calls).
 ============================================================================ */
-function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symbol, autoOpenLegId, onAutoOpenHandled }) {
+function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symbol, expirations, autoOpenLegId, onAutoOpenHandled }) {
   const width = 100;
   const strikes = legs.map((l) => l.strike);
   const effLo = Math.min(lo, ...strikes);
@@ -1184,6 +1425,7 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symb
             leg={openLeg}
             left={Math.min(88, Math.max(12, pct(openLeg.strike)))}
             symbol={symbol}
+            expLabel={legExpirationLabel(openLeg.dte, expirations)}
             quote={quoteForLeg(openLeg)}
             onUpdate={(patch) => onUpdateLeg(openLeg.id, patch)}
             onRemove={() => {
@@ -1213,14 +1455,14 @@ function legRoi(leg) {
 // replaces the old always-visible rows table (see StrikeRuler) so building a
 // multi-leg strategy doesn't need a full table's worth of vertical space for
 // legs that aren't being edited right now.
-const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, quote, onUpdate, onRemove, onClose }, ref) {
+const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, expLabel, quote, onUpdate, onRemove, onClose }, ref) {
   const roi = legRoi(leg);
   return (
     <div className="leg-popover" style={{ left: `${left}%` }} ref={ref}>
       <div className="leg-popover-header">
         <span>
           {symbol} {leg.strike}
-          {leg.type[0]} · {leg.dte}d to exp
+          {leg.type[0]} · Exp {expLabel}
         </span>
         <button type="button" className="leg-popover-close" onClick={onClose} aria-label="Close">
           ×

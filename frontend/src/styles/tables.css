@@ -68,3 +68,44 @@
   transition: color 0.15s;
 }
 .th-sortable:hover { color: #94a3b8; }
+
+/* ─── Pagination (DataTable) ─────────────────────────── */
+.table-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  padding-top: 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.table-pagination-size { display: inline-flex; align-items: center; gap: 6px; }
+.table-pagination-size select {
+  font: inherit;
+  color: var(--text);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+}
+.table-pagination-pages { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.table-pagination-pages button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.table-pagination-pages button:hover:not(:disabled) { border-color: var(--border-strong); }
+.table-pagination-pages button.active { background: var(--primary); border-color: var(--primary); color: var(--text-inverse); font-weight: 600; }
+.table-pagination-pages button:disabled { opacity: 0.4; cursor: default; }
+.table-pagination-gap { padding: 0 4px; }
+@media (max-width: 600px) {
+  .table-pagination-pages { margin-left: 0; width: 100%; justify-content: center; }
+  /* iOS zooms into selects under 16px on focus (see forms.css). */
+  .table-pagination-size select { font-size: 16px; }
+}

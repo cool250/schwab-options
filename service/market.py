@@ -1,3 +1,4 @@
+import contextvars
 import logging
 import threading
 import time
@@ -10,6 +11,7 @@ import pytz
 from broker.schwab.exceptions import BrokerAuthError
 from broker.tastytrade import TastytradeAPIError, TastytradeClient
 from service.option_chain_providers import get_option_chain_provider, otm_pct
+from service import strategy_builder
 from service.screener_strategies import (
     LONG_STRATEGIES,
     MULTI_LEG_STRATEGIES,
@@ -171,7 +173,8 @@ class MarketService:
                 return datetime.fromtimestamp(b["time"] / 1000, _ET).isoformat()
             return datetime.fromtimestamp(b["time"] / 1000, timezone.utc).strftime("%Y-%m-%dT00:00:00")
 
-        support, resistance = _swing_levels([b["high"] for b in bars], [b["low"] for b in bars])
+        # One support and one resistance line on the chart.
+        support, resistance = _swing_levels([b["high"] for b in bars], [b["low"] for b in bars], max_levels=1)
 
         result = {
             "symbol": symbol,
@@ -226,6 +229,131 @@ class MarketService:
             dict | None: Normalized chain, or None if unavailable.
         """
         return self.option_chain_provider.get_option_chain(symbol, dte, strike_count)
+
+    def get_strategy_templates(self) -> list[dict]:
+        """Strategy Builder templates (service/strategy_builder.py) — the one
+        definition the Analyze page's builder form is generated from."""
+        return strategy_builder.list_templates()
+
+    def build_strategy(
+        self,
+        symbol: str,
+        dte: int,
+        strategy: str,
+        params: dict,
+        target: Optional[float] = None,
+        expiration_date: Optional[str] = None,
+        max_dte: Optional[int] = None,
+    ) -> Optional[dict]:
+        """
+        Place `strategy`'s legs on the live chain for the expiration `dte`
+        days out, priced at mid — see strategy_builder.build for the solver,
+        `params` and `target`. Backs the Analyze page's Strategy Builder.
+
+        `expiration_date` is what the caller selected; the chain provider
+        resolves `dte` to the closest listed expiration, and a mismatch is
+        reported in "reasons" rather than silently building on another date.
+
+        With `max_dte` > `dte`, builds on every listed expiration in
+        [dte, max_dte] instead (at most strategy_builder.MAX_RANGE_EXPIRATIONS)
+        and ranks them together — see _build_strategy_range. Every candidate
+        carries its own expirationDate/dte; the top-level ones are the best's.
+
+        Returns None if the symbol has no chain. Raises
+        strategy_builder.StrategyParamError (-> 422) for bad parameters.
+        """
+        if max_dte is not None and max_dte > dte:
+            return self._build_strategy_range(symbol, dte, max_dte, strategy, params, target)
+        try:
+            chain = self.option_chain_provider.get_option_chain(symbol, dte, strategy_builder.STRIKE_COUNT)
+        except TastytradeAPIError as e:
+            if e.status_code == 404:  # unknown symbol: "no chain", not a system error
+                return None
+            raise
+        if chain is None:
+            return None
+        result = strategy_builder.build(strategy, params, chain, target)
+        if expiration_date and chain.get("expirationDate") and chain["expirationDate"] != expiration_date:
+            result["reasons"].insert(0, f'Built on {chain["expirationDate"]} — the closest listed expiration to {expiration_date}')
+        return {
+            "symbol": symbol,
+            "strategy": strategy,
+            "spot": chain["spot"],
+            "iv": chain.get("iv"),
+            "dte": chain.get("dte"),
+            "expirationDate": chain.get("expirationDate"),
+            "expirationsSearched": 1,
+            **result,
+        }
+
+    def _build_strategy_range(
+        self, symbol: str, min_dte: int, max_dte: int, strategy: str, params: dict, target: Optional[float]
+    ) -> Optional[dict]:
+        # Bad parameters fail fast, before any chain is fetched.
+        strategy_builder.resolve_params(strategy, params, target)
+        try:
+            listed = self.get_expirations(symbol, max_dte)
+        except TastytradeAPIError as e:
+            if e.status_code == 404:
+                return None
+            raise
+        expirations = [e for e in listed if min_dte <= e["dte"] <= max_dte]
+        if not expirations:
+            return None
+        if len(expirations) > strategy_builder.MAX_RANGE_EXPIRATIONS:
+            raise strategy_builder.StrategyParamError(
+                f"{len(expirations)} expirations fall in that range — narrow it to at most "
+                f"{strategy_builder.MAX_RANGE_EXPIRATIONS}"
+            )
+
+        def fetch(expiration: dict):
+            try:
+                return expiration, self.option_chain_provider.get_option_chain(
+                    symbol, expiration["dte"], strategy_builder.STRIKE_COUNT
+                ), None
+            except BrokerAuthError:
+                raise
+            except Exception as e:  # one bad expiration shouldn't sink the rest
+                logger.error("Strategy build: chain for %s %s failed: %s", symbol, expiration["date"], e)
+                return expiration, None, str(e) or e.__class__.__name__
+
+        # Same pattern as screen_options: each task runs in its own copy of
+        # this request's context so a Schwab-backed chain keeps the current
+        # user (one copy per task — a Context can't be entered twice at once).
+        with ThreadPoolExecutor(max_workers=min(_SCREENER_WORKERS, len(expirations))) as pool:
+            futures = [pool.submit(contextvars.copy_context().run, fetch, e) for e in expirations]
+            fetched = [f.result() for f in futures]
+
+        results, chains, failed, seen_dates = [], [], [], set()
+        for expiration, chain, error in fetched:
+            if chain is None:
+                failed.append(expiration["date"])
+                continue
+            # The provider resolves a dte to the closest listing; two dtes can
+            # land on the same chain.
+            if chain.get("expirationDate") in seen_dates:
+                continue
+            seen_dates.add(chain.get("expirationDate"))
+            chains.append(chain)
+            results.append(strategy_builder.build(strategy, params, chain, target))
+        if not chains:
+            return None
+
+        combined = strategy_builder.combine(strategy, results)
+        if failed:
+            combined["reasons"].append(f"Couldn't load {len(failed)} expiration(s): {', '.join(failed)}")
+        best = combined["best"]
+        lead = next((c for c in chains if best and c.get("expirationDate") == best["expirationDate"]), chains[0])
+        return {
+            "symbol": symbol,
+            "strategy": strategy,
+            "spot": lead["spot"],
+            "iv": lead.get("iv"),
+            "dte": lead.get("dte"),
+            "expirationDate": lead.get("expirationDate"),
+            "expirationsSearched": len(chains),
+            **combined,
+        }
 
     def screen_options(
         self,
@@ -315,8 +443,14 @@ class MarketService:
                     return symbol, None, "Symbol not found, or it has no listed options"
                 return symbol, None, str(e) or e.__class__.__name__
 
+        # Each task runs in a copy of this request's context so it keeps the
+        # current user (broker/schwab/auth/token_provider.py) — a plain
+        # executor thread starts with an empty context, which matters if
+        # CHAIN_PROVIDER=schwab puts Schwab calls in these threads. One copy
+        # per task: a Context can't be entered by two threads at once.
         with ThreadPoolExecutor(max_workers=min(_SCREENER_WORKERS, len(symbols) or 1)) as pool:
-            results = list(pool.map(fetch, symbols))
+            futures = [pool.submit(contextvars.copy_context().run, fetch, s) for s in symbols]
+            results = [f.result() for f in futures]
 
         delta_filter_on = min_abs_delta is not None or max_abs_delta is not None
 
