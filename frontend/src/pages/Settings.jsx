@@ -14,6 +14,12 @@ const THEMES = [
 
 const DAY_MS = 24 * 3600 * 1000
 
+function formatExpiry(iso) {
+  return new Date(iso).toLocaleString('en-US', {
+    month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+}
+
 function statusLine(status) {
   if (!status.connected) return { tone: 'error', text: 'Not connected — connect Schwab to load positions and transactions.' }
   if (status.expired) return { tone: 'error', text: 'Expired — reconnect Schwab to keep positions and transactions loading.' }

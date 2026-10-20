@@ -132,12 +132,16 @@ export default function Transactions() {
   const [contractType, setContractType] = useState(cachedOptions?.contractType ?? 'ALL')
   const [ignoreFutures, setIgnoreFutures] = useState(cachedOptions?.ignoreFutures ?? false)
   const [ignoreGrouping, setIgnoreGrouping] = useState(cachedOptions?.ignoreGrouping ?? false)
-  const [realizedOnly, setRealizedOnly] = useState(
-    initialTab === 'options' && searchParams.get('realized') ? searchParams.get('realized') !== 'false' : cachedOptions?.realizedOnly ?? true
-  )
-  const [unrealizedOnly, setUnrealizedOnly] = useState(
-    initialTab === 'options' && searchParams.get('unrealized') ? searchParams.get('unrealized') === 'true' : cachedOptions?.unrealizedOnly ?? false
-  )
+  // Which rows to show: closed (realized) legs, still-open (unrealized)
+  // legs, or both. At least one stays checked. A link's ?realized=false with
+  // no ?unrealized (the old "show everything") opens with both checked.
+  const [[showRealized, showUnrealized], setShown] = useState(() => {
+    const realizedParam = initialTab === 'options' ? searchParams.get('realized') : null
+    const unrealizedParam = initialTab === 'options' ? searchParams.get('unrealized') : null
+    const realized = realizedParam ? realizedParam !== 'false' : cachedOptions?.showRealized ?? true
+    const unrealized = unrealizedParam ? unrealizedParam === 'true' : cachedOptions?.showUnrealized ?? false
+    return realized || unrealized ? [realized, unrealized] : [true, true]
+  })
   const [startDate, setStartDate] = useState(() => (
     initialTab === 'options' ? (searchParams.get('start') ?? cachedOptions?.startDate ?? firstOfMonth()) : (cachedOptions?.startDate ?? firstOfMonth())
   ))
@@ -157,7 +161,11 @@ export default function Transactions() {
     setOptionQuotes({})
     try {
       const tickerUpper = tickerVal.trim().toUpperCase()
-      const data = await getOptionTransactions(tickerUpper, startVal, endVal, contractTypeVal, realizedVal, unrealizedVal, !ignoreGroupingVal)
+      // Both checked = no filter: the API's two flags each narrow to one side.
+      const data = await getOptionTransactions(
+        tickerUpper, startVal, endVal, contractTypeVal,
+        realizedVal && !unrealizedVal, unrealizedVal && !realizedVal, !ignoreGroupingVal,
+      )
       // Ignore Futures is a separate asset-class filter, not a PUT/CALL/ALL
       // value the backend's contract_type understands — applied client-side
       // instead, on top of whichever contract_type was requested.
@@ -190,7 +198,7 @@ export default function Transactions() {
 
   function handleSearch(e) {
     e.preventDefault()
-    runSearch(ticker, startDate, endDate, contractType, ignoreFutures, ignoreGrouping, realizedOnly, unrealizedOnly)
+    runSearch(ticker, startDate, endDate, contractType, ignoreFutures, ignoreGrouping, showRealized, showUnrealized)
   }
 
   // Arriving from a chart click (e.g. Reports) pre-fills the filters via the
@@ -199,7 +207,7 @@ export default function Transactions() {
   // above are shown as-is with no fetch at all.
   useEffect(() => {
     if (initialTab === 'options' && fromLink) {
-      runSearch(ticker, startDate, endDate, contractType, ignoreFutures, ignoreGrouping, realizedOnly, unrealizedOnly)
+      runSearch(ticker, startDate, endDate, contractType, ignoreFutures, ignoreGrouping, showRealized, showUnrealized)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -269,11 +277,11 @@ export default function Transactions() {
     }
   }
 
-  // Live pricing is relevant whenever open rows can appear: the
-  // unrealized-only view (every row is open), or the unfiltered "show
-  // everything" view (open and closed rows mixed). Realized-only never has
-  // open rows, so its plain close_price/total_amount columns are left as-is.
-  const showLivePricing = !realizedOnly
+  // Live pricing is relevant whenever open rows can appear, i.e. whenever
+  // Unrealized is checked (alone, or with Realized for open and closed rows
+  // mixed). Realized alone never has open rows, so its plain
+  // close_price/total_amount columns are left as-is.
+  const showLivePricing = showUnrealized
   const optionColumns = showLivePricing
     ? OPTION_COLUMNS.map((c) => {
         if (c.key === 'close_price') return closePriceColumn()
@@ -417,28 +425,22 @@ export default function Transactions() {
                 <label className="toggle-label">
                   <input
                     type="checkbox"
-                    checked={realizedOnly}
-                    onChange={(e) => {
-                      const checked = e.target.checked
-                      setRealizedOnly(checked)
-                      if (checked) setUnrealizedOnly(false)
-                    }}
+                    checked={showRealized}
+                    disabled={showRealized && !showUnrealized}
+                    onChange={(e) => setShown([e.target.checked, showUnrealized])}
                     className="toggle-checkbox"
                   />
-                  <span>Realized Gains Only</span>
+                  <span>Realized Gains</span>
                 </label>
                 <label className="toggle-label">
                   <input
                     type="checkbox"
-                    checked={unrealizedOnly}
-                    onChange={(e) => {
-                      const checked = e.target.checked
-                      setUnrealizedOnly(checked)
-                      if (checked) setRealizedOnly(false)
-                    }}
+                    checked={showUnrealized}
+                    disabled={showUnrealized && !showRealized}
+                    onChange={(e) => setShown([showRealized, e.target.checked])}
                     className="toggle-checkbox"
                   />
-                  <span>Unrealized Gains Only</span>
+                  <span>Unrealized Gains</span>
                 </label>
                 <label className="toggle-label">
                   <input

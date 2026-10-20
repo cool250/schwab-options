@@ -72,3 +72,22 @@ def test_a_broker_failure_is_an_error_not_missing_data():
 def test_a_missing_futures_contract_means_no_history():
     client = FakeCandles(error=TastytradeAPIError(404, "No live futures contracts found for '/ZZ'"))
     assert MarketService(chain_provider=object(), client=client).get_price_history("/ZZ", "1M") is None
+
+
+def test_unknown_range_falls_back_to_the_default():
+    result = MarketService(chain_provider=object(), client=FakeCandles(BARS)).get_price_history("SPY", "2W")
+    assert result["range"] == history.DEFAULT_RANGE
+
+
+def test_daily_bars_are_dated_at_local_midnight():
+    result = MarketService(chain_provider=object(), client=FakeCandles(BARS)).get_price_history("SPY", "1M")
+    assert result["candles"][0]["date"] == "2025-10-09T00:00:00"
+
+
+def test_intraday_keeps_only_the_last_session_with_new_york_times():
+    # 10:00 and 15:55 New York (EDT) on two trading days.
+    day1, day2 = 1_760_536_800_000, 1_760_623_200_000  # 2025-10-15/16 14:00 UTC
+    bars = [{"time": t, "open": 1, "high": 2, "low": 0, "close": 1}
+            for t in (day1, day1 + 21_300_000, day2, day2 + 21_300_000)]
+    result = MarketService(chain_provider=object(), client=FakeCandles(bars)).get_price_history("SPY", "1D")
+    assert [c["date"] for c in result["candles"]] == ["2025-10-16T10:00:00-04:00", "2025-10-16T15:55:00-04:00"]
