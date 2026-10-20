@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { getOptionTransactions, getOptionBids, getEquityTransactions, friendlyErrorMessage } from '../api/client'
+import { getAppConfig, getOptionTransactions, getOptionBids, getEquityTransactions, friendlyErrorMessage } from '../api/client'
 import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
 import { formatDate } from '../utils/dateFormat'
 import { formatOptionSymbol } from '../utils/optionSymbol'
@@ -201,14 +201,37 @@ export default function Transactions() {
     runSearch(ticker, startDate, endDate, contractType, ignoreFutures, ignoreGrouping, showRealized, showUnrealized)
   }
 
+  // Defaults for Ignore Grouping and the realized/unrealized boxes come from
+  // config/app.properties (trades.group_ratio_spreads,
+  // transactions.default_view) via GET /api/config. A box the user already
+  // changed, or one a link set through the URL, is left alone.
+  const touched = useRef({ grouping: false, view: Boolean(searchParams.get('realized') || searchParams.get('unrealized')) })
+
   // Arriving from a chart click (e.g. Reports) pre-fills the filters via the
-  // URL — run the search immediately instead of waiting for another click.
-  // Otherwise (a plain revisit of this page), the cached results restored
-  // above are shown as-is with no fetch at all.
+  // URL — run the search immediately instead of waiting for another click,
+  // once the settings above have loaded (or failed to).
   useEffect(() => {
-    if (initialTab === 'options' && fromLink) {
-      runSearch(ticker, startDate, endDate, contractType, ignoreFutures, ignoreGrouping, showRealized, showUnrealized)
-    }
+    let cancelled = false
+    getAppConfig()
+      .catch(() => null) // keep the built-in defaults
+      .then((config) => {
+        if (cancelled) return
+        let grouping = ignoreGrouping
+        let [realized, unrealized] = [showRealized, showUnrealized]
+        if (config && !touched.current.grouping) {
+          grouping = !config['trades.group_ratio_spreads']
+          setIgnoreGrouping(grouping)
+        }
+        const view = config?.['transactions.default_view']
+        if (view && !touched.current.view) {
+          ;[realized, unrealized] = [view !== 'unrealized', view !== 'realized']
+          setShown([realized, unrealized])
+        }
+        if (initialTab === 'options' && fromLink) {
+          runSearch(ticker, startDate, endDate, contractType, ignoreFutures, grouping, realized, unrealized)
+        }
+      })
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -427,7 +450,7 @@ export default function Transactions() {
                     type="checkbox"
                     checked={showRealized}
                     disabled={showRealized && !showUnrealized}
-                    onChange={(e) => setShown([e.target.checked, showUnrealized])}
+                    onChange={(e) => { touched.current.view = true; setShown([e.target.checked, showUnrealized]) }}
                     className="toggle-checkbox"
                   />
                   <span>Realized Gains</span>
@@ -437,7 +460,7 @@ export default function Transactions() {
                     type="checkbox"
                     checked={showUnrealized}
                     disabled={showUnrealized && !showRealized}
-                    onChange={(e) => setShown([showRealized, e.target.checked])}
+                    onChange={(e) => { touched.current.view = true; setShown([showRealized, e.target.checked]) }}
                     className="toggle-checkbox"
                   />
                   <span>Unrealized Gains</span>
@@ -455,7 +478,7 @@ export default function Transactions() {
                   <input
                     type="checkbox"
                     checked={ignoreGrouping}
-                    onChange={(e) => setIgnoreGrouping(e.target.checked)}
+                    onChange={(e) => { touched.current.grouping = true; setIgnoreGrouping(e.target.checked) }}
                     className="toggle-checkbox"
                   />
                   <span>Ignore Grouping</span>

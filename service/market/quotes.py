@@ -64,7 +64,8 @@ class QuoteService:
 
             contracts: [{"key", "underlying", "expiration": date | "YYYY-MM-DD",
                          "strike", "type": "PUT" | "CALL"}, ...]
-            returns:   {key: {"bid", "ask", "mid"}}
+            returns:   {key: {"bid", "ask", "mid", "theta"}}
+                       (theta per share per day; None when unknown)
 
         Each chain is fetched once — per underlying for equities (that chain
         covers every expiration), per (root, expiration) for futures options
@@ -128,7 +129,7 @@ class QuoteService:
         if not matched:
             return {}
         try:
-            quotes = client.get_chain_quotes(matched)
+            quotes = client.get_chain_quotes(matched, with_theta=True)
         except TastytradeAPIError as e:
             logger.error("Failed to fetch option quotes: %s", e)
             return {}
@@ -138,7 +139,10 @@ class QuoteService:
             quote = quotes.get(streamer)
             if not quote or (quote.get("bid") is None and quote.get("ask") is None):
                 continue
-            priced = {"bid": quote.get("bid"), "ask": quote.get("ask"), "mid": _mid(quote.get("bid"), quote.get("ask"))}
+            priced = {
+                "bid": quote.get("bid"), "ask": quote.get("ask"), "mid": _mid(quote.get("bid"), quote.get("ask")),
+                "theta": quote.get("theta"),
+            }
             for key in keys:
                 result[key] = priced
         return result

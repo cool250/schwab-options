@@ -51,6 +51,7 @@ export function CopilotDisabledLauncher() {
         title="Copilot is available to admins only"
       >
         <CopilotIcon size={22} />
+        <span className="copilot-launcher-label">Ask AI</span>
       </button>
     </div>
   );
@@ -324,6 +325,7 @@ export default function CopilotWidget() {
         aria-label="Open copilot"
       >
         <CopilotIcon size={22} />
+        <span className="copilot-launcher-label">Ask AI</span>
       </button>
       )}
     </div>

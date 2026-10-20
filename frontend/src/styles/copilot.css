@@ -28,9 +28,14 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   gap: 12px;
 }
 .copilot-launcher {
-  width: 52px;
+  /* A pill — icon plus the "Ask AI" label — rather than a bare disc, so
+     the launcher says what it does. */
   height: 52px;
-  border-radius: 50%;
+  padding: 0 20px 0 16px;
+  gap: 8px;
+  border-radius: 26px;
+  font-size: 15px;
+  font-weight: 600;
   border: none;
   background: var(--primary);
   color: #fff;

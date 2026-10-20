@@ -117,6 +117,12 @@ export function refreshSession() {
   return request('/auth/refresh', { method: 'POST' })
 }
 
+// Application settings from config/app.properties (utils/app_config.py's
+// PUBLIC_SETTINGS), e.g. { "trades.group_ratio_spreads": true }.
+export function getAppConfig() {
+  return request('/config')
+}
+
 export function getMe() {
   return request('/auth/me')
 }
@@ -237,6 +243,14 @@ export function getMarketQuotes({ futures = [], options = [] }) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ futures, options }),
   })
+}
+
+// { [key]: { bid, ask, mid, theta } } for option contracts (theta per share,
+// per day); contracts that couldn't be priced are absent.
+export async function getOptionQuotes(options) {
+  if (!options.length) return {}
+  const { options: quotes } = await getMarketQuotes({ options })
+  return quotes
 }
 
 // { [key]: bid } for option contracts — the price Positions and

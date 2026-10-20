@@ -1,9 +1,10 @@
 from datetime import date
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from service.portfolio import TransactionService
 from service.portfolio.ratio_spreads import group_ratio_spreads as group_ratio_spread_trades
+from utils.app_config import get_config
 
 router = APIRouter()
 
@@ -42,12 +43,14 @@ def get_option_transactions(
     contract_type: ContractType = "ALL",
     realized_gains_only: bool = False,
     unrealized_only: bool = False,
-    group_ratio_spreads: bool = False,
+    group_ratio_spreads: Optional[bool] = None,  # None: trades.group_ratio_spreads in config/app.properties
     service: TransactionService = Depends(get_service),
 ):
     trades = service.get_option_transactions(
         stock_ticker, *_range(start_date, end_date), contract_type, realized_gains_only, unrealized_only
     )
+    if group_ratio_spreads is None:
+        group_ratio_spreads = get_config()["trades.group_ratio_spreads"]
     if group_ratio_spreads:
         trades = group_ratio_spread_trades(trades)
     return trades

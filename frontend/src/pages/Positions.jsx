@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionBids, friendlyErrorMessage } from '../api/client'
+import { getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionQuotes, friendlyErrorMessage } from '../api/client'
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
@@ -72,7 +72,55 @@ const strikeColumn = {
     : money(row.strike_price, 0)),
 }
 
-function optionColumns(optionType) {
+// Equity multiplier: one stock option covers 100 shares.
+const EQUITY_OPTION_MULTIPLIER = 100
+
+// Position theta in dollars per day: per-share theta x signed contracts x
+// multiplier, so a short option's time decay shows as a positive figure. A
+// grouped ratio-spread row sums its two real legs (long_leg/short_leg amounts
+// are unsigned). null when any leg's theta isn't known.
+function positionTheta(row, thetas, multiplier) {
+  if (row.long_leg && row.short_leg) {
+    const longTheta = thetas[row.long_leg.symbol]
+    const shortTheta = thetas[row.short_leg.symbol]
+    if (longTheta == null || shortTheta == null) return null
+    return (row.long_leg.amount * longTheta - row.short_leg.amount * shortTheta) * multiplier
+  }
+  const theta = thetas[row.symbol]
+  return theta == null || row.quantity == null ? null : theta * row.quantity * multiplier
+}
+
+// Theta isn't a row field — it comes from Market's live greeks (POST
+// /api/market/quotes), fetched after the table renders, like the futures
+// tables' prices. cell-positive/negative applied by hand, as DataTable only
+// auto-colors plain key columns.
+function thetaColumn(thetas, loading, multiplierOf) {
+  return {
+    key: 'theta',
+    label: 'Theta ($/day)',
+    align: 'right',
+    render: (row) => {
+      const value = positionTheta(row, thetas, multiplierOf(row))
+      if (value == null) return loading ? 'Loading...' : '—'
+      return <span className={value > 0 ? 'cell-positive' : value < 0 ? 'cell-negative' : ''}>{money(value)}</span>
+    },
+  }
+}
+
+// Summary-line total of positionTheta over `rows`, e.g. "$12.34". Like the
+// futures P&L total: if some rows have no theta it sums the rest and says
+// how many are missing, rather than passing a partial total off as complete.
+function thetaTotalText(rows, thetas, loading, multiplierOf) {
+  const values = rows.map((row) => positionTheta(row, thetas, multiplierOf(row)))
+  const known = values.filter((v) => v != null)
+  if (known.length === 0) return loading ? 'Loading...' : '—'
+  const total = known.reduce((sum, v) => sum + v, 0)
+  let text = `${money(total)}/day`
+  if (known.length < rows.length) text += loading ? ' (loading…)' : ` (${rows.length - known.length} unknown)`
+  return text
+}
+
+function optionColumns(optionType, theta) {
   return [
     { key: 'ticker',          label: 'Ticker' },
     strikeColumn,
@@ -81,6 +129,7 @@ function optionColumns(optionType) {
     tradePriceColumn,
     currentPriceColumn,
     { key: 'total_value',     label: 'P&L',          align: 'right' },
+    theta,
     { key: 'exposure',        label: 'Exposure',     align: 'right' },
     { key: 'symbol',          label: 'Symbol', render: (row) => positionOptionSymbol(row, optionType) },
   ]
@@ -98,7 +147,7 @@ const FUTURES_COLUMNS = [
 
 // Same column set, order, and labels as optionColumns() above minus
 // Exposure (Ticker, Strike, DTE, Quantity, Trade Price, [Current Price],
-// [P&L], Symbol) — Current Price and P&L aren't included here since they
+// [P&L], [Theta], Symbol) — Current Price, P&L and Theta aren't included here since they
 // depend on futuresQuotes (component state) and have to be composed in at
 // the call site, same as futuresCurrentPriceColumn/futuresPnLColumn already
 // were; Symbol is split out the same way, via futuresSymbolColumn below, so
@@ -141,6 +190,13 @@ export default function Positions() {
   // right away instead of blocking on the slow DXLink lookup. Keyed by symbol.
   const [futuresQuotes, setFuturesQuotes] = useState({})
   const [futuresQuotesLoading, setFuturesQuotesLoading] = useState(false)
+  // Per-share theta from the same quote request, keyed the same way.
+  const [futuresThetas, setFuturesThetas] = useState({})
+
+  // Theta for the equity Puts/Calls tables — Schwab prices them, but its
+  // quotes carry no greeks, so theta comes from Market. Keyed by row symbol.
+  const [equityThetas, setEquityThetas] = useState({})
+  const [equityThetasLoading, setEquityThetasLoading] = useState(false)
 
   // Same idea, for the outright Futures table — keyed by root symbol (e.g.
   // "ES"), not a contract symbol, so it's a separate state/cache from
@@ -159,7 +215,7 @@ export default function Positions() {
   function handleAccountChanged() {
     setData(null); setLoading(true); setError(null)
     setFuturesData(null); setFuturesError(null)
-    setFuturesQuotes({}); setFuturesContractQuotes({})
+    setFuturesQuotes({}); setFuturesContractQuotes({}); setFuturesThetas({}); setEquityThetas({})
     setSelected(new Map()); setAnalyzeError(null) // picks belonged to the old account
     setAccountVersion((v) => v + 1)
   }
@@ -212,13 +268,46 @@ export default function Positions() {
       }
     }
     setFuturesQuotesLoading(true)
-    getOptionBids(contracts)
-      .then((quotes) => setFuturesQuotes(quotes))
+    getOptionQuotes(contracts)
+      .then((quotes) => {
+        const bids = {}
+        const thetas = {}
+        for (const [key, q] of Object.entries(quotes)) {
+          if (q.bid != null) bids[key] = q.bid
+          if (q.theta != null) thetas[key] = q.theta
+        }
+        setFuturesQuotes(bids)
+        setFuturesThetas(thetas)
+      })
       // Prices are a nicety layered on top of the position list — a failure
       // here shouldn't surface an error banner over an otherwise-fine table.
       .catch(() => {})
       .finally(() => setFuturesQuotesLoading(false))
   }, [futuresData])
+
+  useEffect(() => {
+    if (!data) return
+    const contracts = []
+    for (const [rows, type] of [[data.puts ?? [], 'PUT'], [data.calls ?? [], 'CALL']]) {
+      for (const row of rows) {
+        if (!row.expiration_date) continue
+        contracts.push({ key: row.symbol, underlying: row.ticker, expiration: row.expiration_date, strike: row.strike_price, type })
+      }
+    }
+    if (!contracts.length) return
+    let cancelled = false
+    setEquityThetasLoading(true)
+    getOptionQuotes(contracts)
+      .then((quotes) => {
+        if (cancelled) return
+        const thetas = {}
+        for (const [key, q] of Object.entries(quotes)) if (q.theta != null) thetas[key] = q.theta
+        setEquityThetas(thetas)
+      })
+      .catch(() => {}) // a nicety on top of the table, like the futures prices
+      .finally(() => !cancelled && setEquityThetasLoading(false))
+    return () => { cancelled = true }
+  }, [data])
 
   useEffect(() => {
     if (!futuresData) return
@@ -435,10 +524,17 @@ export default function Positions() {
     }
     return (
       <p className="summary-line">
-        Total: {rows.length}&nbsp;&nbsp;|&nbsp;&nbsp;P&amp;L: {plText}
+        Total: {rows.length}&nbsp;&nbsp;|&nbsp;&nbsp;P&amp;L: {plText}&nbsp;&nbsp;|&nbsp;&nbsp;
+        Theta: {thetaTotalText(rows, futuresThetas, futuresQuotesLoading, futuresMultiplier)}
       </p>
     )
   }
+
+  const equityMultiplier = () => EQUITY_OPTION_MULTIPLIER
+  const futuresMultiplier = (row) => row.multiplier ?? 100
+  const equityThetaColumn = thetaColumn(equityThetas, equityThetasLoading, equityMultiplier)
+  const futuresThetaColumn = thetaColumn(futuresThetas, futuresQuotesLoading, futuresMultiplier)
+  const equityThetaTotal = (rows) => thetaTotalText(rows, equityThetas, equityThetasLoading, equityMultiplier)
 
   // StrikeLab's payoff graph prices one spot for one underlying at one point
   // in time — legs from different tickers or different expirations can't be
@@ -555,9 +651,10 @@ export default function Positions() {
                   <p className="summary-line">
                     Total: {puts.length}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(puts)}
+                    P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(puts)}&nbsp;&nbsp;|&nbsp;&nbsp;
+                    Theta: {equityThetaTotal(puts)}
                   </p>
-                  <DataTable data={puts} columns={withSelectCheckbox(optionColumns('PUT'), 'PUT')} defaultSortKey="days_to_expiry" />
+                  <DataTable data={puts} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No PUT option positions found.</div>
@@ -569,9 +666,10 @@ export default function Positions() {
                   <h3 className="section-title">Calls</h3>
                   <p className="summary-line">
                     Total: {calls.length}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(calls)}
+                    P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(calls)}&nbsp;&nbsp;|&nbsp;&nbsp;
+                    Theta: {equityThetaTotal(calls)}
                   </p>
-                  <DataTable data={calls} columns={withSelectCheckbox(optionColumns('CALL'), 'CALL')} defaultSortKey="days_to_expiry" />
+                  <DataTable data={calls} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No CALL option positions found.</div>
@@ -601,11 +699,11 @@ export default function Positions() {
               {/* Futures Puts */}
               {futuresPuts.length > 0 ? (
                 <div className="card">
-                  <h3 className="section-title">Futures Puts</h3>
+                  <h3 className="section-title">Puts</h3>
                   {futuresSummary(futuresPuts)}
                   <DataTable
                     data={futuresPuts}
-                    columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresSymbolColumn('PUT')], 'PUT', true)}
+                    columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('PUT')], 'PUT', true)}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>
@@ -616,11 +714,11 @@ export default function Positions() {
               {/* Futures Calls */}
               {futuresCalls.length > 0 ? (
                 <div className="card">
-                  <h3 className="section-title">Futures Calls</h3>
+                  <h3 className="section-title">Calls</h3>
                   {futuresSummary(futuresCalls)}
                   <DataTable
                     data={futuresCalls}
-                    columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresSymbolColumn('CALL')], 'CALL', true)}
+                    columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('CALL')], 'CALL', true)}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>

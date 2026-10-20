@@ -28,6 +28,7 @@ their own Schwab connection** (positions/transactions are per-user);
 | `frontend/src/components/` | `Navbar`, `CopilotWidget` (floating chat, mounted globally in `App.jsx`), `DataTable`, `ErrorBoundary`, `RequireSchwab` (wraps the Portfolio routes in `App.jsx`: checks the user's Schwab connection first and shows a connect/reconnect notice instead of the page when it's missing or expired — wrap any new page that reads Schwab account data the same way), `LoginCard` (the login form, used by the landing page's overlay), `HelpTip` ("?" button + pop-up beside a form label — use it for field help text instead of a paragraph under the form), `ReportViews` (the Reports page's views — key numbers, P&L calendars, running totals, per-symbol and symbol-by-month tables; the math is in `utils/reportStats.js`, the gain/loss heat colors are the `--pnl-*` tokens), `StrategyBuilderOverlay` (the Analyze page's "Build Strategy" overlay — its form is generated from `GET /api/market/strategies`; applied legs go through StrikeLab's `applyLegs`, which the copilot Apply also uses), `Spinner`, `ProtectedRoute`. |
 | `frontend/src/context/` | `AuthContext`, `ThemeContext` (dark mode). |
 | `frontend/src/utils/` | Small shared helpers, not page-specific: `optionSymbol.js` (the one canonical "TICKER MM/DD/YYYY STRIKE.00 P/C" formatter — every page showing an option contract should call this, not re-derive its own), `dateFormat.js` (MM/DD/YYYY), `contractMultiplier.js` (equity=100 vs futures-root multipliers + `isFuturesRoot`), `copilotContext.js` (see Copilot section below), `symbolStore.js` (see below). |
+| `config/app.properties` | Application-level choices (`key=value`): ratio-spread grouping (`trades.group_ratio_spreads` — Positions, the copilot, and the Transactions page's default), Transactions' default view, the futures positions lookback, the copilot's default history window. `utils/app_config.py` holds the schema (`SETTINGS`: type, default, allowed values) and rejects unknown keys or bad values at startup; read with `get_config()[key]`. Settings the browser needs are in `PUBLIC_SETTINGS`, served by `GET /api/config`. Adding a setting = one `SETTINGS` entry + a commented line in the file. Not for secrets — those stay env vars. |
 | `frontend/src/styles/tokens.css` | All design tokens (colors, spacing, shadows) as CSS custom properties, including the dark-theme palette under `:root[data-theme="dark"]`. Every other stylesheet should reference tokens, not hardcode colors — a hardcoded color is the single most common way a change quietly breaks dark mode. |
 
 ## Guardrails — read before touching trading logic
@@ -67,7 +68,10 @@ their own Schwab connection** (positions/transactions are per-user);
   (and open option legs') from `POST /api/market/quotes` and combine them
   with the Portfolio rows **in the page** — Portfolio code never calls
   Tastytrade (`tests/test_layer_boundaries.py` fails if it does). Stocks and
-  equity options on Positions are still priced by Schwab's own quotes.
+  equity options on Positions are still priced by Schwab's own quotes;
+  their Theta column (like the futures-option tables') comes from the same
+  `POST /api/market/quotes` call, whose option quotes carry per-share
+  `theta` from DXLink's Greeks event.
   DXLink's history depth varies by bar size (monthly: decades;
   daily: ~2 years; weekly: only months) and repeat long-history requests
   can come back empty, which is why 5Y/MAX use monthly bars and
@@ -293,4 +297,4 @@ relevant to day-to-day agent work: `SCHWAB_APP_KEY` /
 `OPENAI_MODEL`, `SECRET_KEY`, `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Deploy-only (Fly.io, set in `fly.toml`):
 `TOKEN_FILE` (where `FileTokenProvider` keeps the Schwab token — `/data/token.json`
 on the Fly volume; defaults to `token.json` in the working dir) and
-`LOG_TO_STDOUT` (mirror `logs/api.log` to stdout so `fly logs` shows it).
+`LOG_TO_STDOUT` (mirror `logs/api.log` to stdout so `fly logs` shows it). Optional: `APP_PROPERTIES` (path to a properties file to use instead of `config/app.properties`).

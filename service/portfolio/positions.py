@@ -12,11 +12,12 @@ from service.portfolio.models import (
     SpreadLeg,
     StockPosition,
 )
-from service.portfolio.date_windows import OPEN_POSITION_LOOKBACK_DAYS
+from service.portfolio.date_windows import open_position_lookback_days
 from service.portfolio.ratio_spreads import group_open_ratio_spreads
 from service.portfolio.transactions import TransactionService
 from service.portfolio.providers import PositionProvider, get_position_provider
 from service.shared.contracts import get_contract_multiplier
+from utils.app_config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ class PositionService:
             })
         return [StockPosition(**s) for s in self.get_current_price(stocks)]
 
-    def get_futures_position(self, lookback_days: int = OPEN_POSITION_LOOKBACK_DAYS) -> list[FuturesPosition]:
+    def get_futures_position(self, lookback_days: Optional[int] = None) -> list[FuturesPosition]:
         """Currently-open outright futures positions (e.g. root 'ES', 'NQ').
 
         Schwab's positions endpoint omits futures entirely, so these are
@@ -111,7 +112,7 @@ class PositionService:
         Returns:
             list: [{"symbol", "quantity", "trade_price"}, ...]
         """
-        return self._get_futures_position_from_transactions(lookback_days)
+        return self._get_futures_position_from_transactions(lookback_days or open_position_lookback_days())
 
     def _get_futures_position_from_transactions(self, lookback_days: int):
         """See get_futures_position(): reconstructs open futures positions by FIFO-matching
@@ -154,7 +155,7 @@ class PositionService:
             futures.append(FuturesPosition(symbol=symbol, quantity=entry["quantity"], trade_price=avg_price))
         return futures
 
-    def get_futures_option_position(self, lookback_days: int = OPEN_POSITION_LOOKBACK_DAYS) -> tuple[list[FuturesOptionPosition], list[FuturesOptionPosition]]:
+    def get_futures_option_position(self, lookback_days: Optional[int] = None) -> tuple[list[FuturesOptionPosition], list[FuturesOptionPosition]]:
         """Currently-open futures-option positions (options on /ES, /NQ, etc.).
 
         Reconstructed from Schwab transaction history (Schwab's positions
@@ -184,7 +185,7 @@ class PositionService:
                 reprice the position at the live quote and show P&L as
                 total_value minus that live-priced value.
         """
-        return self._get_futures_option_position_from_transactions(lookback_days)
+        return self._get_futures_option_position_from_transactions(lookback_days or open_position_lookback_days())
 
     def _get_open_futures_option_legs_from_transactions(self, lookback_days: int) -> list:
         """See get_futures_option_position(): reconstructed from transaction
@@ -198,11 +199,12 @@ class PositionService:
 
     def _get_futures_option_position_from_transactions(self, lookback_days: int):
         """See get_futures_option_position(). Ratio-spread legs (opened
-        together) are merged into one row via group_open_ratio_spreads — see
+        together) are merged into one row via group_open_ratio_spreads, unless
+        trades.group_ratio_spreads is off in config/app.properties — see
         _get_open_futures_option_legs_from_transactions() for the raw fetch."""
-        legs = group_open_ratio_spreads(
-            self._get_open_futures_option_legs_from_transactions(lookback_days)
-        )
+        legs = self._get_open_futures_option_legs_from_transactions(lookback_days)
+        if get_config()["trades.group_ratio_spreads"]:
+            legs = group_open_ratio_spreads(legs)
 
         puts, calls = [], []
         for leg in legs:

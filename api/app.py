@@ -54,6 +54,7 @@ from broker.schwab.auth import require_token_owner
 from api.copilot import router as copilot_router
 from api.market import router as market_router, stream_router as market_stream_router
 from api.portfolio import router as portfolio_router
+from utils.app_config import get_config, public_config
 
 
 class _SPAStaticFiles(StaticFiles):
@@ -120,6 +121,16 @@ async def tastytrade_error_handler(request: Request, exc: TastytradeAPIError):
 # silently using the admin's token (broker/schwab/auth/token_provider.py).
 users.init_db()
 require_token_owner()
+
+# Application-level choices (config/app.properties, utils/app_config.py):
+# read now so a typo or bad value stops startup instead of the first request.
+get_config()
+
+
+@app.get("/api/config", tags=["Config"], summary="Application settings the frontend uses (config/app.properties)")
+def app_config(user=Depends(require_auth)):
+    return public_config()
+
 
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"], dependencies=[Depends(require_admin)])

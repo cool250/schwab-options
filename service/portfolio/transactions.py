@@ -11,7 +11,7 @@ import logging
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
-from service.portfolio.date_windows import EQUITY_LOOKBACK_DAYS, OPEN_POSITION_LOOKBACK_DAYS, expand_date_range
+from service.portfolio.date_windows import EQUITY_LOOKBACK_DAYS, expand_date_range, open_position_lookback_days
 from service.portfolio.equity_matching import combine_equity_lots, match_equity_fills
 from service.portfolio.option_matching import identify_trade_type, match_option_trades
 from service.portfolio.providers import TransactionProvider, get_transaction_provider
@@ -30,12 +30,13 @@ class TransactionService:
     def __init__(self, provider: Optional[TransactionProvider] = None):
         self.provider = provider or get_transaction_provider()
 
-    def get_open_futures_options(self, lookback_days: int = OPEN_POSITION_LOOKBACK_DAYS) -> List[Dict]:
+    def get_open_futures_options(self, lookback_days: Optional[int] = None) -> List[Dict]:
         """Currently-open futures-option positions (options on /ES, /NQ, etc.),
         reconstructed from transaction history — like outright futures, Schwab's
         positions endpoint doesn't return these either.
 
-        Deliberately short-lookback (30 days by default, unlike the option
+        Deliberately short-lookback (positions.open_lookback_days in
+        config/app.properties, 30 by default — unlike the option
         matcher's usual 30-day-back/5-day-forward padding used elsewhere): a
         wider window risks surfacing a leg that was actually closed outside
         it — or hit some matching edge case — as if it were still open, since
@@ -45,6 +46,8 @@ class TransactionService:
         # calendar date, which is hours before US markets even open — without
         # this, anything filled "today" (or late evening the day before, US
         # time) falls outside the window until the date rolls over tomorrow.
+        if lookback_days is None:
+            lookback_days = open_position_lookback_days()
         end_date = (market_today() + timedelta(days=1)).strftime("%Y-%m-%d")
         start_date = (market_today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 

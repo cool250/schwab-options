@@ -588,14 +588,17 @@ class TastytradeClient:
         bars = asyncio.run(_fetch())
         return [bars[t] for t in sorted(bars)]
 
-    def get_chain_quotes(self, chain: list[dict], timeout: float = 5.0) -> dict[str, dict]:
+    def get_chain_quotes(self, chain: list[dict], timeout: float = 5.0, with_theta: bool = False) -> dict[str, dict]:
         """Fetch live bid/ask for every contract in an options chain (as
         returned by get_options_chain() / get_option_chain() /
         get_future_option_chain()) over DXLink, in a single streaming
         session — the REST chain endpoints only return contract metadata,
         not pricing.
 
-        Returns {streamer_symbol: {"bid": float, "ask": float}}. Contracts
+        Returns {streamer_symbol: {"bid": float, "ask": float}} — plus
+        "theta" (per share, per day, from the Greeks event) when `with_theta`,
+        collected in the same session; None if no Greeks event arrived in
+        time. Contracts
         that don't produce a Quote within `timeout` seconds are simply
         omitted from the result (illiquid strikes may have no live quote)
         rather than raising — check the chain length against the result
@@ -617,6 +620,9 @@ class TastytradeClient:
             results: dict[str, dict] = {}
             remaining = set(symbols)
 
+            thetas: dict[str, Optional[float]] = {}
+            theta_remaining = set(symbols) if with_theta else set()
+
             async def _collect() -> None:
                 while remaining:
                     quote = await streamer.get_event("Quote")
@@ -625,12 +631,25 @@ class TastytradeClient:
                         results[sym] = {"bid": _finite_float(quote["bidPrice"]), "ask": _finite_float(quote["askPrice"])}
                         remaining.discard(sym)
 
+            async def _collect_theta() -> None:
+                while theta_remaining:
+                    greeks = await streamer.get_event("Greeks")
+                    sym = greeks["eventSymbol"]
+                    if sym in theta_remaining:
+                        thetas[sym] = _finite_float(greeks["theta"])
+                        theta_remaining.discard(sym)
+
             async with DXLinkStreamer(quote_token) as streamer:
                 await streamer.subscribe("Quote", symbols)
+                if with_theta:
+                    await streamer.subscribe("Greeks", symbols)
                 try:
-                    await asyncio.wait_for(_collect(), timeout=timeout)
+                    await asyncio.wait_for(asyncio.gather(_collect(), _collect_theta()), timeout=timeout)
                 except asyncio.TimeoutError:
                     pass
+            if with_theta:
+                for sym, quote in results.items():
+                    quote["theta"] = thetas.get(sym)
             return results
 
         return asyncio.run(_fetch())

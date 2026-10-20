@@ -26,6 +26,7 @@ from service.market import MarketService
 from service.market.errors import MarketDataError, SymbolNotFound
 from service.portfolio import PositionService, TransactionService
 from service.portfolio.ratio_spreads import group_ratio_spreads
+from utils.app_config import get_config
 from utils.market_time import market_today
 from service.market.strategy_builder import ANCHOR_MODES, TEMPLATES, WING_MODES, StrategyParamError
 
@@ -84,7 +85,7 @@ def get_total_exposure() -> str:
 def get_option_trade_history(
     ticker: str = "", start_date: str = "", end_date: str = "", realized_gains_only: bool = True
 ) -> str:
-    default_start, default_end = _default_date_range(90)
+    default_start, default_end = _default_date_range(get_config()["copilot.history_days"])
 
     def _fetch_and_group(ticker, start_date, end_date, realized_gains_only):
         service = TransactionService()
@@ -93,8 +94,9 @@ def get_option_trade_history(
         # different strike, same underlying/expiration/type, opened together)
         # into one grouped record — see group_ratio_spreads' docstring. Lets
         # the model report an actual ratio-spread position directly instead
-        # of inferring the structure itself from a flat leg list.
-        return group_ratio_spreads(trades)
+        # of inferring the structure itself from a flat leg list. Off when
+        # trades.group_ratio_spreads is false in config/app.properties.
+        return group_ratio_spreads(trades) if get_config()["trades.group_ratio_spreads"] else trades
 
     return _safe(
         _fetch_and_group,
@@ -106,7 +108,7 @@ def get_option_trade_history(
 
 
 def get_equity_trade_history(ticker: str = "", start_date: str = "", end_date: str = "") -> str:
-    default_start, default_end = _default_date_range(90)
+    default_start, default_end = _default_date_range(get_config()["copilot.history_days"])
     return _safe(
         TransactionService().get_equity_transactions,
         ticker,
@@ -217,6 +219,9 @@ TOOL_FUNCTIONS = {
     "propose_legs": propose_legs,
 }
 
+# Read once, when the schemas below are built; the tools read it per call.
+_HISTORY_DAYS = get_config()["copilot.history_days"]
+
 # OpenAI chat-completions "tools" format: one {"type": "function", "function": {...}}
 # entry per tool, JSON-schema parameters.
 TOOL_SCHEMAS = [
@@ -303,7 +308,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "get_option_trade_history",
             "description": "Get the user's equity-option trade history with matched open/close "
-            "legs and realized P&L. Defaults to the last 90 days across all tickers if no dates "
+            f"legs and realized P&L. Defaults to the last {_HISTORY_DAYS} days across all tickers if no dates "
             "are given. Legs that form a ratio spread (buy 1 / sell 2+ at a different strike, "
             "same underlying/expiration/type, opened together) are already merged into a single "
             "record with \"strategy\": \"RATIO_SPREAD\" (its \"type\" still holds the normal "
@@ -324,7 +329,7 @@ TOOL_SCHEMAS = [
                     },
                     "start_date": {
                         "type": "string",
-                        "description": "Start date as YYYY-MM-DD — defaults to 90 days ago if omitted.",
+                        "description": f"Start date as YYYY-MM-DD — defaults to {_HISTORY_DAYS} days ago if omitted.",
                         "default": "",
                     },
                     "end_date": {
@@ -347,7 +352,7 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "get_equity_trade_history",
             "description": "Get the user's equity/futures trade history, FIFO-matched into round "
-            "trips with realized P&L. Defaults to the last 90 days across all tickers if no dates "
+            f"trips with realized P&L. Defaults to the last {_HISTORY_DAYS} days across all tickers if no dates "
             "are given.",
             "parameters": {
                 "type": "object",
@@ -359,7 +364,7 @@ TOOL_SCHEMAS = [
                     },
                     "start_date": {
                         "type": "string",
-                        "description": "Start date as YYYY-MM-DD — defaults to 90 days ago if omitted.",
+                        "description": f"Start date as YYYY-MM-DD — defaults to {_HISTORY_DAYS} days ago if omitted.",
                         "default": "",
                     },
                     "end_date": {

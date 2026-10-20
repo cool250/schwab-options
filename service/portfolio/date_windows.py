@@ -4,22 +4,29 @@ whose open (or close) falls just outside the range can still be matched.
 The windows are named here rather than scattered as magic numbers:
   OPTION_LOOKBACK_DAYS / OPTION_LOOKFORWARD_DAYS   options matcher padding
   EQUITY_LOOKBACK_DAYS                              equities/futures sit open longer
-  OPEN_POSITION_LOOKBACK_DAYS                       futures / futures-option positions
-                                                    rebuilt from history: anything
-                                                    opened earlier isn't seen
-  MAX_SPAN_DAYS                                     Schwab rejects requests over a year"""
+  MAX_SPAN_DAYS                                     Schwab rejects requests over a year
+
+How far back open futures / futures-option positions are rebuilt from
+history is an application setting instead: positions.open_lookback_days in
+config/app.properties (open_position_lookback_days() below)."""
 
 import logging
 from datetime import timedelta
 from typing import Dict
 
+from utils.app_config import get_config
 from utils.utils import get_date_object
 
 OPTION_LOOKBACK_DAYS = 30
 OPTION_LOOKFORWARD_DAYS = 5
 EQUITY_LOOKBACK_DAYS = 180
-OPEN_POSITION_LOOKBACK_DAYS = 30
 MAX_SPAN_DAYS = 364
+
+
+def open_position_lookback_days() -> int:
+    """Futures / futures-option positions are rebuilt from this many days
+    of history — anything opened earlier isn't seen."""
+    return get_config()["positions.open_lookback_days"]
 
 logger = logging.getLogger(__name__)
 
