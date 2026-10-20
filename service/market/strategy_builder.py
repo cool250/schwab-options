@@ -23,7 +23,9 @@ net credit at mid, "debit" ones for a net debit. Extra per-template rules:
                the screener's jade_lizard_rows
 
 Adding a strategy = adding a TEMPLATES entry; the solver and the frontend
-form (built from GET /api/market/strategies) need no changes.
+form (built from GET /api/market/strategies) need no changes. The Options
+Screener lists every combination of a template with enumerate_combinations()
+(see screener_strategies.SCREENER_TEMPLATES).
 
 Solver: place every anchor from its parameters, then search each anchor
 ±SEARCH_STEPS listed strikes around that placement (wings keep their own
@@ -35,11 +37,11 @@ combinations for a two-anchor template — so it's brute force, like the
 screener's builders.
 """
 
+import itertools
 import math
-from typing import Optional
+from typing import Callable, Optional
 
-from service.market.chain_providers import otm_pct
-from service.shared.strategy_math import net_premium, payoff, payoff_profile, probability_of_profit
+from service.shared.strategy_math import net_premium, otm_pct, payoff, payoff_profile, probability_of_profit
 
 ANCHOR_MODES = ("atm", "delta", "otm_pct", "sigma", "strike")
 WING_MODES = ("width", "steps", "delta", "otm_pct")
@@ -568,3 +570,70 @@ def build(template_id: str, params: dict, chain: dict, target: Optional[float] =
         "reasons": reasons,
         "params": resolved,
     }
+
+
+def enumerate_combinations(
+    template_id: str,
+    contracts: list[dict],
+    sell_ok: Callable[[dict], bool],
+    max_wing_steps: int = 5,
+) -> list[list[dict]]:
+    """Every placement of `template_id`'s legs on one expiration's
+    `contracts` (screener contract shape: type, strike, bid, ask, delta, …)
+    that satisfies the template's strike rules — the Screener's search,
+    where build() searches near one requested placement instead.
+
+    Anchors range over every usable contract of their type; a wing over the
+    1st..`max_wing_steps`th listed strike beyond its leg; a "same" leg must
+    exist at its leg's strike. Usable: sold legs need a bid > 0 and
+    `sell_ok(contract)` (the screener's delta filter); bought legs an ask > 0.
+
+    Returns each combination as the template's legs in order, each
+    {**contract, "key", "qty"}. Pricing, the credit/debit rule and
+    creditCoversWing are the caller's (they depend on fill-price choice).
+    """
+    template = TEMPLATES[template_id]
+    by_type = {
+        t: sorted((c for c in contracts if c["type"] == t), key=lambda c: c["strike"]) for t in ("PUT", "CALL")
+    }
+
+    def usable(c: dict, qty: int) -> bool:
+        if qty < 0:
+            return bool(c.get("bid")) and c["bid"] > 0 and sell_ok(c)
+        return bool(c.get("ask")) and c["ask"] > 0
+
+    anchors = [s for s in template["legs"] if s["role"] == "anchor"]
+    pools = [[c for c in by_type[s["type"]] if usable(c, s["qty"])] for s in anchors]
+    order = template.get("order", [])
+    combos = []
+    for picks in itertools.product(*pools):
+        placed = {spec["key"]: c for spec, c in zip(anchors, picks)}
+        if any(a in placed and b in placed and not placed[a]["strike"] < placed[b]["strike"] for a, b in order):
+            continue
+        partial = [placed]
+        for spec in template["legs"]:
+            if spec["role"] == "same":
+                strike = placed[spec["of"]]["strike"]
+                match = next((c for c in by_type[spec["type"]] if c["strike"] == strike and usable(c, spec["qty"])), None)
+                if match is None:
+                    partial = []
+                    break
+                placed[spec["key"]] = match
+        for spec in template["legs"]:
+            if spec["role"] != "wing":
+                continue
+            grown = []
+            for p in partial:
+                base = p[spec["of"]]["strike"]
+                side = [c for c in by_type[spec["type"]] if (c["strike"] > base if spec["dir"] > 0 else c["strike"] < base)]
+                if spec["dir"] < 0:
+                    side.reverse()  # nearest the leg first, either direction
+                for c in side[:max_wing_steps]:
+                    if usable(c, spec["qty"]):
+                        grown.append({**p, spec["key"]: c})
+            partial = grown
+        for p in partial:
+            if all(a not in p or b not in p or p[a]["strike"] < p[b]["strike"] for a, b in order):
+                combos.append([{**p[s["key"]], "key": s["key"], "qty": s["qty"]} for s in template["legs"]])
+    return combos
+

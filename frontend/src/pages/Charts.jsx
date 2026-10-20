@@ -90,7 +90,7 @@ export default function Charts() {
           setError(null);
         } else {
           setHistory(null);
-          setError(result?.message || "No price history available for this symbol.");
+          setError("No price history available for this symbol.");
         }
       } catch (e) {
         console.error("Failed to load price history:", e);
@@ -219,7 +219,7 @@ function OptionsSnapshot({ symbol }) {
           setError(null);
         } else {
           setChain(null);
-          setError(data?.message || "No option chain available for this symbol.");
+          setError("No option chain available for this symbol.");
         }
       })
       .catch((e) => {

@@ -47,11 +47,15 @@ def _make_token(user_id: int) -> str:
     return f"{encoded}.{sig}"
 
 
-def _verify_token(token: str) -> Optional[User]:
+def _verify_token(token: str, check_expiry: bool = True) -> Optional[User]:
     """The user a login token belongs to, or None. Beyond the signature and
-    8-hour TTL, the account must still exist and be enabled, and the token
-    must postdate the user's last password change — so disabling an account
-    or resetting its password signs that user out everywhere."""
+    TTL, the account must still exist and be enabled, and the token must
+    postdate the user's last password change — so disabling an account or
+    resetting its password signs that user out everywhere.
+
+    check_expiry=False skips only the TTL: a long-lived WebSocket re-checks
+    its connect-time token this way (the page renews its REST token, not the
+    socket's), so a disabled or reset account is still cut off."""
     try:
         encoded, sig = token.split(".", 1)
         payload = base64.urlsafe_b64decode(encoded).decode()
@@ -62,7 +66,7 @@ def _verify_token(token: str) -> Optional[User]:
         if not uid_str.startswith("u"):
             return None  # pre-multi-user token format ("<username>:<ts>")
         issued = int(ts_str) / 1000
-        if time.time() - issued > _TOKEN_TTL:
+        if check_expiry and time.time() - issued > _TOKEN_TTL:
             return None
         user = users.get_user(int(uid_str[1:]))
         if user is None or user.disabled or issued < user.password_changed_at:
@@ -104,6 +108,11 @@ def verify_token(token: str) -> bool:
     header the way HTTPBearer expects — they pass the token as a query param
     and check it manually instead of via the require_auth dependency."""
     return _verify_token(token) is not None
+
+
+def token_user(token: str, check_expiry: bool = True) -> Optional[User]:
+    """The user behind a WebSocket's token (see _verify_token)."""
+    return _verify_token(token, check_expiry)
 
 
 class LoginRequest(BaseModel):

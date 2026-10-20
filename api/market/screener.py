@@ -1,27 +1,36 @@
 """The Screener: top options/strategies to sell or buy across tickers."""
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from api.market.params import normalize_symbol
 from service.market import MarketService
-from service.market.screener_strategies import STRATEGIES
+from service.market.models import ScreenerResult
 
 router = APIRouter()
+
+ScreenerStrategy = Literal["PUT", "CALL", "LONG_PUT", "LONG_CALL", "RATIO_PUT", "JADE_LIZARD"]
+MAX_TICKERS = 25
 
 
 def get_service() -> MarketService:
     return MarketService()
 
 
-@router.get("/options/screener", summary="Top options/strategies to sell (by annualized ROI) or buy (by leverage)")
+@router.get(
+    "/options/screener",
+    summary="Top options/strategies to sell (by annualized ROI) or buy (by leverage)",
+    response_model=ScreenerResult,
+    response_model_exclude_unset=True,
+)
 def screen_options(
     symbols: str = Query(..., description="Comma-separated tickers, e.g. 'AAPL,MSFT,/ES'"),
     min_dte: int = Query(0, ge=0, le=365),
     max_dte: int = Query(7, ge=0, le=365),
     min_moneyness: float = Query(..., ge=-100, le=100, description="Min percent OTM (negative = ITM)"),
     max_moneyness: float = Query(..., ge=-100, le=100, description="Max percent OTM (negative = ITM)"),
-    strategy: str = Query(
+    strategy: ScreenerStrategy = Query(
         "PUT",
         description="PUT / CALL (short), LONG_PUT / LONG_CALL, RATIO_PUT (1x2 put ratio spread), or JADE_LIZARD",
     ),
@@ -30,14 +39,19 @@ def screen_options(
     limit: int = Query(200, ge=1, le=1000),
     service: MarketService = Depends(get_service),
 ):
-    tickers = list(dict.fromkeys(s.strip().upper() for s in symbols.split(",") if s.strip()))
-    strategy = strategy.strip().upper()
+    tickers = []
+    for raw in symbols.split(","):
+        if not raw.strip():
+            continue
+        try:
+            tickers.append(normalize_symbol(raw))
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"'{raw.strip()[:20]}' isn't a valid ticker")
+    tickers = list(dict.fromkeys(tickers))
     if not tickers:
         raise HTTPException(status_code=422, detail="Enter at least one ticker")
-    if len(tickers) > 25:
-        raise HTTPException(status_code=422, detail="Screen at most 25 tickers at a time")
-    if strategy not in STRATEGIES:
-        raise HTTPException(status_code=422, detail=f"Option type must be one of: {', '.join(STRATEGIES)}")
+    if len(tickers) > MAX_TICKERS:
+        raise HTTPException(status_code=422, detail=f"Screen at most {MAX_TICKERS} tickers at a time")
     if min_dte > max_dte:
         raise HTTPException(status_code=422, detail="Min DTE must not exceed Max DTE")
     if min_moneyness > max_moneyness:

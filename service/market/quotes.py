@@ -12,7 +12,7 @@ import logging
 from datetime import date
 from typing import Optional
 
-from broker.tastytrade import TastytradeAPIError, TastytradeClient
+from broker.tastytrade import TastytradeAPIError, TastytradeClient, get_shared_client
 from service.shared.contracts import CONTRACT_MULTIPLIER
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class QuoteService:
     def _get_client(self) -> Optional[TastytradeClient]:
         if self._client is None:
             try:
-                self._client = TastytradeClient.from_config()
+                self._client = get_shared_client()
             except ValueError as e:
                 logger.error("Tastytrade credentials unavailable for quotes: %s", e)
         return self._client

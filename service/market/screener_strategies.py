@@ -1,46 +1,44 @@
-"""Multi-leg strategy builders for the Options Screener
-(MarketService.screen_options).
+"""Multi-leg strategies for the Options Screener (service/market/screener.py).
 
-Each builder takes one expiration's contracts for one underlying (already
-limited to the moneyness band by the chain provider) and returns every
-qualifying combination as a screener row, priced conservatively: short legs
-at the bid, long legs at the ask — what a combo order can realistically fill
-at, consistent with single-leg rows being priced at the bid.
+A screener strategy IS a Strategy Builder template
+(strategy_builder.TEMPLATES): enumerate_combinations() lists every placement
+of its legs within one expiration's contracts (already limited to the
+moneyness band), and each is priced conservatively — short legs at the bid,
+long legs at the ask, what a combo order can realistically fill at,
+consistent with single-leg rows at the bid. The template's own rules apply
+at those prices: it must open for a net credit, and creditCoversWing
+(the jade lizard's "no upside risk") is checked against the natural credit.
 
-Strategy definitions:
+  RATIO_PUT     buy 1 put, sell 2 puts at a strictly lower strike.
+  JADE_LIZARD   sell 1 put + a call spread (wing within MAX_WING_STEPS
+                listed strikes), put below the short call.
 
-  RATIO_PUT     1x2 put ratio spread, same rules as
-                copilot/skills/put_ratio_spread.md: buy 1 put at a higher
-                strike, sell 2 puts at a strictly lower strike, and it must
-                open for a net credit (2 x short bid - long ask > 0).
-
-  JADE_LIZARD   sell 1 put + sell a call spread (sell 1 call, buy 1 call at
-                a higher strike), put strike below the short call, and total
-                credit >= the call spread's width — the defining property:
-                no risk to the upside, only the short put's downside.
-
-Both carry naked-put-style downside (losing $1 per share for each $1 the
-stock falls below the lower breakeven), so capital is the max loss if the
-stock goes to zero — the cash it takes to fully secure the position — and
-ROI follows the single-leg convention: P&L if the underlying is unchanged at
-expiration, divided by capital.
+Adding one = adding its template id to SCREENER_TEMPLATES (and to
+STRATEGIES / STRATEGY_OPTION_TYPES), provided its risk is to the downside:
+capital is the max loss if the stock goes to zero — the cash it takes to
+fully secure the position — and ROI follows the single-leg convention: P&L
+if the underlying is unchanged at expiration, divided by capital. A
+template with no loss at zero (e.g. a call spread) produces no rows.
 """
 
 from typing import Callable, Optional
 
+from service.market.strategy_builder import TEMPLATES, enumerate_combinations
 from service.shared.strategy_math import net_premium, payoff, payoff_profile
 
 # Widest call spread considered for a jade lizard, in strike steps above the
 # short call. Wings are typically narrow (the credit has to cover the
 # width), and capping this keeps the search at puts x calls x 5 per
 # expiration rather than puts x calls^2.
-JADE_MAX_WING_STRIKES = 5
+# Furthest a wing may sit from its leg, in listed strikes.
+MAX_WING_STEPS = 5
 
 # "PUT"/"CALL" are single contracts to *sell* (short); "LONG_PUT"/
 # "LONG_CALL" single contracts to *buy*, ranked by leverage rather than ROI
 # (see MarketService.screen_options).
 STRATEGIES = ("PUT", "CALL", "LONG_PUT", "LONG_CALL", "RATIO_PUT", "JADE_LIZARD")
-MULTI_LEG_STRATEGIES = ("RATIO_PUT", "JADE_LIZARD")
+# Multi-leg screener strategies, each a strategy_builder template id.
+SCREENER_TEMPLATES = ("RATIO_PUT", "JADE_LIZARD")
 LONG_STRATEGIES = ("LONG_PUT", "LONG_CALL")
 # Which option types each strategy needs fetched.
 STRATEGY_OPTION_TYPES = {
@@ -104,65 +102,25 @@ def _position_row(strategy: str, underlying: str, spot: float, legs: list[dict])
     }
 
 
-def _with_expiry(leg: dict, contract: dict) -> dict:
-    return {**leg, "dte": contract["dte"], "expirationDate": contract["expirationDate"]}
-
-
-def ratio_put_rows(
-    underlying: str, spot: float, contracts: list[dict], short_ok: Callable[[dict], bool]
+def combo_rows(
+    strategy: str, underlying: str, spot: float, contracts: list[dict], sell_ok: Callable[[dict], bool]
 ) -> list[dict]:
-    """Every 1x2 put ratio spread (long higher strike, 2 short at a strictly
-    lower strike, net credit) within one expiration's `contracts`.
-    `short_ok` applies the screener's delta filter to the short leg."""
-    puts = sorted((c for c in contracts if c["type"] == "PUT"), key=lambda c: c["strike"])
-    longs = [c for c in puts if c["ask"] and c["ask"] > 0]
-    shorts = [c for c in puts if c["bid"] and c["bid"] > 0 and short_ok(c)]
+    """Every qualifying combination of template `strategy` within one
+    expiration's `contracts`, as screener rows. `sell_ok` applies the
+    screener's delta filter to the legs being sold."""
+    template = TEMPLATES[strategy]
+    covers = template.get("creditCoversWing")
     rows = []
-    for long in longs:
-        for short in shorts:
-            if short["strike"] >= long["strike"]:
-                break  # sorted by strike — every later short is too high as well
-            if 2 * short["bid"] - long["ask"] <= 0:
-                continue
-            legs = [_with_expiry(_leg(long, 1), long), _with_expiry(_leg(short, -2), short)]
-            row = _position_row("RATIO_PUT", underlying, spot, legs)
-            if row:
-                rows.append(row)
-    return rows
-
-
-def jade_lizard_rows(
-    underlying: str, spot: float, contracts: list[dict], short_ok: Callable[[dict], bool]
-) -> list[dict]:
-    """Every jade lizard (short put below a short call spread no wider than
-    JADE_MAX_WING_STRIKES strikes, total credit >= spread width) within one
-    expiration's `contracts`. `short_ok` applies the screener's delta filter
-    to the two short legs."""
-    puts = [c for c in contracts if c["type"] == "PUT" and c["bid"] and c["bid"] > 0 and short_ok(c)]
-    calls = sorted((c for c in contracts if c["type"] == "CALL"), key=lambda c: c["strike"])
-    rows = []
-    for i, short_call in enumerate(calls):
-        if not short_call["bid"] or short_call["bid"] <= 0 or not short_ok(short_call):
+    for combo in enumerate_combinations(strategy, contracts, sell_ok, MAX_WING_STEPS):
+        legs = [{**_leg(c, c["qty"]), "dte": c["dte"], "expirationDate": c["expirationDate"]} for c in combo]
+        credit = net_premium(legs)
+        if template["direction"] == "credit" and credit <= 0:
             continue
-        for long_call in calls[i + 1 : i + 1 + JADE_MAX_WING_STRIKES]:
-            if not long_call["ask"] or long_call["ask"] <= 0:
-                continue
-            width = long_call["strike"] - short_call["strike"]
-            spread_credit = short_call["bid"] - long_call["ask"]
-            for put in puts:
-                if put["strike"] >= short_call["strike"]:
-                    continue
-                if put["bid"] + spread_credit < width:
-                    continue  # upside risk left — not a jade lizard
-                legs = [
-                    _with_expiry(_leg(put, -1), put),
-                    _with_expiry(_leg(short_call, -1), short_call),
-                    _with_expiry(_leg(long_call, 1), long_call),
-                ]
-                row = _position_row("JADE_LIZARD", underlying, spot, legs)
-                if row:
-                    rows.append(row)
+        if covers:
+            by_key = {c["key"]: c for c in combo}
+            if credit < abs(by_key[covers[1]]["strike"] - by_key[covers[0]]["strike"]):
+                continue  # upside risk left — not a jade lizard
+        row = _position_row(strategy, underlying, spot, legs)
+        if row:
+            rows.append(row)
     return rows
-
-
-STRATEGY_BUILDERS = {"RATIO_PUT": ratio_put_rows, "JADE_LIZARD": jade_lizard_rows}

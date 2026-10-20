@@ -7,9 +7,12 @@ logger = logging.getLogger(__name__)
 
 # Contract multipliers (points per contract) for non-standard underlyings —
 # CME contract specs, the same whichever broker reports the trade.
+# Mirrored by frontend/src/utils/contractMultiplier.js — kept equal by
+# tests/test_contracts.py.
 CONTRACT_MULTIPLIER = {
     "ES": 50,
     "NQ": 20,
+    "RTY": 50,
 }
 
 

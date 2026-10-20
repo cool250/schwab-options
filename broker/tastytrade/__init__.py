@@ -9,12 +9,13 @@
 See client.py and dxlink_streamer.py for full API docs.
 """
 
-from .client import TastytradeAPIError, TastytradeClient
+from .client import TastytradeAPIError, TastytradeClient, get_shared_client
 from .dxlink_streamer import DXLinkError, DXLinkStreamer
 
 __all__ = [
     "TastytradeClient",
     "TastytradeAPIError",
+    "get_shared_client",
     "DXLinkStreamer",
     "DXLinkError",
 ]

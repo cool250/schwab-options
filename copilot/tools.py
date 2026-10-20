@@ -23,6 +23,7 @@ from broker.exceptions import BrokerError
 from pydantic_core import to_jsonable_python
 
 from service.market import MarketService
+from service.market.errors import MarketDataError, SymbolNotFound
 from service.portfolio import PositionService, TransactionService
 from service.portfolio.ratio_spreads import group_ratio_spreads
 from utils.market_time import market_today
@@ -46,7 +47,7 @@ def _safe(fn, *args, **kwargs) -> str:
     try:
         # to_jsonable_python: services return typed models (service/portfolio/models.py)
         return json.dumps(fn(*args, **kwargs), default=to_jsonable_python)
-    except BrokerError as e:
+    except (BrokerError, MarketDataError, SymbolNotFound) as e:
         logger.error("Copilot tool %s failed: %s", getattr(fn, "__qualname__", fn), e)
         return json.dumps({"error": str(e)})
 
@@ -114,8 +115,14 @@ def get_equity_trade_history(ticker: str = "", start_date: str = "", end_date: s
     )
 
 
+# The tool takes a number of days; the service takes a Charts timeframe.
+# Smallest timeframe covering `days` (calendar days).
+_HISTORY_RANGES = ((1, "1D"), (7, "5D"), (31, "1M"), (183, "6M"), (366, "1Y"), (365 * 5 + 2, "5Y"))
+
+
 def get_price_history(symbol: str, days: int = 30) -> str:
-    return _safe(MarketService().get_price_history, symbol, days)
+    range_key = next((key for limit, key in _HISTORY_RANGES if days <= limit), "MAX")
+    return _safe(MarketService().get_price_history, symbol, range_key)
 
 
 def get_option_chain(symbol: str, dte: int = 7, strike_count: int = 20) -> str:
@@ -155,9 +162,11 @@ def build_strategy(
         )
     except StrategyParamError as e:
         return json.dumps({"error": str(e)})
-    except Exception as e:  # e.g. TastytradeAPIError, which isn't a BrokerError — never break the tool loop
-        logger.error("Copilot build_strategy failed for %s %s: %s", symbol, strategy, e)
-        return json.dumps({"error": str(e) or e.__class__.__name__})
+    except (MarketDataError, SymbolNotFound) as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:  # never break the tool loop
+        logger.exception("Copilot build_strategy failed for %s %s: %s", symbol, strategy, e)
+        return json.dumps({"error": "Couldn't build that strategy right now."})
     if result is None:
         return json.dumps({"error": f"No option chain found for {symbol}"})
     return json.dumps(result, default=str)
@@ -367,8 +376,9 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "get_price_history",
-            "description": "Get daily OHLC price candles for a symbol over the last N days, plus "
-            "computed support and resistance levels from recent swing highs/lows.",
+            "description": "Get OHLC price candles covering at least the last N days, plus "
+            "computed support and resistance levels from recent swing highs/lows. Bar size grows "
+            "with the window: intraday up to 7 days, daily up to a year, monthly beyond.",
             "parameters": {
                 "type": "object",
                 "properties": {

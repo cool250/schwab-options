@@ -97,3 +97,12 @@ def probability_of_profit(
         if payoff(legs, credit, probe) > 0:
             pop += (1.0 if hi == math.inf else cdf(hi)) - cdf(lo)
     return pop
+
+
+def otm_pct(strike: float, spot: float, option_type: str) -> float:
+    """Percent out of the money (negative = in the money), measured from
+    spot in the direction that makes the option worthless: below spot for
+    puts, above for calls."""
+    if option_type == "PUT":
+        return (spot - strike) / spot * 100
+    return (strike - spot) / spot * 100

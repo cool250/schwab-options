@@ -11,7 +11,11 @@ import {
   Tooltip,
 } from "recharts";
 import { getExpirationList, friendlyErrorMessage } from "../api/client";
-import { MULTIPLIER, getMultiplier } from "../utils/contractMultiplier";
+import { getMultiplier } from "../utils/contractMultiplier";
+import {
+  totalPL, netCredit, findBreakevens, totalTheoPL,
+  maxLossProfit, probabilityOfProfit,
+} from "../utils/payoffMath";
 import { symbolStore } from "../utils/symbolStore";
 import { setCopilotContext, clearCopilotContext } from "../utils/copilotContext";
 import { consumePendingLegs, onLegsApplied } from "../utils/copilotProposedLegs";
@@ -38,88 +42,6 @@ function patchChainQuote(chain, msg) {
   return anyChanged ? { ...chain, chain: rows } : chain;
 }
 
-// Abramowitz-Stegun 7.1.26 — accurate to ~1.5e-7, plenty for pricing here.
-function erf(x) {
-  const sign = x < 0 ? -1 : 1;
-  x = Math.abs(x);
-  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
-  const t = 1 / (1 + p * x);
-  const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
-  return sign * y;
-}
-function normCdf(x) {
-  return 0.5 * (1 + erf(x / Math.SQRT2));
-}
-
-// Real Black-Scholes (no dividend yield, r=0 — same no-rate assumption the
-// old heuristic made, and matches OptionStrat closely enough over a
-// days-to-expiration window that carry cost is negligible either way).
-function blackScholes(spot, strike, dte, iv, isCall) {
-  const t = Math.max(dte / 365, 1 / 365);
-  const intrinsic = isCall ? Math.max(0, spot - strike) : Math.max(0, strike - spot);
-  if (iv <= 0) return Math.max(0.01, intrinsic);
-  const sqrtT = Math.sqrt(t);
-  const d1 = (Math.log(spot / strike) + (iv * iv / 2) * t) / (iv * sqrtT);
-  const d2 = d1 - iv * sqrtT;
-  const value = isCall
-    ? spot * normCdf(d1) - strike * normCdf(d2)
-    : strike * normCdf(-d2) - spot * normCdf(-d1);
-  return Math.max(0.01, value);
-}
-
-/* ============================================================================
-   PAYOFF MATH
-============================================================================ */
-
-function legPL(leg, price) {
-  const intrinsic =
-    leg.type === "CALL" ? Math.max(0, price - leg.strike) : Math.max(0, leg.strike - price);
-  const perShare = leg.side === "BUY" ? intrinsic - leg.premium : leg.premium - intrinsic;
-  return perShare * leg.qty * (leg.multiplier ?? MULTIPLIER);
-}
-
-function totalPL(legs, price) {
-  return legs.reduce((sum, leg) => sum + legPL(leg, price), 0);
-}
-
-function netCredit(legs) {
-  return legs.reduce(
-    (sum, leg) => sum + (leg.side === "SELL" ? 1 : -1) * leg.premium * leg.qty * (leg.multiplier ?? MULTIPLIER),
-    0
-  );
-}
-
-function findBreakevens(legs, lo, hi) {
-  const steps = 4000;
-  const pts = [];
-  let prevPrice = lo;
-  let prevPL = totalPL(legs, lo);
-  for (let i = 1; i <= steps; i++) {
-    const price = lo + ((hi - lo) * i) / steps;
-    const pl = totalPL(legs, price);
-    if ((prevPL < 0 && pl >= 0) || (prevPL > 0 && pl <= 0)) {
-      const t = prevPL === pl ? 0 : -prevPL / (pl - prevPL);
-      pts.push(+(prevPrice + t * (price - prevPrice)).toFixed(2));
-    }
-    prevPrice = price;
-    prevPL = pl;
-  }
-  return pts;
-}
-
-/** Theoretical (pre-expiration) P&L for one leg, using the same lightweight
- *  Black-Scholes approximation the mock chain is built from. At dte<=0 this
- *  collapses to pure intrinsic value, matching the at-expiration payoff. */
-function legTheoPL(leg, price, dte, iv) {
-  if (dte <= 0) return legPL(leg, price);
-  const value = blackScholes(price, leg.strike, dte, iv, leg.type === "CALL");
-  const perShare = leg.side === "BUY" ? value - leg.premium : leg.premium - value;
-  return perShare * leg.qty * (leg.multiplier ?? MULTIPLIER);
-}
-
-function totalTheoPL(legs, price, dte, iv) {
-  return legs.reduce((sum, leg) => sum + legTheoPL(leg, price, dte, iv), 0);
-}
 
 /** Builds the strike x date P&L grid used by the Table view. */
 function buildPLTable(legs, spot, lo, hi, maxDte, iv, chainStrikes, fallbackRows = 16, cols = 8) {
@@ -175,63 +97,6 @@ function buildPLTable(legs, spot, lo, hi, maxDte, iv, chainStrikes, fallbackRows
   return { dateCols: sampled.map((s) => s.date), grid };
 }
 
-function maxLossProfit(legs, lo, hi) {
-  const steps = 2000;
-  let maxP = -Infinity;
-  let minP = Infinity;
-  for (let i = 0; i <= steps; i++) {
-    const price = lo + ((hi - lo) * i) / steps;
-    const pl = totalPL(legs, price);
-    if (pl > maxP) maxP = pl;
-    if (pl < minP) minP = pl;
-  }
-  // Net-short puts are worst when the stock goes to zero, which may fall outside [lo, hi].
-  const zeroPL = totalPL(legs, 0);
-  if (zeroPL < minP) minP = zeroPL;
-
-  // A net-short call position (not capped by a higher-strike long call) loses without
-  // bound as price rises — no finite sample range can capture that, so flag it directly.
-  const callSlope = legs.reduce(
-    (sum, leg) =>
-      leg.type === "CALL" ? sum + (leg.side === "BUY" ? 1 : -1) * leg.qty * (leg.multiplier ?? MULTIPLIER) : sum,
-    0
-  );
-  if (callSlope < 0) minP = -Infinity;
-
-  return { maxProfit: maxP, maxLoss: minP };
-}
-
-// Net calls held, multiplier-weighted: the P&L slope past the highest
-// strike. > 0 = unlimited profit to the upside, < 0 = unlimited loss.
-function upsideSlope(legs) {
-  return legs.reduce(
-    (sum, leg) =>
-      leg.type === "CALL" ? sum + (leg.side === "BUY" ? 1 : -1) * leg.qty * (leg.multiplier ?? MULTIPLIER) : sum,
-    0
-  );
-}
-
-/** Estimated chance the position finishes above zero P&L at expiration,
- *  under a driftless lognormal model at volatility `iv` (a fraction) — the
- *  same model the Strategy Builder uses (service/shared/strategy_math.py's
- *  probability_of_profit), so the two pages agree. The breakevens split the
- *  price axis into regions of constant sign; each profitable region adds its
- *  probability. Null without legs, a spot or an IV. */
-function probabilityOfProfit(legs, spot, iv, dte, breakevens) {
-  if (legs.length === 0 || !(spot > 0) || !(iv > 0)) return null;
-  const sigma = iv * Math.sqrt(Math.max(dte ?? 0, 0.5) / 365);
-  const cdf = (p) => (p <= 0 ? 0 : normCdf((Math.log(p / spot) + (sigma * sigma) / 2) / sigma));
-  const edges = [0, ...[...breakevens].sort((a, b) => a - b), Infinity];
-  const top = Math.max(...legs.map((l) => l.strike));
-  let pop = 0;
-  for (let i = 0; i < edges.length - 1; i++) {
-    const lo = edges[i];
-    const hi = edges[i + 1];
-    const probe = hi === Infinity ? Math.max(lo, top) * 1.5 + 1 : (lo + hi) / 2;
-    if (totalPL(legs, probe) > 0) pop += (hi === Infinity ? 1 : cdf(hi)) - cdf(lo);
-  }
-  return pop;
-}
 
 const DEFAULT_SPOT = 0;
 
@@ -413,6 +278,7 @@ export default function StrikeLab() {
   const activeStrategy =
     strategyBadge && legs.length > 0 && strategyBadge.signature === legsSignature(legs) ? strategyBadge.label : null;
   const dte = expirations[expIndex]?.dte;
+  const expirationDate = expirations[expIndex]?.date ?? null; // the chain is loaded for exactly this date
   // The pill above only controls which chain you're browsing to add new legs —
   // an already-built position keeps the expiration it was actually added at,
   // so time decay (Table/Graph) must track the legs' own dte, not the pill.
@@ -583,7 +449,7 @@ export default function StrikeLab() {
       socket.onopen = () => {
         retryDelayMs = 1000;
         liveStrikeCountRef.current = 20;
-        socket.send(JSON.stringify({ action: "subscribe", symbol, dte, strike_count: 20 }));
+        socket.send(JSON.stringify({ action: "subscribe", symbol, expirationDate, dte, strike_count: 20 }));
       };
 
       socket.onmessage = (event) => {
@@ -650,6 +516,13 @@ export default function StrikeLab() {
           window.location.href = "/login";
           return;
         }
+        // 4429: this account already has the maximum live chains open
+        // (other tabs) — retrying wouldn't help until one closes.
+        if (event.code === 4429) {
+          setLoadingChain(false);
+          setChainError("Too many Analyze tabs are streaming live quotes — close one, then reload this page.");
+          return;
+        }
         reconnectTimer = setTimeout(connect, retryDelayMs);
         retryDelayMs = Math.min(retryDelayMs * 2, 15000);
       };
@@ -667,7 +540,7 @@ export default function StrikeLab() {
       socket?.close();
       if (socketRef.current === socket) socketRef.current = null;
     };
-  }, [symbol, dte]);
+  }, [symbol, dte, expirationDate]);
 
   // The Range ±% slider below only ever *widens* what's already on screen —
   // it resubscribes on the same open socket (api/market/stream.py's
@@ -691,9 +564,9 @@ export default function StrikeLab() {
       if (!socket || socket.readyState !== WebSocket.OPEN || dte == null) return;
       liveStrikeCountRef.current = capped;
       setLoadingChain(true);
-      socket.send(JSON.stringify({ action: "subscribe", symbol, dte, strike_count: capped }));
+      socket.send(JSON.stringify({ action: "subscribe", symbol, expirationDate, dte, strike_count: capped }));
     },
-    [symbol, dte]
+    [symbol, dte, expirationDate]
   );
 
   // Debounced: the Range ±% slider drives the Graph/Table price window
@@ -767,14 +640,8 @@ export default function StrikeLab() {
   }, [legs, lo, hi]);
 
   const credit = useMemo(() => netCredit(legs), [legs]);
-  const { maxProfit, maxLoss } = useMemo(
-    () => maxLossProfit(legs, Math.max(0.01, spot * 0.01), spot * 4),
-    [legs, spot]
-  );
-  const breakevens = useMemo(
-    () => findBreakevens(legs, Math.max(0.01, spot * 0.01), spot * 4),
-    [legs, spot]
-  );
+  const { maxProfit, maxLoss } = useMemo(() => maxLossProfit(legs), [legs]);
+  const breakevens = useMemo(() => findBreakevens(legs), [legs]);
   // Same two figures as the Strategy Builder's result. POP follows the
   // Implied Vol slider (the chain's ATM IV unless moved).
   const pop = useMemo(
@@ -784,7 +651,7 @@ export default function StrikeLab() {
   // Max profit / max risk — return on the capital at risk for a credit, the
   // reward-to-risk ratio for a debit. Null when either side is unbounded.
   const returnOnRisk =
-    legs.length > 0 && upsideSlope(legs) <= 0 && Number.isFinite(maxLoss) && maxLoss < 0 && maxProfit > 0
+    legs.length > 0 && Number.isFinite(maxProfit) && Number.isFinite(maxLoss) && maxLoss < 0 && maxProfit > 0
       ? maxProfit / -maxLoss
       : null;
 
@@ -836,7 +703,7 @@ export default function StrikeLab() {
       daysToExpiration: positionDte,
       impliedVolatilityPct: ivPct,
       netCreditOrDebit: credit,
-      maxProfit,
+      maxProfit: Number.isFinite(maxProfit) ? maxProfit : "unlimited",
       maxLoss: Number.isFinite(maxLoss) ? maxLoss : "unlimited",
       breakevens,
       legs: legs.map((l) => ({
@@ -1065,7 +932,9 @@ export default function StrikeLab() {
           </div>
           <div className="metric">
             <span className="metric-label">Max Profit</span>
-            <span className="metric-value positive">{fmtMoney(Math.abs(maxProfit))}</span>
+            <span className="metric-value positive">
+              {maxProfit === Infinity ? "Unlimited" : fmtMoney(Math.abs(maxProfit))}
+            </span>
           </div>
           <div className="metric">
             <span className="metric-label">Breakeven</span>

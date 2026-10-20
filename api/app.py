@@ -46,6 +46,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from broker.schwab.exceptions import BrokerAuthError, BrokerError
 from broker.tastytrade import TastytradeAPIError
+from service.market.errors import UNAVAILABLE_MESSAGE, MarketDataError, SymbolNotFound
 from api import users
 from api.admin import router as admin_router
 from api.auth import router as auth_router, require_admin, require_auth
@@ -92,14 +93,26 @@ async def broker_auth_error_handler(request: Request, exc: BrokerAuthError):
 async def broker_error_handler(request: Request, exc: BrokerError):
     return JSONResponse(status_code=502, content={"detail": str(exc)})
 
-# Tastytrade is the market-data/option-chain provider (see
-# service/market/chain_providers.get_option_chain_provider) and has no
-# separate auth-vs-transient exception split like Schwab's BrokerError does —
-# every failure surfaces the same way, as a system error rather than an
-# empty/"not found" result.
+# Market data (Tastytrade). service/market/errors.py maps every broker
+# failure to one of these: a symbol with nothing listed is a 404; anything
+# else is a 502 with a fixed message — the real cause is logged, never sent
+# to the browser.
+@app.exception_handler(SymbolNotFound)
+async def symbol_not_found_handler(request: Request, exc: SymbolNotFound):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(MarketDataError)
+async def market_data_error_handler(request: Request, exc: MarketDataError):
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+
+# A raw Tastytrade error that escaped translation — still a 502, still
+# without its text.
 @app.exception_handler(TastytradeAPIError)
 async def tastytrade_error_handler(request: Request, exc: TastytradeAPIError):
-    return JSONResponse(status_code=502, content={"detail": str(exc)})
+    logging.getLogger(__name__).error("Untranslated Tastytrade error on %s: %s", request.url.path, exc)
+    return JSONResponse(status_code=502, content={"detail": UNAVAILABLE_MESSAGE})
 
 # Multi-user: accounts live in SQLite next to the Schwab token store (see
 # api/users.py), and every Schwab call must belong to a logged-in user —

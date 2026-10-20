@@ -1,0 +1,153 @@
+{
+ "spot": 105.0,
+ "iv": 0.25,
+ "dte": 30,
+ "cases": [
+  {
+   "name": "short put",
+   "legs": [
+    {
+     "type": "PUT",
+     "strike": 100,
+     "qty": -1,
+     "price": 2.0
+    }
+   ],
+   "netPremium": 2.0,
+   "maxProfit": 2.0,
+   "maxLoss": -98.0,
+   "breakevens": [
+    98.0
+   ],
+   "pop": 0.8229777536
+  },
+  {
+   "name": "put credit spread",
+   "legs": [
+    {
+     "type": "PUT",
+     "strike": 100,
+     "qty": -1,
+     "price": 2.5
+    },
+    {
+     "type": "PUT",
+     "strike": 95,
+     "qty": 1,
+     "price": 1.0
+    }
+   ],
+   "netPremium": 1.5,
+   "maxProfit": 1.5,
+   "maxLoss": -3.5,
+   "breakevens": [
+    98.5
+   ],
+   "pop": 0.8039371095
+  },
+  {
+   "name": "short strangle",
+   "legs": [
+    {
+     "type": "PUT",
+     "strike": 95,
+     "qty": -1,
+     "price": 1.0
+    },
+    {
+     "type": "CALL",
+     "strike": 110,
+     "qty": -1,
+     "price": 2.0
+    }
+   ],
+   "netPremium": 3.0,
+   "maxProfit": 3.0,
+   "maxLoss": null,
+   "breakevens": [
+    92.0,
+    113.0
+   ],
+   "pop": 0.8202173956
+  },
+  {
+   "name": "iron condor",
+   "legs": [
+    {
+     "type": "PUT",
+     "strike": 90,
+     "qty": 1,
+     "price": 0.3
+    },
+    {
+     "type": "PUT",
+     "strike": 95,
+     "qty": -1,
+     "price": 1.0
+    },
+    {
+     "type": "CALL",
+     "strike": 110,
+     "qty": -1,
+     "price": 0.9
+    },
+    {
+     "type": "CALL",
+     "strike": 115,
+     "qty": 1,
+     "price": 0.4
+    }
+   ],
+   "netPremium": 1.2,
+   "maxProfit": 1.2,
+   "maxLoss": -3.8,
+   "breakevens": [
+    93.8,
+    111.2
+   ],
+   "pop": 0.7364673029
+  },
+  {
+   "name": "long call",
+   "legs": [
+    {
+     "type": "CALL",
+     "strike": 100,
+     "qty": 1,
+     "price": 3.0
+    }
+   ],
+   "netPremium": -3.0,
+   "maxProfit": null,
+   "maxLoss": -3.0,
+   "breakevens": [
+    103.0
+   ],
+   "pop": 0.5919194634
+  },
+  {
+   "name": "ratio put 1x2",
+   "legs": [
+    {
+     "type": "PUT",
+     "strike": 100,
+     "qty": 1,
+     "price": 3.0
+    },
+    {
+     "type": "PUT",
+     "strike": 95,
+     "qty": -2,
+     "price": 2.0
+    }
+   ],
+   "netPremium": 1.0,
+   "maxProfit": 6.0,
+   "maxLoss": -89.0,
+   "breakevens": [
+    89.0
+   ],
+   "pop": 0.9884208598
+  }
+ ]
+}

@@ -32,14 +32,21 @@ import asyncio
 import json as _json
 import math
 import os
+import threading
 import time
 import warnings
-from typing import Any, Optional
+from collections import OrderedDict
+from datetime import datetime
+from typing import Any, Callable, Optional
 
+import pytz
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Expirations roll over on New York dates.
+_MARKET_TZ = pytz.timezone("America/New_York")
 
 SANDBOX_BASE_URL = "https://api.cert.tastyworks.com"  # confirmed reachable; verified via live token exchange
 PROD_BASE_URL = "https://api.tastyworks.com"
@@ -102,8 +109,21 @@ class TastytradeClient:
 
         self._access_token: Optional[str] = None
         self._access_token_expires_at: float = 0.0
+        # One client is shared across request threads (get_shared_client), so
+        # token refreshes are serialized and each thread gets its own HTTP
+        # session (requests.Session isn't documented as thread-safe).
+        self._token_lock = threading.Lock()
+        self._local = threading.local()
+        self._quote_token: Optional[dict] = None
+        self._quote_token_refresh_at: float = 0.0
+        self._cache: OrderedDict = OrderedDict()
+        self._cache_lock = threading.Lock()
 
-        self.session = requests.Session()
+    @property
+    def session(self) -> requests.Session:
+        if not hasattr(self._local, "session"):
+            self._local.session = requests.Session()
+        return self._local.session
 
     @classmethod
     def from_config(
@@ -164,9 +184,37 @@ class TastytradeClient:
         self._access_token_expires_at = time.time() + max(expires_in - 30, 0)
 
     def _ensure_access_token(self) -> str:
-        if self._access_token is None or time.time() >= self._access_token_expires_at:
-            self._refresh_access_token()
-        return self._access_token
+        token = self._access_token
+        if token is not None and time.time() < self._access_token_expires_at:
+            return token
+        with self._token_lock:
+            # Re-check: another thread may have refreshed while we waited.
+            if self._access_token is None or time.time() >= self._access_token_expires_at:
+                self._refresh_access_token()
+            return self._access_token
+
+    # Instrument metadata (chains, equities, futures contracts) changes at
+    # most daily, and a full chain is large (SPY: ~12,700 contracts), so
+    # it's cached briefly per market day. Quotes are never cached here.
+    METADATA_TTL = 300.0
+    METADATA_CACHE_SIZE = 256
+
+    def _get_cached(self, path: str, params: Optional[dict] = None) -> Any:
+        day = datetime.now(_MARKET_TZ).date().isoformat()  # days-to-expiration rolls over at midnight ET
+        key = (path, tuple(sorted((params or {}).items())), day)
+        now = time.time()
+        with self._cache_lock:
+            hit = self._cache.get(key)
+            if hit and now - hit[0] < self.METADATA_TTL:
+                self._cache.move_to_end(key)
+                return hit[1]
+        data = self.get(path, params=params)
+        with self._cache_lock:
+            self._cache[key] = (now, data)
+            self._cache.move_to_end(key)
+            while len(self._cache) > self.METADATA_CACHE_SIZE:
+                self._cache.popitem(last=False)
+        return data
 
     # ------------------------------------------------------------------
     # Core request plumbing
@@ -221,7 +269,8 @@ class TastytradeClient:
 
         if response.status_code == 401 and retry_on_auth_failure:
             # Access token may have been revoked/expired out of band; force one retry.
-            self._access_token = None
+            with self._token_lock:
+                self._access_token = None
             return self.request(method, path, params=params, json=json, retry_on_auth_failure=False)
 
         self._raise_for_status(response)
@@ -317,14 +366,23 @@ class TastytradeClient:
         return self.get(f"/market-data/quotes/{symbol}")["data"]
 
     def get_quote_token(self) -> dict:
-        """Fetch a DXLink streamer token (dxlink-url + token) for subscribing
-        to real-time quotes over WebSocket. Confirmed working via /api-quote-tokens.
-        This client only fetches the token — it does not implement the DXLink
-        WebSocket protocol itself."""
-        return self.get("/api-quote-tokens")["data"]
+        """A DXLink streamer token (dxlink-url + token) for subscribing to
+        real-time quotes over WebSocket (/api-quote-tokens). It's valid for
+        24 hours ("expires-at"), so it's reused until 10 minutes before
+        that rather than fetched for every DXLink session."""
+        if self._quote_token is not None and time.time() < self._quote_token_refresh_at:
+            return self._quote_token
+        data = self.get("/api-quote-tokens")["data"]
+        expires = data.get("expires-at")
+        try:
+            expires_at = datetime.fromisoformat(expires.replace("Z", "+00:00")).timestamp()
+        except (AttributeError, ValueError):
+            expires_at = time.time() + 3600
+        self._quote_token, self._quote_token_refresh_at = data, expires_at - 600
+        return data
 
     def get_option_chain(self, symbol: str) -> list[dict]:
-        return self.get(f"/option-chains/{symbol}")["data"]["items"]
+        return self._get_cached(f"/option-chains/{symbol}")["data"]["items"]
 
     def get_future_option_chain(
         self,
@@ -354,7 +412,7 @@ class TastytradeClient:
             data = self.get(path + "/nested")["data"]
             return data["option-chains"]
 
-        items = self.get(path)["data"]["items"]
+        items = self._get_cached(path)["data"]["items"]
 
         if expiration_date is not None:
             items = [i for i in items if i.get("expiration-date") == expiration_date]
@@ -371,7 +429,7 @@ class TastytradeClient:
         return items
 
     def get_equity(self, symbol: str) -> dict:
-        return self.get(f"/instruments/equities/{symbol}")["data"]
+        return self._get_cached(f"/instruments/equities/{symbol}")["data"]
 
     def get_future(self, symbol: str) -> dict:
         """Look up a single, specific futures contract, e.g. 'ESZ6' or
@@ -382,7 +440,7 @@ class TastytradeClient:
     def get_futures_by_product_code(self, product_code: str) -> list[dict]:
         """List live futures contracts for a root symbol, e.g. 'ES' or '/ES'."""
         product_code = product_code.lstrip("/")
-        return self.get("/instruments/futures", params={"product-code[]": product_code})["data"]["items"]
+        return self._get_cached("/instruments/futures", params={"product-code[]": product_code})["data"]["items"]
 
     def resolve_underlying_streamer_symbol(self, ticker: str) -> str:
         """Resolve `ticker` (equity ticker or futures root, e.g. '/ES') to
@@ -398,7 +456,7 @@ class TastytradeClient:
         if ticker.strip().startswith("/"):
             contracts = self.get_futures_by_product_code(ticker)
             if not contracts:
-                raise ValueError(f"No live futures contracts found for {ticker!r}")
+                raise TastytradeAPIError(404, f"No live futures contracts found for {ticker!r}")
             front = next((c for c in contracts if c.get("active-month")), contracts[0])
             return front["streamer-symbol"]
         return self.get_equity(ticker)["streamer-symbol"]
@@ -666,128 +724,186 @@ class TastytradeClient:
         """
         from .dxlink_streamer import DXLinkStreamer  # lazy: only needed here
 
-        contract_symbols = [c["streamer-symbol"] for c in chain if c.get("streamer-symbol")]
-
-        underlying_symbol = None
-        if known_spot is None:
-            if ticker.strip().startswith("/"):
-                contracts = self.get_futures_by_product_code(ticker)
-                if not contracts:
-                    raise ValueError(f"No live futures contracts found for {ticker!r}")
-                front = next((c for c in contracts if c.get("active-month")), contracts[0])
-                underlying_symbol = front["streamer-symbol"]
-            else:
-                underlying_symbol = self.get_equity(ticker)["streamer-symbol"]
-
+        underlying_symbol = None if known_spot is not None else self.resolve_underlying_streamer_symbol(ticker)
         quote_token = self.get_quote_token()
 
         async def _fetch() -> dict:
-            quotes: dict[str, dict] = {}
-            greeks: dict[str, dict] = {}
-            volume: dict[str, int] = {}
-            open_interest: dict[str, int] = {}
-            spot_box: list[float] = [known_spot] if known_spot is not None else []
-            remaining_quotes = set(contract_symbols)
-            remaining_greeks = set(contract_symbols)
-            remaining_volume = set(contract_symbols)
-            remaining_oi = set(contract_symbols)
-
             async with DXLinkStreamer(quote_token) as streamer:
-                # Contracts get their own Trade subscription for dayVolume
-                # regardless of known_spot — only the underlying's Trade
-                # subscription (the spot fallback) is conditional on that.
-                trade_symbols = ([underlying_symbol] if underlying_symbol is not None else []) + contract_symbols
-                if trade_symbols:
-                    await streamer.subscribe("Trade", trade_symbols)
-                await streamer.subscribe(
-                    "Quote", [underlying_symbol, *contract_symbols] if underlying_symbol else contract_symbols
-                )
-                if contract_symbols:
-                    await streamer.subscribe("Greeks", contract_symbols)
-                    await streamer.subscribe("Summary", contract_symbols)
-
-                async def _collect_trade() -> None:
-                    # Single consumer for the Trade channel — it carries both
-                    # the underlying's own trade (spot fallback, races
-                    # _collect_quotes' underlying-quote fallback below;
-                    # whichever resolves spot first wins, same as
-                    # get_live_underlying_price()) and every contract's
-                    # trade (dayVolume), so one loop has to route both.
-                    while (underlying_symbol is not None and not spot_box) or remaining_volume:
-                        trade = await streamer.get_event("Trade")
-                        sym = trade["eventSymbol"]
-                        if sym == underlying_symbol:
-                            if not spot_box:
-                                spot_box.append(float(trade["price"]))
-                        elif sym in remaining_volume:
-                            volume[sym] = _finite_float(trade.get("dayVolume"))
-                            remaining_volume.discard(sym)
-
-                async def _collect_quotes() -> None:
-                    # Single consumer for the Quote channel — it carries both
-                    # the underlying's own quote (spot fallback) and every
-                    # contract's quote, so one loop has to route both rather
-                    # than splitting across two concurrent readers of the
-                    # same queue.
-                    while remaining_quotes or not spot_box:
-                        quote = await streamer.get_event("Quote")
-                        sym = quote["eventSymbol"]
-                        if sym == underlying_symbol:
-                            if not spot_box:
-                                spot_box.append((float(quote["bidPrice"]) + float(quote["askPrice"])) / 2)
-                        elif sym in remaining_quotes:
-                            quotes[sym] = {
-                                "bid": _finite_float(quote["bidPrice"]),
-                                "ask": _finite_float(quote["askPrice"]),
-                            }
-                            remaining_quotes.discard(sym)
-
-                async def _collect_greeks() -> None:
-                    while remaining_greeks:
-                        event = await streamer.get_event("Greeks")
-                        sym = event["eventSymbol"]
-                        if sym in remaining_greeks:
-                            greeks[sym] = {
-                                "delta": _finite_float(event["delta"]),
-                                "gamma": _finite_float(event["gamma"]),
-                                "theta": _finite_float(event["theta"]),
-                                "rho": _finite_float(event["rho"]),
-                                "vega": _finite_float(event["vega"]),
-                                "iv": _finite_float(event["volatility"]),
-                            }
-                            remaining_greeks.discard(sym)
-
-                async def _collect_summary() -> None:
-                    while remaining_oi:
-                        event = await streamer.get_event("Summary")
-                        sym = event["eventSymbol"]
-                        if sym in remaining_oi:
-                            open_interest[sym] = _finite_float(event.get("openInterest"))
-                            remaining_oi.discard(sym)
-
-                tasks = [asyncio.ensure_future(_collect_quotes())]
-                if trade_symbols:
-                    tasks.append(asyncio.ensure_future(_collect_trade()))
-                if contract_symbols:
-                    tasks.append(asyncio.ensure_future(_collect_greeks()))
-                    tasks.append(asyncio.ensure_future(_collect_summary()))
-
-                _, pending = await asyncio.wait(tasks, timeout=timeout)
-                for task in pending:
-                    task.cancel()
-
-            return {
-                "spot": spot_box[0] if spot_box else None,
-                "quotes": quotes,
-                "greeks": greeks,
-                "volume": volume,
-                "open_interest": open_interest,
-            }
+                return await self._collect_snapshot(streamer, chain, underlying_symbol, known_spot, timeout)
 
         result = asyncio.run(_fetch())
         if result["spot"] is None:
             raise TimeoutError(f"No live price received for {ticker!r} within {timeout}s")
         return result
+
+    def get_spot_and_snapshot(
+        self, ticker: str, select: Callable[[float], list[dict]], timeout: float = 5.0
+    ) -> dict:
+        """The underlying's live price, then a get_chain_snapshot() of the
+        contracts `select(spot)` returns — over ONE DXLink session, where
+        get_live_underlying_price() + get_chain_snapshot() would open two.
+        Choosing strikes needs the price first, so this waits for it inside
+        the session and only then subscribes the chosen contracts.
+
+        `select` runs inside the event loop: pass it contract metadata that's
+        already been fetched, so it does no network I/O.
+
+        Returns get_chain_snapshot()'s dict plus "contracts": what `select`
+        chose. Raises TimeoutError if no spot price arrives in `timeout`.
+        """
+        from .dxlink_streamer import DXLinkStreamer  # lazy: only needed here
+
+        underlying_symbol = self.resolve_underlying_streamer_symbol(ticker)
+        quote_token = self.get_quote_token()
+
+        async def _fetch() -> dict:
+            async with DXLinkStreamer(quote_token) as streamer:
+                spot = await self._first_price(streamer, underlying_symbol, timeout)
+                if spot is None:
+                    raise TimeoutError(f"No live price received for {ticker!r} within {timeout}s")
+                contracts = select(spot)
+                result = await self._collect_snapshot(streamer, contracts, None, spot, timeout)
+                return {**result, "contracts": contracts}
+
+        return asyncio.run(_fetch())
+
+    @staticmethod
+    async def _first_price(streamer, symbol: str, timeout: float) -> Optional[float]:
+        """First Trade price, else Quote midpoint, for `symbol` — the same
+        race get_live_underlying_price() runs, on an open session."""
+        await streamer.subscribe("Trade", symbol)
+        await streamer.subscribe("Quote", symbol)
+
+        async def trade() -> Optional[float]:
+            while True:
+                event = await streamer.get_event("Trade")
+                if event.get("eventSymbol") == symbol and _finite_float(event.get("price")) is not None:
+                    return _finite_float(event["price"])
+
+        async def quote() -> Optional[float]:
+            while True:
+                event = await streamer.get_event("Quote")
+                bid, ask = _finite_float(event.get("bidPrice")), _finite_float(event.get("askPrice"))
+                if event.get("eventSymbol") == symbol and bid is not None and ask is not None:
+                    return (bid + ask) / 2
+
+        tasks = [asyncio.ensure_future(trade()), asyncio.ensure_future(quote())]
+        done, pending = await asyncio.wait(tasks, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        # A trade wins a tie, same as get_live_underlying_price().
+        for task in tasks:
+            if task in done:
+                return task.result()
+        return None
+
+    @staticmethod
+    async def _collect_snapshot(
+        streamer, chain: list[dict], underlying_symbol: Optional[str], known_spot: Optional[float], timeout: float
+    ) -> dict:
+        """Quotes, greeks, day volume and open interest for `chain` (plus the
+        underlying's price if `known_spot` is None) on an open session."""
+        contract_symbols = [c["streamer-symbol"] for c in chain if c.get("streamer-symbol")]
+        quotes: dict[str, dict] = {}
+        greeks: dict[str, dict] = {}
+        volume: dict[str, int] = {}
+        open_interest: dict[str, int] = {}
+        spot_box: list[float] = [known_spot] if known_spot is not None else []
+        remaining_quotes = set(contract_symbols)
+        remaining_greeks = set(contract_symbols)
+        remaining_volume = set(contract_symbols)
+        remaining_oi = set(contract_symbols)
+
+        # Contracts get their own Trade subscription for dayVolume
+        # regardless of known_spot — only the underlying's Trade
+        # subscription (the spot fallback) is conditional on that.
+        trade_symbols = ([underlying_symbol] if underlying_symbol is not None else []) + contract_symbols
+        if trade_symbols:
+            await streamer.subscribe("Trade", trade_symbols)
+        await streamer.subscribe(
+            "Quote", [underlying_symbol, *contract_symbols] if underlying_symbol else contract_symbols
+        )
+        if contract_symbols:
+            await streamer.subscribe("Greeks", contract_symbols)
+            await streamer.subscribe("Summary", contract_symbols)
+
+        async def _collect_trade() -> None:
+            # Single consumer for the Trade channel — it carries both
+            # the underlying's own trade (spot fallback, races
+            # _collect_quotes' underlying-quote fallback below;
+            # whichever resolves spot first wins, same as
+            # get_live_underlying_price()) and every contract's
+            # trade (dayVolume), so one loop has to route both.
+            while (underlying_symbol is not None and not spot_box) or remaining_volume:
+                trade = await streamer.get_event("Trade")
+                sym = trade["eventSymbol"]
+                if sym == underlying_symbol:
+                    if not spot_box:
+                        spot_box.append(float(trade["price"]))
+                elif sym in remaining_volume:
+                    volume[sym] = _finite_float(trade.get("dayVolume"))
+                    remaining_volume.discard(sym)
+
+        async def _collect_quotes() -> None:
+            # Single consumer for the Quote channel — it carries both
+            # the underlying's own quote (spot fallback) and every
+            # contract's quote, so one loop has to route both rather
+            # than splitting across two concurrent readers of the
+            # same queue.
+            while remaining_quotes or not spot_box:
+                quote = await streamer.get_event("Quote")
+                sym = quote["eventSymbol"]
+                if sym == underlying_symbol:
+                    if not spot_box:
+                        spot_box.append((float(quote["bidPrice"]) + float(quote["askPrice"])) / 2)
+                elif sym in remaining_quotes:
+                    quotes[sym] = {
+                        "bid": _finite_float(quote["bidPrice"]),
+                        "ask": _finite_float(quote["askPrice"]),
+                    }
+                    remaining_quotes.discard(sym)
+
+        async def _collect_greeks() -> None:
+            while remaining_greeks:
+                event = await streamer.get_event("Greeks")
+                sym = event["eventSymbol"]
+                if sym in remaining_greeks:
+                    greeks[sym] = {
+                        "delta": _finite_float(event["delta"]),
+                        "gamma": _finite_float(event["gamma"]),
+                        "theta": _finite_float(event["theta"]),
+                        "rho": _finite_float(event["rho"]),
+                        "vega": _finite_float(event["vega"]),
+                        "iv": _finite_float(event["volatility"]),
+                    }
+                    remaining_greeks.discard(sym)
+
+        async def _collect_summary() -> None:
+            while remaining_oi:
+                event = await streamer.get_event("Summary")
+                sym = event["eventSymbol"]
+                if sym in remaining_oi:
+                    open_interest[sym] = _finite_float(event.get("openInterest"))
+                    remaining_oi.discard(sym)
+
+        tasks = [asyncio.ensure_future(_collect_quotes())]
+        if trade_symbols:
+            tasks.append(asyncio.ensure_future(_collect_trade()))
+        if contract_symbols:
+            tasks.append(asyncio.ensure_future(_collect_greeks()))
+            tasks.append(asyncio.ensure_future(_collect_summary()))
+
+        _, pending = await asyncio.wait(tasks, timeout=timeout)
+        for task in pending:
+            task.cancel()
+
+        return {
+            "spot": spot_box[0] if spot_box else None,
+            "quotes": quotes,
+            "greeks": greeks,
+            "volume": volume,
+            "open_interest": open_interest,
+        }
 
     def get_options_chain(
         self,
@@ -869,7 +985,7 @@ class TastytradeClient:
                         RuntimeWarning,
                         stacklevel=2,
                     )
-            items = self._nearest_strikes(items, num_strikes, underlying_price)
+            items = self.nearest_strikes(items, num_strikes, underlying_price)
 
         return sorted(
             items,
@@ -877,7 +993,7 @@ class TastytradeClient:
         )
 
     @staticmethod
-    def _nearest_strikes(items: list[dict], num_strikes: int, underlying_price: Optional[float]) -> list[dict]:
+    def nearest_strikes(items: list[dict], num_strikes: int, underlying_price: Optional[float]) -> list[dict]:
         """Keep, per expiration, only the num_strikes contracts whose
         strike is closest to underlying_price (or the median strike, if
         no price was given)."""
@@ -911,3 +1027,21 @@ class TastytradeClient:
             symbols = [symbols]
         return self.get("/market-data/quotes", params={"future-option[]": symbols})["data"]["items"]
 
+
+
+_shared_client: Optional[TastytradeClient] = None
+_shared_client_lock = threading.Lock()
+
+
+def get_shared_client() -> TastytradeClient:
+    """The process-wide client for market data. Tastytrade is one account
+    shared by every user (market data only — see AGENTS.md), so one client
+    keeps its access token, DXLink quote token and instrument cache across
+    requests instead of re-authenticating on every one. Raises ValueError if
+    credentials aren't configured."""
+    global _shared_client
+    if _shared_client is None:
+        with _shared_client_lock:
+            if _shared_client is None:
+                _shared_client = TastytradeClient.from_config()
+    return _shared_client
