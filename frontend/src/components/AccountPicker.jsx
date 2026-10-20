@@ -65,7 +65,9 @@ export default function AccountPicker({ inline = false, onChanged }) {
       onChange={handleChange}
       disabled={saving || accounts.length < 2}
     >
-      {accounts.map((a) => <option key={a.id} value={a.id}>{optionLabel(a)}</option>)}
+      {/* Positions (inline) shows just the masked account number; Settings
+          adds type, value and position count to help tell accounts apart. */}
+      {accounts.map((a) => <option key={a.id} value={a.id}>{inline ? a.label : optionLabel(a)}</option>)}
     </select>
   )
 
