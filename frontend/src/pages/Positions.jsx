@@ -64,6 +64,9 @@ function positionOptionSymbol(row, optionType) {
 const strikeColumn = {
   key: 'strike_price',
   label: 'Strike',
+  // Explicit: a ratio row's strike_price is null, which DataTable would
+  // otherwise left-align while the numeric single-contract rows go right.
+  align: 'right',
   render: (row) => (row.long_leg && row.short_leg
     ? `${money(row.long_leg.strike_price, 0)}/${money(row.short_leg.strike_price, 0)}`
     : money(row.strike_price, 0)),
