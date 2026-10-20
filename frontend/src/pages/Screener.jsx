@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { screenOptions, friendlyErrorMessage } from '../api/client'
+import { screenOptions, getScreenerStrategies, friendlyErrorMessage } from '../api/client'
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import { formatDate } from '../utils/dateFormat'
 import { setCopilotContext, clearCopilotContext } from '../utils/copilotContext'
@@ -20,22 +20,21 @@ const DEFAULT_CRITERIA = {
   maxDte: 7,
   minDelta: '',
   maxDelta: '',
-  optionType: 'PUT', // one of OPTION_TYPES' values
+  optionType: 'PUT', // a screener strategy id (SINGLE_LEG or a fetched template)
 }
 
-// Dropdown choices — values match the API's `strategy` param
-// (service/market/screener_strategies.py STRATEGIES).
-const OPTION_TYPES = [
-  { value: 'PUT', label: 'Short Puts' },
-  { value: 'CALL', label: 'Short Calls' },
-  { value: 'LONG_PUT', label: 'Long Puts' },
-  { value: 'LONG_CALL', label: 'Long Calls' },
-  { value: 'RATIO_PUT', label: 'Ratio Put (1×2)' },
-  { value: 'JADE_LIZARD', label: 'Jade Lizard' },
+// Dropdown choices come from GET /market/options/screener/strategies: the
+// single contracts below, then every multi-leg credit template from the
+// Strategy Builder (service/market/screener_strategies.py), under the same
+// names. The single contracts are also the fallback until that loads.
+const SINGLE_LEG = [
+  { id: 'PUT', name: 'Short Puts', kind: 'short' },
+  { id: 'CALL', name: 'Short Calls', kind: 'short' },
+  { id: 'LONG_PUT', name: 'Long Puts', kind: 'long' },
+  { id: 'LONG_CALL', name: 'Long Calls', kind: 'long' },
 ]
-const MULTI_LEG = ['RATIO_PUT', 'JADE_LIZARD']
 const LONG = ['LONG_PUT', 'LONG_CALL']
-const OPTION_TYPE_LABELS = Object.fromEntries(OPTION_TYPES.map((o) => [o.value, o.label]))
+const isMultiLeg = (strategy) => strategy != null && !SINGLE_LEG.some((s) => s.id === strategy)
 
 const screenerCache = createSessionCache(() => ({
   criteria: DEFAULT_CRITERIA,
@@ -64,6 +63,7 @@ function parseTickers(text) {
 const num = (v, digits = 2) =>
   v == null ? '—' : Number(v).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 const pct = (v, digits = 2) => (v == null ? '—' : `${num(v, digits)}%`)
+const signClass = (v) => (v > 0 ? 'cell-positive' : v < 0 ? 'cell-negative' : '')
 const int = (v) => (v == null ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 }))
 
 // Same router-state handoff as Positions' "Analyze Selected" (StrikeLab
@@ -127,9 +127,8 @@ const COLUMNS = [
   },
 ]
 
-// Ratio Put / Jade Lizard rows — one row per combination. Credit, max
-// profit, breakeven and capital are per share, like the single-contract
-// columns.
+// Multi-leg strategy rows — one row per combination. Credit, max profit,
+// breakeven and capital are per share, like the single-contract columns.
 const STRATEGY_COLUMNS = [
   {
     key: 'symbol',
@@ -153,12 +152,14 @@ const STRATEGY_COLUMNS = [
     render: (r) => (r.breakevens?.length ? r.breakevens.map((b) => num(b)).join(' / ') : '—'),
   },
   { key: 'capital', label: 'Capital', align: 'right', render: (r) => num(r.capital) },
-  { key: 'roi', label: 'ROI', align: 'right', render: (r) => <span className="cell-positive">{pct(r.roi)}</span> },
+  // Unlike a single OTM contract, a combination can be losing at today's
+  // price (e.g. an ITM credit spread), so color by sign.
+  { key: 'roi', label: 'ROI', align: 'right', render: (r) => <span className={signClass(r.roi)}>{pct(r.roi)}</span> },
   {
     key: 'annualizedRoi',
     label: 'Ann. ROI',
     align: 'right',
-    render: (r) => <span className="cell-positive screener-ann-roi">{pct(r.annualizedRoi, 1)}</span>,
+    render: (r) => <span className={`${signClass(r.annualizedRoi)} screener-ann-roi`}>{pct(r.annualizedRoi, 1)}</span>,
   },
 ]
 
@@ -182,11 +183,26 @@ export default function Screener() {
   // starts at its default instead of undefined.
   const [criteria, setCriteria] = useState(() => {
     const merged = { ...DEFAULT_CRITERIA, ...screenerCache.criteria }
-    // A value from an older version of this page (e.g. the removed 'BOTH')
-    // falls back to the default rather than leaving the dropdown blank.
-    if (!OPTION_TYPE_LABELS[merged.optionType]) merged.optionType = DEFAULT_CRITERIA.optionType
+    if (typeof merged.optionType !== 'string') merged.optionType = DEFAULT_CRITERIA.optionType
     return merged
   })
+  const [strategies, setStrategies] = useState(SINGLE_LEG)
+  const strategyName = (id) => strategies.find((s) => s.id === id)?.name ?? id
+
+  useEffect(() => {
+    let cancelled = false
+    getScreenerStrategies()
+      .then((list) => {
+        if (cancelled) return
+        setStrategies(list)
+        // A value from an older version of this page (e.g. the removed
+        // 'BOTH') falls back to the default rather than leaving the
+        // dropdown blank.
+        setCriteria((c) => (list.some((s) => s.id === c.optionType) ? c : { ...c, optionType: DEFAULT_CRITERIA.optionType }))
+      })
+      .catch(() => {}) // keep the single-contract choices
+    return () => { cancelled = true }
+  }, [])
   const [result, setResult] = useState(screenerCache.result)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -357,15 +373,13 @@ export default function Screener() {
                   <strong>Long Puts / Long Calls:</strong> single contracts to buy, ranked by leverage (λ) —
                   roughly the option's % gain for a 1% move in the stock.
                   <br />
-                  <strong>Ratio Put (1×2):</strong> buy 1 put, sell 2 puts at a lower strike, same expiration —
-                  only combinations that open for a net credit.
+                  <strong>Multi-leg strategies</strong> (Put/Call Credit Spread through Ratio Call): the
+                  Analyze page's Strategy Builder credit strategies, same names and rules — every combination
+                  that opens for a net credit, with wings up to 5 strikes from their leg. A Jade Lizard's total
+                  credit must also cover its call spread, so it has no upside risk.
                   <br />
-                  <strong>Jade Lizard:</strong> sell a put, plus a call spread above it (sell a call, buy a
-                  higher call up to 5 strikes wider), with total credit at least the spread's width — so no
-                  upside risk.
-                  <br />
-                  For both strategies every leg must be inside the moneyness range, and the delta range applies
-                  to the legs you sell.
+                  For these, every leg must be inside the moneyness range (a straddle or iron butterfly needs
+                  the range to include 0%), and the delta range applies to the legs you sell.
                 </HelpTip>
               </label>
               <select
@@ -374,8 +388,8 @@ export default function Screener() {
                 value={criteria.optionType}
                 onChange={update('optionType')}
               >
-                {OPTION_TYPES.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                {strategies.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
                 ))}
               </select>
             </div>
@@ -457,8 +471,8 @@ export default function Screener() {
           <div className="card">
             <div className="section-header screener-results-header">
               <h3 className="section-title">
-                {MULTI_LEG.includes(result.criteria?.strategy)
-                  ? `Top ${OPTION_TYPE_LABELS[result.criteria.strategy]} Positions`
+                {isMultiLeg(result.criteria?.strategy)
+                  ? `Top ${strategyName(result.criteria.strategy)} Positions`
                   : LONG.includes(result.criteria?.strategy) ? 'Top Contracts to Buy' : 'Top Contracts to Sell'}
               </h3>
               <span className="summary-line">
@@ -497,7 +511,7 @@ export default function Screener() {
                         />
                       ),
                     },
-                    ...(MULTI_LEG.includes(result.criteria?.strategy) ? STRATEGY_COLUMNS
+                    ...(isMultiLeg(result.criteria?.strategy) ? STRATEGY_COLUMNS
                       : LONG.includes(result.criteria?.strategy) ? LONG_COLUMNS : COLUMNS),
                   ]}
                   defaultSortKey={LONG.includes(result.criteria?.strategy) ? 'leverage' : 'annualizedRoi'}
@@ -509,10 +523,12 @@ export default function Screener() {
                     ? 'Bought at the ask, so the max loss is the premium paid. Leverage (λ) = |delta| × spot ÷ ask: '
                       + 'roughly the option\'s % change for a 1% move in the stock. BE Move % is how far the stock '
                       + 'must move in your favor by expiration to break even.'
-                    : MULTI_LEG.includes(result.criteria?.strategy)
+                    : isMultiLeg(result.criteria?.strategy)
                     ? 'Legs are priced at the bid when sold and the ask when bought; amounts are per share. ROI is '
                       + 'the P&L if the underlying is unchanged at expiration ÷ capital, where capital is the max '
-                      + 'loss if the stock went to zero. Ann. ROI scales that to a 365-day year.'
+                      + 'loss — or, when the upside risk is unlimited, the downside loss plus the spot price for '
+                      + 'each uncovered short call (the shares that would cover it). Ann. ROI scales that to a '
+                      + '365-day year.'
                     : 'ROI assumes you sell at the bid and the underlying is unchanged at expiration: (bid − '
                       + 'intrinsic) ÷ capital, where capital is the strike for a cash-secured put and the spot price '
                       + 'for a covered call. Ann. ROI scales that to a 365-day year.'}

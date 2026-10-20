@@ -172,7 +172,10 @@ def screen_options(
                 if c["dte"] is not None:
                     by_expiration.setdefault(c["expirationDate"], []).append(c)
             for contracts in by_expiration.values():
-                rows.extend(combo_rows(strategy, symbol, spot, contracts, delta_ok))
+                combos, trimmed = combo_rows(strategy, symbol, spot, contracts, delta_ok)
+                rows.extend(combos)
+                if trimmed and symbol not in truncated:
+                    truncated.append(symbol)
             if len(rows) == rows_before:
                 errors.append({"symbol": symbol, "message": "No qualifying combinations in the selected range"
                                + (" and delta range" if delta_filter_on else "")})

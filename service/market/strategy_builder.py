@@ -160,6 +160,15 @@ TEMPLATES: dict[str, dict] = {
         ],
         "order": [("short_put", "long_put")],
     },
+    "RATIO_CALL": {
+        "name": "Ratio Call (1×2)", "direction": "credit",
+        "description": "Buy one call and sell two higher calls for a net credit; unlimited risk above the short strike.",
+        "legs": [
+            _anchor("long_call", "CALL", 1, "Long call", "delta", 0.30),
+            _anchor("short_call", "CALL", -2, "Short calls (×2)", "delta", 0.15),
+        ],
+        "order": [("long_call", "short_call")],
+    },
     # ---------------- net debit ----------------
     "LONG_CALL": {
         "name": "Long Call", "direction": "debit",

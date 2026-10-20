@@ -11,6 +11,8 @@ from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from service.market.screener_strategies import SCREENER_TEMPLATES
+
 
 # --- Chains ---
 
@@ -186,7 +188,7 @@ class ComboLeg(BaseModel):
 
 class ComboRow(BaseModel):
     symbol: str  # "qty:symbol|…" — unique per combination
-    strategy: Literal["RATIO_PUT", "JADE_LIZARD"]
+    strategy: Literal[SCREENER_TEMPLATES]  # a strategy_builder template id
     underlying: str
     spot: float
     expirationDate: Optional[str] = None
@@ -203,6 +205,12 @@ class ComboRow(BaseModel):
 
 
 ScreenerRow = Annotated[Union[ShortOptionRow, LongOptionRow, ComboRow], Field(discriminator="strategy")]
+
+
+class ScreenerStrategy(BaseModel):
+    id: str  # the screener's `strategy` param
+    name: str
+    kind: Literal["short", "long", "combo"]
 
 
 class ScreenerError(BaseModel):

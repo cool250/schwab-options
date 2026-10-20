@@ -70,6 +70,15 @@ def test_ratio_put_opens_for_a_credit_with_two_short_puts():
     assert best["netPremium"] > 0
 
 
+def test_ratio_call_opens_for_a_credit_with_two_higher_short_calls():
+    best = sb.build("RATIO_CALL", {}, CHAIN)["best"]
+    legs = legs_by_key(best)
+    assert legs["short_call"]["qty"] == -2 and legs["long_call"]["qty"] == 1
+    assert legs["long_call"]["strike"] < legs["short_call"]["strike"]
+    assert best["netPremium"] > 0
+    assert best["maxLoss"] is None  # the extra short call is uncovered
+
+
 def test_debit_strategy_opens_for_a_debit():
     best = sb.build("CALL_DEBIT_SPREAD", {}, CHAIN)["best"]
     assert best["netPremium"] < 0

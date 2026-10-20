@@ -89,6 +89,12 @@ export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyn
   return request(`/market/options/screener?${p}`)
 }
 
+// The Screener's strategy choices: [{ id, name, kind: 'short' | 'long' | 'combo' }]
+// — the multi-leg ones are the Strategy Builder's credit templates.
+export function getScreenerStrategies() {
+  return request('/market/options/screener/strategies')
+}
+
 // Strategy Builder (Analyze page overlay) — see service/market/strategy_builder.py.
 export function getStrategyTemplates() {
   return request('/market/strategies')

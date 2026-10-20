@@ -94,3 +94,55 @@ def test_jade_lizard_rows_have_no_upside_risk():
         assert put["strike"] < short_call["strike"] < long_call["strike"]
         assert row["credit"] >= long_call["strike"] - short_call["strike"]
         assert row["maxProfit"] == pytest.approx(row["credit"])
+
+
+def test_every_multi_leg_credit_template_is_screenable():
+    from service.market.screener_strategies import SCREENER_TEMPLATES, STRATEGIES, list_strategies
+    from service.market.strategy_builder import TEMPLATES
+
+    expected = {k for k, t in TEMPLATES.items() if t["direction"] == "credit" and len(t["legs"]) > 1}
+    assert set(SCREENER_TEMPLATES) == expected
+    names = {s["id"]: s["name"] for s in list_strategies()}
+    assert set(names) == set(STRATEGIES)
+    assert all(names[k] == TEMPLATES[k]["name"] for k in SCREENER_TEMPLATES)
+
+
+@pytest.mark.parametrize("strategy", ["PUT_CREDIT_SPREAD", "CALL_CREDIT_SPREAD", "IRON_CONDOR", "IRON_BUTTERFLY"])
+def test_defined_risk_capital_is_the_max_loss(strategy):
+    result = screen(strategy)
+    assert result["results"], strategy
+    for row in result["results"]:
+        puts = sorted(l["strike"] for l in row["legs"] if l["type"] == "PUT")
+        calls = sorted(l["strike"] for l in row["legs"] if l["type"] == "CALL")
+        widest = max(puts[-1] - puts[0] if puts else 0, calls[-1] - calls[0] if calls else 0)
+        assert row["credit"] > 0
+        assert row["capital"] == pytest.approx(widest - row["credit"])
+
+
+def test_ratio_call_capital_covers_the_uncovered_call_with_shares():
+    result = screen("RATIO_CALL")
+    assert result["results"]
+    for row in result["results"]:
+        long, short = sorted(row["legs"], key=lambda l: l["strike"])
+        assert long["qty"] == 1 and short["qty"] == -2 and long["strike"] < short["strike"]
+        # Nothing lost below the long call (the credit is kept), so capital
+        # is just the shares that would cover the one extra short call.
+        assert row["capital"] == pytest.approx(SPOT)
+
+
+def test_strangle_capital_secures_the_put_and_covers_the_call():
+    result = screen("SHORT_STRANGLE")
+    assert result["results"]
+    for row in result["results"]:
+        put = next(l for l in row["legs"] if l["type"] == "PUT")
+        assert row["capital"] == pytest.approx(put["strike"] - row["credit"] + SPOT)
+
+
+def test_an_oversized_search_is_trimmed_near_the_money_and_flagged(monkeypatch):
+    from service.market import screener_strategies
+
+    monkeypatch.setattr(screener_strategies, "COMBO_BUDGET", 2_000)
+    result = screen("IRON_CONDOR")
+    assert result["truncated"] == ["X"]
+    assert result["results"]
+    assert screen("PUT_CREDIT_SPREAD")["truncated"] == []

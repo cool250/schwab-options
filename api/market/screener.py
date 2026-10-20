@@ -6,16 +6,22 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.market.params import normalize_symbol
 from service.market import MarketService
-from service.market.models import ScreenerResult
+from service.market.models import ScreenerResult, ScreenerStrategy
+from service.market.screener_strategies import STRATEGIES, list_strategies
 
 router = APIRouter()
 
-ScreenerStrategy = Literal["PUT", "CALL", "LONG_PUT", "LONG_CALL", "RATIO_PUT", "JADE_LIZARD"]
+StrategyId = Literal[STRATEGIES]
 MAX_TICKERS = 25
 
 
 def get_service() -> MarketService:
     return MarketService()
+
+
+@router.get("/options/screener/strategies", summary="The screener's strategy choices", response_model=list[ScreenerStrategy])
+def get_screener_strategies():
+    return list_strategies()
 
 
 @router.get(
@@ -30,9 +36,10 @@ def screen_options(
     max_dte: int = Query(7, ge=0, le=365),
     min_moneyness: float = Query(..., ge=-100, le=100, description="Min percent OTM (negative = ITM)"),
     max_moneyness: float = Query(..., ge=-100, le=100, description="Max percent OTM (negative = ITM)"),
-    strategy: ScreenerStrategy = Query(
+    strategy: StrategyId = Query(
         "PUT",
-        description="PUT / CALL (short), LONG_PUT / LONG_CALL, RATIO_PUT (1x2 put ratio spread), or JADE_LIZARD",
+        description="PUT / CALL (short), LONG_PUT / LONG_CALL, or a multi-leg credit Strategy Builder template "
+                    "(see /options/screener/strategies)",
     ),
     min_delta: Optional[float] = Query(None, ge=0, le=1, description="Min absolute delta (puts and calls alike); omit for no lower bound"),
     max_delta: Optional[float] = Query(None, ge=0, le=1, description="Max absolute delta; omit for no upper bound"),
