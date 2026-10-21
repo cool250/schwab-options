@@ -1,5 +1,5 @@
 from pydantic import BaseModel, RootModel
-from typing import List, Optional
+from typing import Optional
 
 class Fundamental(BaseModel):
     avg10DaysVolume: Optional[float] = None
@@ -60,26 +60,3 @@ class Asset(BaseModel):
 
 class StockQuotes(RootModel):
     root: dict[str, Asset]
-
-class Candle(BaseModel):
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int
-    datetime: int
-    
-    def get_datetime(self):
-        """Convert epoch milliseconds to datetime object"""
-        from datetime import datetime
-        # Check if datetime is in milliseconds (13 digits) or seconds (10 digits)
-        if len(str(self.datetime)) >= 13:
-            # Convert from milliseconds
-            return datetime.fromtimestamp(self.datetime / 1000)
-        else:
-            # Convert from seconds
-            return datetime.fromtimestamp(self.datetime)
-
-class PriceHistoryResponse(BaseModel):
-    symbol: str
-    candles: List[Candle]

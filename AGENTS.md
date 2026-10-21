@@ -19,8 +19,8 @@ their own Schwab connection** (positions/transactions are per-user);
 
 | Path | What lives there |
 |---|---|
-| `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, price history and option chains (neither used by the app any more — market data is Tastytrade's), positions, transactions. No order-placement code exists here at all. |
-| `broker/tastytrade/` | Tastytrade REST + DXLink WebSocket client — chains, live quotes/greeks via streaming. Has `place_order`/`cancel_order`/`get_orders` methods that exist in the SDK but are **never called anywhere in the app** — see Guardrails below. |
+| `broker/schwab/` | Schwab REST client — **read-only by design**: quotes, positions, transactions, the account list. (Price history and option chains were removed — market data is Tastytrade's.) No order-placement code exists here at all. |
+| `broker/tastytrade/` | Tastytrade REST + DXLink WebSocket client — instruments, chains, live quotes/greeks/candles via streaming. **Read-only by design**: no account, order or trading methods, and no POST/PUT/DELETE request helpers — see Guardrails below. |
 | `service/` | Business logic, in three packages kept apart by `tests/test_layer_boundaries.py`. **`portfolio/`** (Schwab only — never imports `broker.tastytrade` or `service.market`): `PositionService` (`positions.py`; fetches the account snapshot lazily, so futures endpoints never hit Schwab's positions API), `TransactionService` (`transactions.py`), `providers/` (the broker seam — see "Adding a Portfolio broker" below), `models.py` (typed rows — the services' return types and the API's `response_model`s; plain numbers, `None` when unknown, never pre-formatted strings), and the domain logic as pure functions: `option_matching.py` (open/close matching + CLOSED/EXPIRED/ASSIGNED/EXERCISED), `equity_matching.py` (FIFO round-trips), `ratio_spreads.py`, `date_windows.py` (named lookback windows). **`market/`** (Tastytrade only — never imports Portfolio or Schwab): `MarketService` (`market.py` — a thin facade over the modules below), `chain_providers.py`, `screener.py` (the Screener's ranking: `short_option_row`/`long_option_row`, `screen_options`), `history.py` (Charts' candles via DXLink, `RANGE_PARAMS`, swing support/resistance, the per-(symbol, range) cache), `errors.py` (`SymbolNotFound` → 404, `MarketDataError` → 502 with a fixed message; `translate_errors()` is the one place broker exceptions become these — `api/app.py` registers the handlers), `models.py` (the routes' `response_model`s), `quotes.py` (`QuoteService` — live prices for contracts described as underlying/expiration/strike/type), `strategy_builder.py` (the Analyze page's Strategy Builder: data-driven templates, adding a strategy = one `TEMPLATES` entry, solved against one expiration's chain at mid prices), `screener_strategies.py` (the Screener's multi-leg rows: every combination of a credit template at natural prices, capital = max loss, or for unlimited upside the downside loss + spot per uncovered short call; `COMBO_BUDGET` caps the search per expiration). **`shared/`** (broker-neutral, imported by both): `strategy_math.py` (payoff math for the builder and screener), `contracts.py` (contract multipliers, OCC symbol parsing). `service/__init__.py` re-exports the four services. This is the layer both the REST API and the copilot's tools call into — reuse it rather than reaching into `broker/` directly. |
 | `api/` | FastAPI routers: `auth.py`, `admin.py`, `copilot.py`; `portfolio/` (mounted at `/api/portfolio`: `positions.py`, `transactions.py`) and `market/` (mounted at `/api/market`: `chains.py`, `screener.py`, `strategy.py`, `history.py`, `quotes.py` — `POST /api/market/quotes` — and `stream.py`, the WebSocket at `/api/market/ws`; `params.py`'s `Symbol` type validates and upper-cases every symbol parameter, so use it on any new Market route). Registered in `api/app.py`; unknown `/api` paths are a 404, not the SPA's `index.html`. |
 | `copilot/` | The read-only financial-copilot agent — see its own section below. |
@@ -33,10 +33,12 @@ their own Schwab connection** (positions/transactions are per-user);
 
 ## Guardrails — read before touching trading logic
 
-- **Never wire up `TastytradeClient.place_order` / `.cancel_order` /
-  `.get_orders`** to any service, API route, or the copilot's tools. They're
-  intentionally unused. Tastytrade also defaults to the **production**
-  endpoint, not sandbox — a real key there acts on a real account.
+- **Never add order placement, cancellation or account access to
+  `TastytradeClient`** (or wire one into a service, API route, or the
+  copilot's tools). The client was deliberately stripped to market data —
+  its order methods and POST/PUT/DELETE helpers were deleted. Tastytrade
+  also defaults to the **production** endpoint, not sandbox — a real key
+  there acts on a real account.
 - **The copilot (`copilot/`) is strictly read-only** — this is a documented
   hard constraint in `copilot/agent.py`'s system prompt, not just a Tastytrade
   fact. Don't add a tool that can place, modify, or cancel anything.

@@ -38,7 +38,6 @@ an instance to :class:`broker.schwab.client.Client`::
     client = Client(token_provider=MyProvider())
 """
 
-import base64
 import json
 import logging
 import os
@@ -49,11 +48,8 @@ from typing import Optional
 from abc import ABC, abstractmethod
 
 import redis
-import requests
 
 logger = logging.getLogger(__name__)
-
-_SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
 
 # Process-wide token cache, keyed by store (see TokenProvider._cached). Every
 # Schwab client builds its own provider instance (BaseClient →
@@ -191,29 +187,6 @@ class TokenProvider(ABC):
             return bool(self._cached().get("refresh_token"))
         except Exception:
             return False
-
-    def refresh_tokens(self) -> None:
-        """Exchange the stored refresh token for a new access/refresh token pair."""
-        app_key, app_secret, _ = self.get_app_credentials()
-        refresh_token_value = self.get_refresh_token()
-
-        response = requests.post(
-            _SCHWAB_TOKEN_URL,
-            headers={
-                "Authorization": f"Basic {base64.b64encode(f'{app_key}:{app_secret}'.encode()).decode()}",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            data={"grant_type": "refresh_token", "refresh_token": refresh_token_value},
-        )
-
-        if response.status_code != 200:
-            logger.error("Error refreshing access token: %s", response.text)
-            raise RuntimeError(f"Token refresh failed ({response.status_code}): {response.text}")
-
-        token_data = response.json()
-        # Never log token_data: it holds the access and refresh tokens.
-        self.save_tokens(token_data)
-        logger.info("Tokens refreshed successfully.")
 
 
 class FileTokenProvider(TokenProvider):

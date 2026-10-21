@@ -4,8 +4,7 @@ from typing import Optional
 from broker.schwab.clients import Accounts, MarketData
 from broker.schwab.auth import FileTokenProvider, RedisTokenProvider, create_token_provider
 from broker.schwab.data.account_data import SecuritiesAccount, Activity
-from broker.schwab.data.market_data import PriceHistoryResponse, StockQuotes
-from broker.schwab.data.option_data import OptionChainResponse
+from broker.schwab.data.market_data import StockQuotes
 
 logger = logging.getLogger(__name__)
 
@@ -97,38 +96,6 @@ class Client:
     def get_price(self, symbol: str) -> StockQuotes:
         """Current quote for *symbol* (or comma-separated list of symbols)."""
         return self._market_data.get_price(symbol)
-
-    def get_price_history(
-        self,
-        symbol: str,
-        period_type: str = "month",
-        period: int = 2,
-        frequency_type: str = "daily",
-        frequency: int = 1,
-    ) -> PriceHistoryResponse:
-        """OHLCV price history for *symbol*."""
-        return self._market_data.get_price_history(
-            symbol, period_type, period, frequency_type, frequency
-        )
-
-    def get_chain(
-        self,
-        symbol: str,
-        from_date: str,
-        to_date: str,
-        strike_count: int = 10,
-        strike: float | None = None,
-        contract_type: str = "ALL",
-    ) -> OptionChainResponse:
-        """
-        Option chain for *symbol* between *from_date* and *to_date*.
-
-        Pass ``strike=<price>`` to filter to a specific strike.
-        Omit (or pass ``None``) to return all strikes within *strike_count*.
-        """
-        return self._market_data.get_chain(
-            symbol, from_date, to_date, strike_count, strike, contract_type
-        )
 
     # ------------------------------------------------------------------
     # Account

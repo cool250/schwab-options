@@ -4,11 +4,10 @@ Every tool here is a thin wrapper around an already-existing, already-used
 service-layer method (service/portfolio/positions.py, service/portfolio/transactions.py,
 service/market/market.py) — no new broker calls are written for this feature.
 
-Deliberately NOT wrapped as a tool, on purpose: TastytradeClient.place_order /
-.cancel_order / .get_orders (broker/tastytrade/client.py). Those methods
-exist in the SDK and default to Tastytrade's PRODUCTION endpoint, but are
-unused everywhere else in this app. This agent is read-only — it must never
-gain the ability to place, modify, or cancel a real trade.
+This agent is read-only — it must never gain the ability to place, modify,
+or cancel a real trade. The brokers' clients have no order methods to wrap
+(TastytradeClient's were deleted, and it defaults to the PRODUCTION
+endpoint), and none should be added for this.
 
 The OpenAI SDK has no decorator-based auto-schema helper (unlike Anthropic's
 @beta_tool), so each tool's JSON schema below is written by hand and must be

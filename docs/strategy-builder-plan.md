@@ -230,9 +230,9 @@ script before and after the move.
 
 ## Guardrails
 
-- **No order placement.** There is no "Trade" or "Send order" button. Never
-  touch `TastytradeClient.place_order` or `cancel_order`. The builder only
-  proposes, and Analyze only displays.
+- **No order placement.** There is no "Trade" or "Send order" button, and
+  `TastytradeClient` has no order methods (they were deleted). The builder
+  only proposes, and Analyze only displays.
 - New colors (overlay backdrop, badge, cards) go through `tokens.css`, in
   both the light and dark blocks.
 - This is market data only, so it needs no Schwab guard. With

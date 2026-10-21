@@ -15,7 +15,7 @@ sub-modules::
         Client,
         TokenProvider, create_token_provider,
         BrokerError, BrokerAuthError, BrokerAPIError, BrokerValidationError,
-        StockQuotes, PriceHistoryResponse, OptionChainResponse,
+        StockQuotes,
         SecuritiesAccount, Activity,
     )
 """
@@ -26,8 +26,7 @@ from .exceptions import BrokerError, BrokerAuthError, BrokerAPIError, BrokerVali
 
 # Response models — re-exported so callers can type-hint without importing from data/
 from .data.account_data import SecuritiesAccount, Activity
-from .data.market_data import StockQuotes, PriceHistoryResponse
-from .data.option_data import OptionChainResponse
+from .data.market_data import StockQuotes
 
 __all__ = [
     # Entry point
@@ -44,6 +43,4 @@ __all__ = [
     "SecuritiesAccount",
     "Activity",
     "StockQuotes",
-    "PriceHistoryResponse",
-    "OptionChainResponse",
 ]

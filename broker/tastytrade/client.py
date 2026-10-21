@@ -1,10 +1,11 @@
 """
 Python API client for the Tastytrade (tastyworks) API.
 
-WARNING: Defaults to the PRODUCTION environment (api.tastyworks.com). Calls
-made with production credentials act on a real, live brokerage account —
-place_order() will submit real trades. Pass base_url=SANDBOX_BASE_URL to
-target the cert/sandbox environment instead.
+Read-only by design: market data (instruments, option chains, DXLink
+quotes/greeks/candles) only. There are no account, order or trading methods,
+and no POST/PUT/DELETE helpers — don't add them (see AGENTS.md). Defaults to
+the PRODUCTION environment (api.tastyworks.com); pass
+base_url=SANDBOX_BASE_URL to target the cert/sandbox environment instead.
 
 Auth model: Tastytrade's OAuth2 flow exchanges a long-lived refresh token
 (+ client secret) for a short-lived access token. This client handles that
@@ -21,9 +22,8 @@ Usage:
     # or, to pull credentials from config.py / env vars automatically:
     client = TastytradeClient.from_config()
 
-    accounts = client.get_accounts()
-    balances = client.get_balances(accounts[0]["account"]["account-number"])
-    quote = client.get_quote("AAPL")
+    chain = client.get_option_chain("AAPL")
+    quotes = client.get_chain_quotes(chain[:10], with_theta=True)
 """
 
 from __future__ import annotations
@@ -286,84 +286,9 @@ class TastytradeClient:
     def get(self, path: str, params: Optional[dict] = None) -> Any:
         return self.request("GET", path, params=params)
 
-    def post(self, path: str, json: Optional[dict] = None, params: Optional[dict] = None) -> Any:
-        return self.request("POST", path, params=params, json=json)
-
-    def put(self, path: str, json: Optional[dict] = None, params: Optional[dict] = None) -> Any:
-        return self.request("PUT", path, params=params, json=json)
-
-    def delete(self, path: str, params: Optional[dict] = None) -> Any:
-        return self.request("DELETE", path, params=params)
-
     # ------------------------------------------------------------------
     # Convenience wrappers for common endpoints
     # ------------------------------------------------------------------
-
-    def get_customer(self) -> dict:
-        return self.get("/customers/me")["data"]
-
-    def get_accounts(self) -> list[dict]:
-        return self.get("/customers/me/accounts")["data"]["items"]
-
-    def get_balances(self, account_number: str) -> dict:
-        return self.get(f"/accounts/{account_number}/balances")["data"]
-
-    def get_positions(self, account_number: str) -> list[dict]:
-        return self.get(f"/accounts/{account_number}/positions")["data"]["items"]
-
-    def get_orders(self, account_number: str, **filters: Any) -> list[dict]:
-        return self.get(f"/accounts/{account_number}/orders", params=filters)["data"]["items"]
-
-    def get_transactions(
-        self,
-        account_number: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        **filters: Any,
-    ) -> list[dict]:
-        """List every transaction on `account_number` in [start_date,
-        end_date] (each 'YYYY-MM-DD', optional), transparently paginating
-        through every page — the endpoint caps at 250 items/page and a wide
-        date range can easily exceed that."""
-        params = dict(filters)
-        if start_date:
-            params["start-date"] = start_date
-        if end_date:
-            params["end-date"] = end_date
-
-        items: list[dict] = []
-        page_offset = 0
-        while True:
-            response = self.get(
-                f"/accounts/{account_number}/transactions",
-                params={**params, "page-offset": page_offset},
-            )
-            page_items = response["data"]["items"]
-            items.extend(page_items)
-            if not page_items:
-                break
-            pagination = response.get("pagination") or {}
-            total_pages = pagination.get("total-pages", 1)
-            if page_offset + 1 >= total_pages:
-                break
-            page_offset += 1
-        return items
-
-    def place_order(self, account_number: str, order: dict, dry_run: bool = False) -> dict:
-        path = f"/accounts/{account_number}/orders"
-        if dry_run:
-            path += "/dry-run"
-        return self.post(path, json=order)["data"]
-
-    def cancel_order(self, account_number: str, order_id: str) -> dict:
-        return self.delete(f"/accounts/{account_number}/orders/{order_id}")
-
-    def get_quote(self, symbol: str) -> dict:
-        """NOTE: unverified — /market-data/quotes/{symbol} returned 400/404 in
-        testing. Tastytrade does not appear to expose snapshot quotes over
-        plain REST; real-time quotes require the DXLink WebSocket streamer
-        (see get_quote_token())."""
-        return self.get(f"/market-data/quotes/{symbol}")["data"]
 
     def get_quote_token(self) -> dict:
         """A DXLink streamer token (dxlink-url + token) for subscribing to
@@ -430,12 +355,6 @@ class TastytradeClient:
 
     def get_equity(self, symbol: str) -> dict:
         return self._get_cached(f"/instruments/equities/{symbol}")["data"]
-
-    def get_future(self, symbol: str) -> dict:
-        """Look up a single, specific futures contract, e.g. 'ESZ6' or
-        '/ESZ6' (leading '/' is stripped). For the list of live contracts
-        under a root symbol, use get_futures_by_product_code()."""
-        return self.get(f"/instruments/futures/{symbol.lstrip('/')}")["data"]
 
     def get_futures_by_product_code(self, product_code: str) -> list[dict]:
         """List live futures contracts for a root symbol, e.g. 'ES' or '/ES'."""
@@ -654,60 +573,6 @@ class TastytradeClient:
 
         return asyncio.run(_fetch())
 
-    def get_chain_greeks(self, chain: list[dict], timeout: float = 5.0) -> dict[str, dict]:
-        """Fetch live greeks (delta, gamma, theta, rho, vega) and IV for every
-        contract in an options chain (as returned by get_options_chain() /
-        get_option_chain() / get_future_option_chain()) over DXLink's
-        'Greeks' event — Tastytrade doesn't expose an ITM-probability field
-        directly; |delta| is the standard proxy for it.
-
-        Returns {streamer_symbol: {"delta": float, "gamma": float,
-        "theta": float, "rho": float, "vega": float, "iv": float}}.
-        Contracts that don't produce a Greeks event within `timeout` seconds
-        are simply omitted from the result (illiquid strikes may have no
-        live greeks) rather than raising.
-
-        Subscribing to hundreds of contracts at once (e.g. an unfiltered
-        chain) works but is slow and noisy — filter with get_options_chain()
-        first (num_strikes, dte, option_type) before calling this.
-        """
-        symbols = [c["streamer-symbol"] for c in chain if c.get("streamer-symbol")]
-        if not symbols:
-            return {}
-
-        quote_token = self.get_quote_token()
-
-        async def _fetch() -> dict[str, dict]:
-            from .dxlink_streamer import DXLinkStreamer  # lazy: only needed here
-
-            results: dict[str, dict] = {}
-            remaining = set(symbols)
-
-            async def _collect() -> None:
-                while remaining:
-                    greeks = await streamer.get_event("Greeks")
-                    sym = greeks["eventSymbol"]
-                    if sym in remaining:
-                        results[sym] = {
-                            "delta": _finite_float(greeks["delta"]),
-                            "gamma": _finite_float(greeks["gamma"]),
-                            "theta": _finite_float(greeks["theta"]),
-                            "rho": _finite_float(greeks["rho"]),
-                            "vega": _finite_float(greeks["vega"]),
-                            "iv": _finite_float(greeks["volatility"]),
-                        }
-                        remaining.discard(sym)
-
-            async with DXLinkStreamer(quote_token) as streamer:
-                await streamer.subscribe("Greeks", symbols)
-                try:
-                    await asyncio.wait_for(_collect(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    pass
-            return results
-
-        return asyncio.run(_fetch())
-
     def get_chain_snapshot(
         self, ticker: str, chain: list[dict], timeout: float = 5.0, known_spot: Optional[float] = None
     ) -> dict:
@@ -715,9 +580,9 @@ class TastytradeClient:
         contract in `chain` — plus the underlying's live price, unless
         `known_spot` is already given — all over one DXLink session.
 
-        get_live_underlying_price() / get_chain_quotes() / get_chain_greeks()
-        each open their own DXLinkStreamer — fine individually, but a chain
-        load calling all three back-to-back pays for three separate
+        get_live_underlying_price() and get_chain_quotes() each open their
+        own DXLinkStreamer — fine individually, but a chain load calling
+        them back-to-back (plus a greeks fetch) pays for separate
         SETUP/AUTH/CHANNEL_REQUEST handshakes and collects one event type at
         a time. This does the same work (Trade+Quote for the underlying,
         Quote+Greeks+Trade+Summary for the chain) in a single session with
@@ -733,8 +598,8 @@ class TastytradeClient:
 
         Returns {"spot": float, "quotes": {symbol: {...}}, "greeks":
         {symbol: {...}}, "volume": {symbol: int}, "open_interest":
-        {symbol: int}} — quotes/greeks in the same per-symbol shapes
-        get_chain_quotes()/get_chain_greeks() return; volume is each
+        {symbol: int}} — quotes in get_chain_quotes()' per-symbol shape,
+        greeks as {"delta", "gamma", "theta", "rho", "vega", "iv"}; volume is each
         contract's dayVolume (Trade event) and open_interest its
         openInterest (Summary event). Raises TimeoutError if `known_spot`
         isn't given and no spot price (Trade or Quote on the underlying)
@@ -1033,19 +898,6 @@ class TastytradeClient:
             selected.extend(i for i in exp_items if float(i["strike-price"]) in closest)
 
         return selected
-
-    def get_future_option_quote(self, symbols: str | list[str]) -> list[dict]:
-        """NOTE: unverified — /market-data/quotes returned 404 in testing
-        against production. See get_quote()/get_quote_token() for details;
-        real-time quotes likely require the DXLink WebSocket streamer instead.
-
-        Symbols use Tastytrade's future-option format, e.g. './ESZ4 EW4U4 240920P4700'
-        (obtainable from get_future_option_chain).
-        """
-        if isinstance(symbols, str):
-            symbols = [symbols]
-        return self.get("/market-data/quotes", params={"future-option[]": symbols})["data"]["items"]
-
 
 
 _shared_client: Optional[TastytradeClient] = None

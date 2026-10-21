@@ -1,10 +1,9 @@
 """
 DXLink WebSocket streamer for Tastytrade real-time market data.
 
-Tastytrade doesn't expose live quotes over plain REST — TastytradeClient.
-get_quote() / get_future_option_quote() both 404 in production (see their
-docstrings). Real-time data instead requires DXLink, dxFeed's streaming
-protocol. Auth flow:
+Tastytrade doesn't expose live quotes over plain REST — its
+/market-data/quotes endpoints 404 in production. Real-time data instead
+requires DXLink, dxFeed's streaming protocol. Auth flow:
 
   1. TastytradeClient.get_quote_token() -> {"token": ..., "dxlink-url": ...}
   2. Open a WebSocket to dxlink-url and run the DXLink SETUP/AUTH handshake
