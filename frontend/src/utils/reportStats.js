@@ -49,6 +49,19 @@ export function tradeStats(trades) {
   }
 }
 
+/** Open (still-unrealized) trades, as the page annotates them: each
+ *  { expiration: "YYYY-MM-DD", unrealized: number | null } — null while its
+ *  live quote is loading or when it couldn't be priced. The total covers
+ *  the priced ones; `unpriced` says how many it leaves out. */
+export function openTradeStats(legs) {
+  const priced = legs.filter((l) => l.unrealized != null)
+  return {
+    n: legs.length,
+    unrealized: priced.length ? priced.reduce((s, l) => s + l.unrealized, 0) : null,
+    unpriced: legs.length - priced.length,
+  }
+}
+
 /** Map of key -> summed total_amount. */
 export function sumBy(rows, keyOf) {
   const m = new Map()

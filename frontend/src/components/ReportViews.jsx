@@ -4,7 +4,7 @@ import {
   CartesianGrid, Tooltip, ReferenceLine, LabelList,
 } from 'recharts'
 import {
-  MONTH_NAMES, tradeStats, sumBy, countBy, runningTotal, pnlStep, symbolOf,
+  MONTH_NAMES, tradeStats, openTradeStats, sumBy, countBy, runningTotal, pnlStep, symbolOf,
   utcDate, addDays, mondayOf, longDate, usd, signedUsd, compactUsd, pct, signClass,
 } from '../utils/reportStats'
 
@@ -130,7 +130,25 @@ const keyActivate = (fn) => (e) => {
  * period (or null). extraNet: equity/futures P&L to mention under the net
  * (or 0).
  */
-export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0 }) {
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// "$1,234" for an open-trade total — "…" while quotes load, a note when
+// some legs couldn't be priced.
+function openValueText(stats, loading) {
+  if (stats.unrealized == null) return loading ? '…' : '—'
+  return usd(stats.unrealized)
+}
+
+// Compact form for calendar cells: "$340", "…" while quotes load.
+function openCompact(stats, loading) {
+  if (stats.unrealized == null) return loading ? '…' : '—'
+  return compactUsd(stats.unrealized)
+}
+
+/** Key numbers. `open` (Month view): { stats: openTradeStats(...), loading,
+ *  monthName } — the still-open trades expiring in that month, shown as an
+ *  Unrealized P&L column beside Option P&L (live prices), with their count. */
+export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, open = null }) {
   const delta = prev ? stats.net - prev.net : null
   const tiles = [
     {
@@ -139,6 +157,18 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0 }) {
       sub: delta != null
         ? <><span className={signClass(delta)}>{delta >= 0 ? '▲' : '▼'} {usd(Math.abs(delta))}</span> vs {prevName}</>
         : netNote,
+      hero: true,
+    },
+    // Still-open trades expiring this month, beside the realized figure.
+    open && {
+      label: 'Unrealized P&L',
+      value: <span className={signClass(open.stats.unrealized)}>{openValueText(open.stats, open.loading)}</span>,
+      sub: (
+        <>
+          {plural(open.stats.n, 'open trade')} · expiring in {open.monthName}
+          {open.stats.unpriced > 0 && open.stats.unrealized != null && (open.loading ? ' · pricing…' : ` · ${open.stats.unpriced} unpriced`)}
+        </>
+      ),
       hero: true,
     },
     {
@@ -176,10 +206,10 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0 }) {
       value: stats.profitFactor == null ? '—' : stats.profitFactor.toFixed(2),
       sub: 'gross wins ÷ gross losses',
     },
-  ]
+  ].filter(Boolean)
   return (
     <div className="card">
-      <div className="report-kpis">
+      <div className={`report-kpis${open ? ' report-kpis--with-open' : ''}`}>
         {tiles.map((t) => (
           <div key={t.label} className={`report-kpi${t.hero ? ' report-kpi--hero' : ''}${t.wide ? ' report-kpi--wide' : ''}`}>
             <span className="report-kpi-label">{t.label}</span>
@@ -203,25 +233,44 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
 
 /** Mon–Fri grid of one month's trading days, each shaded by its P&L, with
  *  the week's total at the end of each row. month: 1-12. */
-export function MonthCalendar({ year, month, trades, today, onDay, onWeek }) {
+export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openLegs = [], openLoading = false }) {
   const { weeks, maxAbs } = useMemo(() => {
     const daily = sumBy(trades, (t) => t.close_date)
     const counts = countBy(trades, (t) => t.close_date)
+    // Still-open trades, on the day they expire (today or later).
+    const openByDay = new Map()
+    for (const leg of openLegs) {
+      if (!openByDay.has(leg.expiration)) openByDay.set(leg.expiration, [])
+      openByDay.get(leg.expiration).push(leg)
+    }
     const first = `${year}-${String(month).padStart(2, '0')}-01`
     const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
     const last = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+    // Shade open days on the same scale as closed ones.
+    const openValues = [...openByDay.entries()]
+      .filter(([date]) => date >= first && date <= last)
+      .map(([, legs]) => openTradeStats(legs).unrealized ?? 0)
     const out = []
     for (let mon = mondayOf(first); mon <= last; mon = addDays(mon, 7)) {
       const days = WEEKDAYS.map((_, i) => {
         const date = addDays(mon, i)
-        return { date, inMonth: date >= first && date <= last, future: date > today, value: daily.get(date), count: counts.get(date) ?? 0 }
+        const openLegsToday = date >= first && date <= last ? openByDay.get(date) ?? [] : []
+        return {
+          date, inMonth: date >= first && date <= last, future: date > today,
+          value: daily.get(date), count: counts.get(date) ?? 0,
+          open: openLegsToday.length ? openTradeStats(openLegsToday) : null,
+        }
       })
       if (days.every((d) => !d.inMonth)) continue // a week of only weekend days of this month
       const traded = days.filter((d) => d.inMonth && d.value != null)
-      out.push({ monday: mon, days, total: traded.reduce((s, d) => s + d.value, 0), tradedDays: traded.length })
+      const openLegsWeek = days.flatMap((d) => (d.inMonth ? openByDay.get(d.date) ?? [] : []))
+      out.push({
+        monday: mon, days, total: traded.reduce((s, d) => s + d.value, 0), tradedDays: traded.length,
+        open: openLegsWeek.length ? openTradeStats(openLegsWeek) : null,
+      })
     }
-    return { weeks: out, maxAbs: Math.max(0, ...[...daily.values()].map(Math.abs)) }
-  }, [year, month, trades, today])
+    return { weeks: out, maxAbs: Math.max(0, ...[...daily.values(), ...openValues].map(Math.abs)) }
+  }, [year, month, trades, today, openLegs])
 
   return (
     <>
@@ -235,26 +284,65 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek }) {
               if (!d.inMonth) {
                 return <div key={d.date} className="pnl-day pnl-day--out" role="gridcell"><span className="pnl-day-num">{MONTH_NAMES[utcDate(d.date).getUTCMonth()]} {dayNum}</span></div>
               }
+              // Open trades expiring this day: "2 open, unrealized +$340".
+              const openLabel = d.open
+                ? `${plural(d.open.n, 'open trade')} expiring, unrealized ${d.open.unrealized == null ? (openLoading ? 'loading' : 'unknown') : signedUsd(d.open.unrealized)}`
+                : null
               if (d.future) {
-                return <div key={d.date} className="pnl-day pnl-day--future" role="gridcell"><span className="pnl-day-num">{dayNum}</span></div>
+                if (!d.open) {
+                  return <div key={d.date} className="pnl-day pnl-day--future" role="gridcell"><span className="pnl-day-num">{dayNum}</span></div>
+                }
+                const label = `${longDate(d.date)}: ${openLabel}`
+                const openStep = pnlStep(d.open.unrealized, maxAbs)
+                return (
+                  <div key={d.date} className="pnl-day pnl-day--future pnl-day--open" style={openStep ?? undefined} role="gridcell" title={label} aria-label={label}>
+                    <span className="pnl-day-top">
+                      <span className="pnl-day-num">{dayNum}</span>
+                      <span className="pnl-day-count">{d.open.n} open</span>
+                    </span>
+                    <span className={`pnl-day-value${openStep ? '' : ` ${signClass(d.open.unrealized)}`}`}>
+                      {openCompact(d.open, openLoading)}
+                    </span>
+                  </div>
+                )
               }
-              const step = pnlStep(d.value, maxAbs)
-              const label = d.value == null
+              // Nothing closed but open trades expiring (e.g. today): show it
+              // like a future open day — dashed, shaded by the unrealized P&L.
+              const openOnly = d.value == null && d.open
+              const step = openOnly ? pnlStep(d.open.unrealized, maxAbs) : pnlStep(d.value, maxAbs)
+              const closedLabel = d.value == null
                 ? `${longDate(d.date)}: no trades closed`
-                : `${longDate(d.date)}: ${signedUsd(d.value)}, ${d.count} trade${d.count === 1 ? '' : 's'}`
+                : `${longDate(d.date)}: ${signedUsd(d.value)}, ${plural(d.count, 'trade')}`
+              const label = openLabel ? `${closedLabel}; ${openLabel}` : closedLabel
               return (
                 <button
                   key={d.date}
                   type="button"
                   role="gridcell"
-                  className={`pnl-day${d.value == null ? ' pnl-day--empty' : ''}`}
+                  className={`pnl-day${openOnly ? ' pnl-day--open' : d.value == null ? ' pnl-day--empty' : ''}`}
                   style={step ?? undefined}
                   title={label}
                   aria-label={label}
                   onClick={() => onDay(d.date)}
                 >
-                  <span className="pnl-day-num">{dayNum}</span>
-                  <span className="pnl-day-value">{d.value == null ? '—' : compactUsd(d.value)}</span>
+                  <span className="pnl-day-top">
+                    <span className="pnl-day-num">{dayNum}</span>
+                    {(d.count > 0 || d.open) && (
+                      <span className="pnl-day-count">
+                        {d.count > 0 && <>{d.count}<span className="pnl-full"> trade{d.count === 1 ? '' : 's'}</span></>}
+                        {d.count > 0 && d.open && ' · '}
+                        {d.open && `${d.open.n} open`}
+                      </span>
+                    )}
+                  </span>
+                  {openOnly ? (
+                    <span className={`pnl-day-value${step ? '' : ` ${signClass(d.open.unrealized)}`}`}>
+                      {openCompact(d.open, openLoading)}
+                    </span>
+                  ) : <span className="pnl-day-value">
+                    {d.open && <span className="pnl-day-open" title="Unrealized, open trades expiring">{openCompact(d.open, openLoading)} open · </span>}
+                    {d.value == null ? '—' : compactUsd(d.value)}
+                  </span>}
                 </button>
               )
             })}
@@ -263,7 +351,7 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek }) {
                 type="button"
                 role="gridcell"
                 className="pnl-week"
-                title={`Week of ${longDate(w.monday)}: ${signedUsd(w.total)}`}
+                title={`Week of ${longDate(w.monday)}: ${signedUsd(w.total)}${w.open ? `; ${plural(w.open.n, 'open trade')} expiring, unrealized ${w.open.unrealized == null ? 'unknown' : signedUsd(w.open.unrealized)}` : ''}`}
                 onClick={() => onWeek(w.monday, addDays(w.monday, 6))}
               >
                 <span className={`pnl-week-value ${signClass(w.total)}`}>
@@ -271,7 +359,29 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek }) {
                   <span className="pnl-short">{w.total > 0 ? '+' : ''}{compactUsd(w.total)}</span>
                 </span>
                 <span className="pnl-week-days">{w.tradedDays} day{w.tradedDays === 1 ? '' : 's'}</span>
+                {w.open && (
+                  <span className={`pnl-week-open ${signClass(w.open.unrealized)}`}>
+                    {w.open.unrealized > 0 ? '+' : ''}{openCompact(w.open, openLoading)} open
+                  </span>
+                )}
               </button>
+            ) : w.open ? (
+              // No trades closed yet this week, but some open ones expire in it.
+              <div
+                className="pnl-week pnl-week--open"
+                role="gridcell"
+                title={`Week of ${longDate(w.monday)}: ${plural(w.open.n, 'open trade')} expiring, unrealized ${w.open.unrealized == null ? 'unknown' : signedUsd(w.open.unrealized)}`}
+              >
+                <span className={`pnl-week-value ${signClass(w.open.unrealized)}`}>
+                  {w.open.unrealized == null ? (openLoading ? '…' : '—') : (
+                    <>
+                      <span className="pnl-full">{signedUsd(w.open.unrealized)}</span>
+                      <span className="pnl-short">{w.open.unrealized > 0 ? '+' : ''}{compactUsd(w.open.unrealized)}</span>
+                    </>
+                  )}
+                </span>
+                <span className="pnl-week-days">{w.open.n} open</span>
+              </div>
             ) : (
               <div className="pnl-week pnl-week--empty" role="gridcell">—</div>
             )}

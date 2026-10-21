@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getAllocations, getEquityTransactions, friendlyErrorMessage } from '../api/client'
+import { getAllocations, getEquityTransactions, getOptionTransactions, getOptionBids, friendlyErrorMessage } from '../api/client'
+import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import {
   KpiStrip, MonthCalendar, DailyRunChart, SymbolTable,
   MonthlyBarsChart, CumulativeChart, SymbolMonthHeat, YearCalendar, SourceTabs,
 } from '../components/ReportViews'
-import { closedTrades, tradeStats, symbolBreakdown, symbolOf, todayIso, utcDate, MONTH_NAMES } from '../utils/reportStats'
+import { closedTrades, tradeStats, openTradeStats, symbolBreakdown, symbolOf, todayIso, utcDate, addDays, MONTH_NAMES } from '../utils/reportStats'
 
 function monthName(m) {
   return new Date(2000, m - 1, 1).toLocaleString('en-US', { month: 'long' })
@@ -71,8 +72,14 @@ const reportDefaults = () => ({
   period: 'month', year: currentYear(), month: currentMonth(),
 })
 
-// Reports cover realized (closed) P&L only.
+// The P&L figures cover realized (closed) trades; the Month view adds the
+// still-open ones expiring in that month separately (loadOpen below).
 const REALIZED_ONLY = true
+
+// How far back to look for still-open option legs — the same reconstruction
+// the Transactions page's Unrealized view uses (Schwab caps a request at a
+// year), so the two pages agree.
+const OPEN_LOOKBACK_DAYS = 360
 
 export default function Reports() {
   const [defaults] = useState(reportDefaults)
@@ -99,7 +106,49 @@ export default function Reports() {
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear() - i)
 
+  // Month view: still-open option trades expiring in the shown month (today
+  // or later), each priced at its live bid like Transactions' unrealized
+  // view — { year, month, legs: [{ expiration, unrealized }], loading }.
+  const [open, setOpen] = useState(null)
+  const openRequestId = useRef(0)
+
+  async function loadOpen(year, month) {
+    const id = ++openRequestId.current
+    const current = () => openRequestId.current === id
+    const { start, end } = monthRange(year, month)
+    const today = todayIso()
+    if (end < today) { // nothing in a past month is still open
+      setOpen({ year, month, legs: [], loading: false })
+      return
+    }
+    setOpen({ year, month, legs: [], loading: true })
+    try {
+      // An open leg's close_date is its expiration, and the backend keeps
+      // only rows closing inside the range — so the range has to run to the
+      // month's end, not today, or legs expiring after today are dropped.
+      // The lookback counts from there too, keeping the span under a year.
+      const rows = await getOptionTransactions('', addDays(end, -OPEN_LOOKBACK_DAYS), end, 'ALL', false, true, false)
+      if (!current()) return
+      const from = start > today ? start : today
+      const legs = (rows ?? []).filter((t) => t.type === 'TRADE' && t.expirationDate >= from && t.expirationDate <= end)
+      const priced = (bids) => legs.map((t) => ({
+        expiration: t.expirationDate,
+        unrealized: bids[t.symbol] == null ? null : t.amount * getMultiplier(t.underlying_symbol) * (bids[t.symbol] - t.open_price),
+      }))
+      setOpen({ year, month, legs: priced({}), loading: legs.length > 0 })
+      if (!legs.length) return
+      const bids = await getOptionBids(legs.map((t) => ({
+        key: t.symbol, underlying: t.underlying_symbol, expiration: t.expirationDate, strike: t.strike_price, type: t.option_type,
+      }))).catch(() => ({}))
+      if (current()) setOpen({ year, month, legs: priced(bids), loading: false })
+    } catch {
+      // A nicety on top of the realized report — leave it out rather than fail the page.
+      if (current()) setOpen(null)
+    }
+  }
+
   async function load(period, year, month) {
+    if (period === 'month') loadOpen(year, month)
     const id = ++requestIds.current[period]
     const current = () => requestIds.current[period] === id
     setLoadingFor((s) => ({ ...s, [period]: true }))
@@ -212,9 +261,12 @@ export default function Reports() {
   const openSymbolMonth = (ticker, m) => openTransactions({ ticker, ...monthBounds(m), tab: tabFor(ticker, (t) => monthOfTrade(t) === m) })
   const openSourceMonth = (m) => openTransactions({ ...monthBounds(m), tab: tabFor(null, (t) => monthOfTrade(t) === m) })
 
-  const noData = derived && derived.optionTrades.length === 0 && derived.equityTrades.length === 0
-  const show = derived && !noData && !loading
   const isMonth = report?.period === 'month'
+  // Open trades for the month on screen (not a different one still loading).
+  const openNow = isMonth && open && open.year === report.year && open.month === report.month ? open : null
+  const openLegs = openNow?.legs ?? []
+  const noData = derived && derived.optionTrades.length === 0 && derived.equityTrades.length === 0 && openLegs.length === 0
+  const show = derived && !noData && !loading
 
   return (
     <div className="page">
@@ -275,16 +327,19 @@ export default function Reports() {
             prevName={report.prevName}
             netNote={isMonth ? null : derived.positiveMonths}
             extraNet={derived.equityNet}
+            open={openNow && (openLegs.length > 0 || openNow.loading)
+              ? { stats: openTradeStats(openLegs), loading: openNow.loading, monthName: monthName(report.month) }
+              : null}
           />
 
           {/* 2. P&L by period (left) and the running total (right) — same slots in both views */}
-          {derived.optionTrades.length > 0 && (
+          {(derived.optionTrades.length > 0 || (isMonth && openLegs.length > 0)) && (
             <div className="report-row">
               <div className="card">
                 <div className="report-card-head">
                   <h3 className="section-title">{isMonth ? `${monthName(report.month)} calendar` : 'Monthly P&L'}</h3>
                   <span className="report-card-note">
-                    {isMonth ? 'Options · click a day or week' : `Options · ${derived.positiveMonths} · click a month`}
+                    {isMonth ? 'Options · click a day or week · dashed days: open trades expiring' : `Options · ${derived.positiveMonths} · click a month`}
                   </span>
                 </div>
                 {isMonth ? (
@@ -295,6 +350,8 @@ export default function Reports() {
                     today={derived.today}
                     onDay={openDay}
                     onWeek={openWeek}
+                    openLegs={openLegs}
+                    openLoading={openNow?.loading ?? false}
                   />
                 ) : (
                   <div className="report-chart-fill">

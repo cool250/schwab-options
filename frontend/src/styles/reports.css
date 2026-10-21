@@ -31,6 +31,8 @@
 .report-filters .form-group { flex: 1 1 180px; min-width: 0; }
 .report-filters .btn { flex: none; }
 .report-kpi-extra { margin: 0; padding-top: 10px; border-top: 1px solid var(--border); }
+/* Month view with open trades: an Unrealized P&L column after Option P&L. */
+.report-kpis--with-open { grid-template-columns: 1.3fr 1.3fr 1.6fr repeat(4, minmax(0, 1fr)); }
 
 /* Month calendar */
 .pnl-cal { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 0.9fr); gap: 4px; }
@@ -46,10 +48,15 @@ button.pnl-day { cursor: pointer; }
 button.pnl-day:hover { box-shadow: inset 0 0 0 2px var(--border-strong); }
 button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .pnl-day-num { font-size: 0.72rem; opacity: 0.8; }
+/* Day number on the left, "3 trades · 1 open" on the right. */
+.pnl-day-top { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; min-width: 0; }
+.pnl-day-count { font-size: 0.68rem; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pnl-day-value { font-size: 0.86rem; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pnl-day--empty .pnl-day-value { color: var(--text-faint); font-weight: 500; }
 .pnl-day--out { background: transparent; color: var(--text-faint); }
 .pnl-day--future { background: transparent; border: 1px solid var(--border); color: var(--text-faint); }
+/* Future day with open trades expiring: dashed, since it's unrealized. */
+.pnl-day--open { border: 1px dashed var(--border-strong); color: var(--text); }
 .pnl-week {
   display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 2px;
   padding: 6px 4px; border: none; border-radius: var(--radius-sm); background: transparent;
@@ -57,6 +64,11 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
 }
 .pnl-week:hover { background: var(--bg); }
 .pnl-week--empty { cursor: default; color: var(--text-faint); }
+/* Unrealized P&L of open trades on a day/week that also has closed ones. */
+.pnl-day-open { font-size: 0.68rem; font-weight: 500; font-style: italic; opacity: 0.85; }
+.pnl-week-open { font-size: 0.72rem; font-style: italic; white-space: nowrap; }
+.pnl-week--open { cursor: default; }
+.pnl-week--open .pnl-week-value { font-weight: 600; font-style: italic; }
 .pnl-week-value { font-weight: 700; font-size: 0.9rem; white-space: nowrap; }
 .pnl-week-days { font-size: 0.72rem; color: var(--text-muted); }
 .pnl-short { display: none; }
@@ -130,14 +142,14 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
 /* Below this the six tiles can't keep the Trades breakdown on one line:
    two rows of three. */
 @media (max-width: 1240px) {
-  .report-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 14px; }
-  .report-kpi:nth-child(4) { border-left: none; padding-left: 0; }
+  .report-kpis, .report-kpis--with-open { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 14px; }
+  .report-kpi:nth-child(3n + 1) { border-left: none; padding-left: 0; }
 }
 @media (max-width: 960px) {
   .report-row { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
-  .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-kpis, .report-kpis--with-open { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-kpi { border-left: none; padding-left: 0; }
   .report-kpi--hero { grid-column: 1 / -1; }
   .report-kpi--wide { grid-column: 1 / -1; }
