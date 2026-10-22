@@ -28,7 +28,7 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   gap: 12px;
 }
 .copilot-launcher {
-  /* A pill — icon plus the "Ask AI" label — rather than a bare disc, so
+  /* A pill — icon plus the "Ask Indu" label — rather than a bare disc, so
      the launcher says what it does. */
   height: 52px;
   padding: 0 20px 0 16px;
