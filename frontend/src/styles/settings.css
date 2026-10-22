@@ -59,7 +59,10 @@
 .settings-btn-danger { color: var(--error); }
 .settings-btn-danger:hover:not(:disabled) { border-color: var(--error); }
 
-/* Account picker, compact one-row form (top of Positions). */
+/* Account picker, compact one-row form — right-aligned above every
+   Portfolio page (components/RequireSchwab.jsx). */
+.portfolio-account-bar { display: flex; justify-content: flex-end; }
+.portfolio-account-bar:has(.account-picker-inline) { margin-bottom: 12px; }
 .account-picker-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .account-picker-inline label {
   font-size: var(--label-font-size); font-weight: 700; color: var(--text);

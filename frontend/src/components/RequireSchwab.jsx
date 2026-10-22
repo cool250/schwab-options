@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getSchwabStatus } from '../api/client'
 import { beginSchwabConnect } from '../utils/schwabConnect'
+import AccountPicker from './AccountPicker'
 import { PortfolioIcon } from './NavIcons'
 import Spinner from './Spinner'
 
@@ -10,11 +11,17 @@ import Spinner from './Spinner'
  *  and, if it's missing or expired, explains that and offers to connect —
  *  instead of letting the page fire its data requests and show a red
  *  "Broker authentication failed" error. If the status check itself fails,
- *  the page renders anyway and handles errors as before. */
+ *  the page renders anyway and handles errors as before.
+ *
+ *  Once connected, it also puts the account picker above every Portfolio
+ *  page (only shown when the login covers more than one account). A switch
+ *  remounts the page, so everything it loaded for the old account is
+ *  dropped and fetched again for the new one. */
 export default function RequireSchwab({ children }) {
   const [state, setState] = useState('checking') // 'checking' | 'ok' | 'missing' | 'expired'
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState(null)
+  const [accountVersion, setAccountVersion] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -39,7 +46,16 @@ export default function RequireSchwab({ children }) {
   }
 
   if (state === 'checking') return <Spinner />
-  if (state === 'ok') return children
+  if (state === 'ok') {
+    return (
+      <>
+        <div className="portfolio-account-bar">
+          <AccountPicker inline onChanged={() => setAccountVersion((v) => v + 1)} />
+        </div>
+        <Fragment key={accountVersion}>{children}</Fragment>
+      </>
+    )
+  }
 
   const expired = state === 'expired'
   return (

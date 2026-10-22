@@ -18,7 +18,7 @@ function optionLabel(a) {
  * /account), so it applies on every page and device.
  *
  * Props:
- *   inline      — compact one-row layout (top of Positions) instead of the
+ *   inline      — compact one-row layout (above every Portfolio page, via RequireSchwab) instead of the
  *                 Settings form field; also hides itself entirely when the
  *                 login covers a single account, or the list can't load.
  *   onChanged   — called after a switch is saved, so a page can reload.
@@ -65,7 +65,7 @@ export default function AccountPicker({ inline = false, onChanged }) {
       onChange={handleChange}
       disabled={saving || accounts.length < 2}
     >
-      {/* Positions (inline) shows just the masked account number; Settings
+      {/* The Portfolio pages (inline) show just the masked account number; Settings
           adds type, value and position count to help tell accounts apart. */}
       {accounts.map((a) => <option key={a.id} value={a.id}>{inline ? a.label : optionLabel(a)}</option>)}
     </select>

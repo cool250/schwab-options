@@ -4,7 +4,6 @@ import { getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQu
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
-import AccountPicker from '../components/AccountPicker'
 import { money, count } from '../utils/numberFormat'
 
 // Survives unmounting/remounting this page (e.g. navigating to Analyze and
@@ -170,7 +169,7 @@ function futuresSymbolColumn(optionType) {
 
 export default function Positions() {
   const navigate = useNavigate()
-  const [tab, setTab] = useState('equity') // 'equity' | 'futures'
+  const [tab, setTab] = useState('futures') // 'futures' | 'equity'
   // Account data is loaded fresh on every visit — never cached in memory,
   // so it can't carry over to another user signing in on the same tab.
   const [data, setData] = useState(null)
@@ -209,19 +208,8 @@ export default function Positions() {
   const [selected, setSelected] = useState(new Map())
   const [analyzeError, setAnalyzeError] = useState(null)
 
-  // Bumped when the account picker switches Schwab accounts: everything
-  // loaded for the old account is dropped and reloaded for the new one.
-  const [accountVersion, setAccountVersion] = useState(0)
-  function handleAccountChanged() {
-    setData(null); setLoading(true); setError(null)
-    setFuturesData(null); setFuturesError(null)
-    setFuturesQuotes({}); setFuturesContractQuotes({}); setFuturesThetas({}); setEquityThetas({})
-    setSelected(new Map()); setAnalyzeError(null) // picks belonged to the old account
-    setAccountVersion((v) => v + 1)
-  }
-
   useEffect(() => {
-    let cancelled = false // a slower response for a previous account must not land
+    let cancelled = false // nothing lands after unmount (an account switch remounts the page)
     getPositions()
       .then((d) => !cancelled && setData(d))
       .catch((err) => {
@@ -229,7 +217,7 @@ export default function Positions() {
       })
       .finally(() => !cancelled && setLoading(false))
     return () => { cancelled = true }
-  }, [accountVersion])
+  }, [])
 
   useEffect(() => {
     // Deliberately excludes futuresLoading from the guard/deps: including it
@@ -251,7 +239,7 @@ export default function Positions() {
       .finally(() => !cancelled && setFuturesLoading(false))
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, futuresData, accountVersion])
+  }, [tab, futuresData])
 
   // Live prices come from Market (Schwab can't quote futures or futures
   // options): every real contract on the page — both legs of a grouped
@@ -561,24 +549,21 @@ export default function Positions() {
 
   return (
     <div className="page">
-      {/* Only shown when the Schwab login covers more than one account. */}
-      <AccountPicker inline onChanged={handleAccountChanged} />
-
       <div className="tab-bar">
         <div className="tab-row">
-          <button
-            type="button"
-            className={`tab-item ${tab === 'equity' ? 'active' : ''}`}
-            onClick={() => setTab('equity')}
-          >
-            Equity
-          </button>
           <button
             type="button"
             className={`tab-item ${tab === 'futures' ? 'active' : ''}`}
             onClick={() => setTab('futures')}
           >
             Futures
+          </button>
+          <button
+            type="button"
+            className={`tab-item ${tab === 'equity' ? 'active' : ''}`}
+            onClick={() => setTab('equity')}
+          >
+            Equity
           </button>
         </div>
         <button

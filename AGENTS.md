@@ -132,8 +132,9 @@ level — services are built per request, and that's what keeps users apart.
 
 **Multiple accounts.** One broker login can cover several accounts.
 `require_auth` also calls `broker.request_context.set_selected_account(user.broker_account)`
-(saved per user in SQLite, chosen with `components/AccountPicker.jsx` — top
-of Positions and in Settings — via `GET /api/portfolio/positions/accounts` and
+(saved per user in SQLite, chosen with `components/AccountPicker.jsx` — right-aligned
+above every Portfolio page, mounted by `RequireSchwab`, which remounts the
+page on a switch — and in Settings, via `GET /api/portfolio/positions/accounts` and
 `PUT /api/portfolio/positions/account`), and the broker client reads it when resolving
 the account (Schwab: `Accounts._initialize_account_hash`), falling back to
 the broker's first when none is chosen or the chosen one is no longer
