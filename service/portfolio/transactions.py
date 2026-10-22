@@ -42,13 +42,13 @@ class TransactionService:
         it — or hit some matching edge case — as if it were still open, since
         this only sees what's inside the fetch window.
         """
-        # +1 day: convert_to_iso8601 renders end_date as 00:00:00 UTC of that
-        # calendar date, which is hours before US markets even open — without
-        # this, anything filled "today" (or late evening the day before, US
-        # time) falls outside the window until the date rolls over tomorrow.
+        # +2 days: convert_to_iso8601 renders end_date as 00:00:00 UTC of that
+        # calendar date. Tomorrow's midnight UTC is still only 5-8 PM in the US
+        # today, so an evening (after-hours futures) fill would fall outside
+        # the window until the date rolled over; the day after tomorrow covers it.
         if lookback_days is None:
             lookback_days = open_position_lookback_days()
-        end_date = (market_today() + timedelta(days=1)).strftime("%Y-%m-%d")
+        end_date = (market_today() + timedelta(days=2)).strftime("%Y-%m-%d")
         start_date = (market_today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
         parsed = self.provider.fetch_option_legs(start_date, end_date)

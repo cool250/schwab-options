@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 def _default_date_range(days: int) -> tuple[str, str]:
     today = market_today()
-    end = today + timedelta(days=1)  # see PositionService.get_futures_position for why +1
+    end = today + timedelta(days=2)  # see PositionService.get_futures_position for why +2 (evening/overnight futures fills)
     start = today - timedelta(days=days)
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 

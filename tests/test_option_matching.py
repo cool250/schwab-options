@@ -116,3 +116,25 @@ def test_contract_type_filter(make_service):
         option_leg("2026-10-10", "CLOSING", 1, 0.50),
     ]
     assert [t["option_type"] for t in realized(make_service(legs), contract_type="CALL")] == ["CALL"]
+
+
+def test_open_futures_options_window_covers_an_evening_fill():
+    # Schwab's endDate is 00:00 UTC of the date sent. Tomorrow's midnight UTC
+    # is still this evening in the US, so an after-hours futures fill placed
+    # later than that was dropped from Positions; the window must reach the
+    # day after tomorrow.
+    from datetime import timedelta
+
+    from service.portfolio import TransactionService
+    from tests.conftest import FakeTransactions
+    from utils.market_time import market_today
+
+    seen = {}
+
+    class Recording(FakeTransactions):
+        def fetch_option_legs(self, start_date, end_date):
+            seen["end"] = end_date
+            return []
+
+    TransactionService(provider=Recording()).get_open_futures_options(lookback_days=30)
+    assert seen["end"] >= (market_today() + timedelta(days=2)).strftime("%Y-%m-%d")

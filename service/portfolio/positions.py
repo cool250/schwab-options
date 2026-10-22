@@ -125,11 +125,11 @@ class PositionService:
         wider window risks surfacing a leg that actually closed outside it, or
         hit some matching edge case, as a stale "still open" position.
         """
-        # +1 day: convert_to_iso8601 renders end_date as 00:00:00 UTC of that
-        # calendar date, which is hours before US markets even open — without
-        # this, anything filled "today" (or late evening the day before, US
-        # time) falls outside the window until the date rolls over tomorrow.
-        end_date = (market_today() + timedelta(days=1)).strftime("%Y-%m-%d")
+        # +2 days: convert_to_iso8601 renders end_date as 00:00:00 UTC of that
+        # calendar date. Tomorrow's midnight UTC is still only 5-8 PM in the US
+        # today, so an evening (after-hours futures) fill would fall outside
+        # the window until the date rolled over; the day after tomorrow covers it.
+        end_date = (market_today() + timedelta(days=2)).strftime("%Y-%m-%d")
         start_date = (market_today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
         # A failure propagates (502/503): this is the position list itself,
