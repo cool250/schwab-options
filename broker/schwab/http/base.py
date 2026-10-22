@@ -39,14 +39,14 @@ class BaseClient:
 
         Raises BrokerAuthError when no token is stored at all (e.g. a fresh
         deploy before Settings → Connect Schwab): a missing/unreadable
-        token.json or an empty Redis key is an auth problem, not a server
+        token.json is an auth problem, not a server
         error, so it surfaces as app.py's 503 "reconnect" path instead of a
         bare 500."""
         if self._token_provider.access_token_expires_soon():
             self._refresh_access_token(failed_token=None)
         try:
             token = self._token_provider.get_access_token()
-        except (OSError, ValueError) as exc:  # FileNotFoundError, JSONDecodeError, Redis "not found"
+        except (OSError, ValueError) as exc:  # FileNotFoundError, JSONDecodeError
             raise BrokerAuthError("No Schwab token found — connect Schwab in Settings.") from exc
         if not token:
             raise BrokerAuthError("No Schwab token found — connect Schwab in Settings.")
@@ -183,7 +183,7 @@ class BaseClient:
                 "401 Unauthorized — refreshing token (attempt %d/%d)…", attempt, max_retries
             )
             # Reload from the store first, in case the token was replaced
-            # outside this process (e.g. Redis written by another instance).
+            # outside this process (e.g. main.py or an sftp upload).
             self._token_provider.invalidate_cache()
             self._refresh_access_token(failed_token=token)
             # No backoff sleep here: a fresh token needs no wait, unlike the

@@ -53,7 +53,7 @@ export function LoginCard({ onSuccess, onClose }) {
         </button>
       )}
       <div className="login-header">
-        <img src="/nutrade_icon.svg" alt="NuTrade" className="login-logo" />
+        <img src="/indutrades_logo.svg" alt="InduTrades" className="login-logo" />
         <p className="login-subtitle" id="login-title">Sign in to continue</p>
       </div>
 

@@ -9,7 +9,7 @@
 }
 .login-card {
   /* Always dark, independent of the app's light/dark theme toggle — hosts
-     nutrade_icon.svg, which is built for a dark background (same file
+     indutrades_logo.svg, which is built for a dark background (same file
      Navbar uses), so the card itself has to stay dark too rather than
      following the theme and sometimes turning white underneath it.
      Re-declaring the token set locally (rather than hardcoding colors on

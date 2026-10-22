@@ -71,7 +71,7 @@ export default function RequireSchwab({ children }) {
             : 'Positions, Transactions and Reports come from your own Schwab account. Connect it once from Settings to see them here.'}
         </p>
         <p className="connect-notice-text connect-notice-text--muted">
-          NuTrade only reads your account — it never places, changes or cancels orders. Analyze, Charts and Screener
+          InduTrades only reads your account — it never places, changes or cancels orders. Analyze, Charts and Screener
           work without a Schwab connection.
         </p>
         {error && <div className="alert error">{error}</div>}

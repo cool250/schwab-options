@@ -59,7 +59,7 @@ const FEATURES = [
   {
     Icon: ShieldIcon,
     title: 'Read-only by design',
-    text: 'NuTrade never places, changes or cancels an order. It only reads your account and market data.',
+    text: 'InduTrades never places, changes or cancels an order. It only reads your account and market data.',
   },
 ]
 
@@ -69,7 +69,7 @@ const SHOWCASES = [
     eyebrow: 'Screener',
     title: 'Find the contracts worth selling',
     img: '/landing/screener.jpg',
-    alt: 'NuTrade Screener ranking short puts across AAPL, MSFT, NVDA, AMZN and META by annualized ROI',
+    alt: 'InduTrades Screener ranking short puts across AAPL, MSFT, NVDA, AMZN and META by annualized ROI',
     points: [
       'Short puts and calls ranked by annualized return, long options by leverage',
       'Multi-leg scans: 1×2 ratio puts and jade lizards, priced as net credits',
@@ -82,7 +82,7 @@ const SHOWCASES = [
     eyebrow: 'Strategy Builder',
     title: 'Build a strategy in a few clicks',
     img: '/landing/strategy-builder.jpg',
-    alt: 'NuTrade Strategy Builder placing a 16-delta AAPL iron condor with $5 wings, showing its net credit, max loss, breakevens, probability of profit and each leg’s moneyness',
+    alt: 'InduTrades Strategy Builder placing a 16-delta AAPL iron condor with $5 wings, showing its net credit, max loss, breakevens, probability of profit and each leg’s moneyness',
     points: [
       'Credit and debit strategies: short puts and calls, spreads, strangles, straddles, iron condors and butterflies, jade lizards and ratio puts',
       'Place each leg by delta, moneyness, expected move or strike, and set wings by width',
@@ -95,7 +95,7 @@ const SHOWCASES = [
     eyebrow: 'Analyze',
     title: 'See the payoff before you place it',
     img: '/landing/analyze.jpg',
-    alt: 'NuTrade Analyze showing an AAPL iron condor built with the Strategy Builder, with its payoff graph, net credit, max loss and breakevens',
+    alt: 'InduTrades Analyze showing an AAPL iron condor built with the Strategy Builder, with its payoff graph, net credit, max loss and breakevens',
     points: [
       'Live, streaming option chain',
       'Start from the Strategy Builder, or click any bid or ask to add a leg',
@@ -108,7 +108,7 @@ const SHOWCASES = [
     eyebrow: 'Charts',
     title: 'Price context at a glance',
     img: '/landing/charts.jpg',
-    alt: 'NuTrade Charts showing six months of AAPL daily candles with support and resistance lines',
+    alt: 'InduTrades Charts showing six months of AAPL daily candles with support and resistance lines',
     points: [
       'Ranges from 1 day to 20 years, stocks and futures',
       'Swing support and resistance drawn on every range',
@@ -143,14 +143,14 @@ function RegisterCard({ onClose, onLogin }) {
     <div className="login-card">
       <button type="button" className="login-close" onClick={onClose} aria-label="Close">×</button>
       <div className="login-header">
-        <img src="/nutrade_icon.svg" alt="NuTrade" className="login-logo" />
+        <img src="/indutrades_logo.svg" alt="InduTrades" className="login-logo" />
         <p className="login-subtitle" id="register-title">Create an account</p>
       </div>
       {/* No self-service sign-up: the admin creates accounts (Settings →
           Users, api/admin.py), so this explains that rather than showing a
           form that can't do anything. */}
       <p className="landing-register-text">
-        NuTrade is invite-only. Accounts are created by the admin — ask them for a username and password, then
+        InduTrades is invite-only. Accounts are created by the admin — ask them for a username and password, then
         log in. You can change your password in Settings after you sign in.
       </p>
       <button type="button" className="btn btn-primary login-btn" onClick={onLogin}>Log in instead</button>
@@ -191,7 +191,7 @@ export default function Landing({ initialOverlay = null }) {
     <div className="landing">
       <header className="landing-header">
         <div className="landing-container landing-header-inner">
-          <img src="/nutrade_icon.svg" alt="NuTrade" className="landing-logo" />
+          <img src="/indutrades_logo.svg" alt="InduTrades" className="landing-logo" />
           <nav className="landing-nav" aria-label="Page sections">
             <a href="#features">Features</a>
             <a href="#screener">Screener</a>
@@ -210,7 +210,7 @@ export default function Landing({ initialOverlay = null }) {
               <p className="landing-eyebrow">Built for premium sellers</p>
               <h1>Run your options strategy with every number in one place.</h1>
               <p className="landing-lede">
-                NuTrade brings your positions and trade history, live option chains, a strategy builder, a strike
+                InduTrades brings your positions and trade history, live option chains, a strategy builder, a strike
                 analyzer and an options screener into one read-only dashboard — with an AI copilot that knows
                 what you're looking at.
               </p>
@@ -232,7 +232,7 @@ export default function Landing({ initialOverlay = null }) {
             <figure className="landing-shot landing-shot--hero">
               <img
                 src="/landing/reports.jpg"
-                alt="NuTrade Reports showing a month's P&L, win rate and profit factor, a P&L calendar and a running total (sample data)"
+                alt="InduTrades Reports showing a month's P&L, win rate and profit factor, a P&L calendar and a running total (sample data)"
                 width="1600"
                 height="1000"
               />

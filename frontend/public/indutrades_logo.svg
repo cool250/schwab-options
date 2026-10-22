@@ -1,0 +1,33 @@
+<svg viewBox="-2 30 252 60" xmlns="http://www.w3.org/2000/svg">
+  <!-- InduTrades logo: the app icon (favicon.svg — keep the mark in sync)
+       plus the wordmark. Built for a dark background, like every caller
+       (Navbar, Login, Landing): white "Indu", mint #99f6e4 "Trades" — the
+       brand teal reads washed out against the navbar's blue. The viewBox
+       bounds the artwork tightly; callers size it by height or width with
+       object-fit: contain. -->
+  <defs>
+    <linearGradient id="logo-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#4f46e5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Mark: favicon.svg's 64×64 artwork scaled to 52 -->
+  <g transform="translate(0 34) scale(0.8125)">
+    <rect width="64" height="64" rx="14" fill="url(#logo-bg)"/>
+    <path d="M39.2 12.3A21 21 0 1 1 24.8 12.3" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M30.6 10.2L23.2 7.6L25.9 16.9Z" fill="#fff" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+    <g stroke-linecap="round">
+      <line x1="24.5" y1="34" x2="24.5" y2="46" stroke="#ccfbf1" stroke-width="1.6"/>
+      <rect x="22" y="37" width="5" height="7" rx="1" fill="#ccfbf1"/>
+      <line x1="32" y1="27" x2="32" y2="43" stroke="#fff" stroke-width="1.6"/>
+      <rect x="29.5" y="30" width="5" height="10" rx="1" fill="#fff"/>
+      <line x1="39.5" y1="19" x2="39.5" y2="38" stroke="#fbbf24" stroke-width="1.6"/>
+      <rect x="37" y="22" width="5" height="13" rx="1" fill="#fbbf24"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="64" y="62" font-family="Arial, sans-serif" font-size="32" font-weight="700" fill="#f1f5f9">Indu<tspan fill="#99f6e4">Trades</tspan></text>
+  <text x="65" y="82" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#99f6e4" letter-spacing="2">SMARTER MARKETS</text>
+</svg>

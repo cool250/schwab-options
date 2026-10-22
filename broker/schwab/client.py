@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from broker.schwab.clients import Accounts, MarketData
-from broker.schwab.auth import FileTokenProvider, RedisTokenProvider, create_token_provider
+from broker.schwab.auth import FileTokenProvider, create_token_provider
 from broker.schwab.data.account_data import SecuritiesAccount, Activity
 from broker.schwab.data.market_data import StockQuotes
 
@@ -25,16 +25,7 @@ class Client:
             token_path="/tmp/token.json",
         )
 
-    **Redis-backed**::
-
-        client = Client(
-            api_key="APIKEY",
-            app_secret="APP_SECRET",
-            callback_url="https://127.0.0.1",
-            redis_url="redis://localhost:6379",
-        )
-
-    **Env-driven** (credentials from env vars, backend from ``USE_DB``)::
+    **Env-driven** (credentials from env vars, the current user's token file)::
 
         client = Client()
 
@@ -64,25 +55,14 @@ class Client:
         app_secret: str | None = None,
         callback_url: str | None = None,
         token_path: str = "token.json",
-        redis_url: str | None = None,
     ) -> None:
         if api_key and app_secret and callback_url:
-            if redis_url is not None:
-                token_provider = RedisTokenProvider(
-                    redis_url=redis_url,
-                    app_key=api_key,
-                    app_secret=app_secret,
-                    callback_url=callback_url,
-                )
-            elif token_path:
-                token_provider = FileTokenProvider(
-                    file_path=token_path,
-                    app_key=api_key,
-                    app_secret=app_secret,
-                    callback_url=callback_url,
-                )
-            else:
-                raise ValueError("Either token_path or redis_url must be provided.")
+            token_provider = FileTokenProvider(
+                file_path=token_path,
+                app_key=api_key,
+                app_secret=app_secret,
+                callback_url=callback_url,
+            )
         else:
             token_provider = create_token_provider()
 

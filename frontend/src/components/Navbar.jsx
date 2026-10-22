@@ -103,7 +103,7 @@ export default function Navbar() {
             both themes (see tokens.css/navbar.css), matching the Copilot
             panel's titlebar, so the dark-navy "Nu" in the other variant
             would have poor contrast here either way. */}
-        <img src="/nutrade_icon.svg" alt="NuTrade" className="navbar-logo" />
+        <img src="/indutrades_logo.svg" alt="InduTrades" className="navbar-logo" />
         {/* Desktop-only: collapse the sidebar to an icon rail and back. */}
         <button
           type="button"
