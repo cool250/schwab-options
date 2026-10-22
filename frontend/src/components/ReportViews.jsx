@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ResponsiveContainer, ComposedChart, BarChart, AreaChart, Bar, Line, Area, XAxis, YAxis,
+  ResponsiveContainer, ComposedChart, AreaChart, Bar, Line, Area, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceLine, LabelList,
 } from 'recharts'
 import {
@@ -11,7 +11,7 @@ import {
 /*
  * The Reports page's views (pages/Reports.jsx): a key-numbers strip, a
  * month P&L calendar, a running total over daily bars, per-symbol tables,
- * and the YTD monthly bars / running total / symbol-by-month table /
+ * and the YTD month grid / running total / symbol-by-month table /
  * every-trading-day calendar. Gain/loss heat colors are the --pnl-* tokens
  * in tokens.css (a diverging pair with a neutral midpoint).
  */
@@ -295,7 +295,16 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
                 const label = `${longDate(d.date)}: ${openLabel}`
                 const openStep = pnlStep(d.open.unrealized, maxAbs)
                 return (
-                  <div key={d.date} className="pnl-day pnl-day--future pnl-day--open" style={openStep ?? undefined} role="gridcell" title={label} aria-label={label}>
+                  <button
+                    key={d.date}
+                    type="button"
+                    role="gridcell"
+                    className="pnl-day pnl-day--future pnl-day--open"
+                    style={openStep ?? undefined}
+                    title={label}
+                    aria-label={label}
+                    onClick={() => onDay(d.date, true)}
+                  >
                     <span className="pnl-day-top">
                       <span className="pnl-day-num">{dayNum}</span>
                       <span className="pnl-day-count">{d.open.n} open</span>
@@ -303,7 +312,7 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
                     <span className={`pnl-day-value${openStep ? '' : ` ${signClass(d.open.unrealized)}`}`}>
                       {openCompact(d.open, openLoading)}
                     </span>
-                  </div>
+                  </button>
                 )
               }
               // Nothing closed but open trades expiring (e.g. today): show it
@@ -323,7 +332,7 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
                   style={step ?? undefined}
                   title={label}
                   aria-label={label}
-                  onClick={() => onDay(d.date)}
+                  onClick={() => onDay(d.date, Boolean(d.open))}
                 >
                   <span className="pnl-day-top">
                     <span className="pnl-day-num">{dayNum}</span>
@@ -352,7 +361,7 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
                 role="gridcell"
                 className="pnl-week"
                 title={`Week of ${longDate(w.monday)}: ${signedUsd(w.total)}${w.open ? `; ${plural(w.open.n, 'open trade')} expiring, unrealized ${w.open.unrealized == null ? 'unknown' : signedUsd(w.open.unrealized)}` : ''}`}
-                onClick={() => onWeek(w.monday, addDays(w.monday, 6))}
+                onClick={() => onWeek(w.monday, addDays(w.monday, 6), Boolean(w.open))}
               >
                 <span className={`pnl-week-value ${signClass(w.total)}`}>
                   <span className="pnl-full">{signedUsd(w.total)}</span>
@@ -367,10 +376,12 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
               </button>
             ) : w.open ? (
               // No trades closed yet this week, but some open ones expire in it.
-              <div
+              <button
+                type="button"
                 className="pnl-week pnl-week--open"
                 role="gridcell"
                 title={`Week of ${longDate(w.monday)}: ${plural(w.open.n, 'open trade')} expiring, unrealized ${w.open.unrealized == null ? 'unknown' : signedUsd(w.open.unrealized)}`}
+                onClick={() => onWeek(w.monday, addDays(w.monday, 6), true)}
               >
                 <span className={`pnl-week-value ${signClass(w.open.unrealized)}`}>
                   {w.open.unrealized == null ? (openLoading ? '…' : '—') : (
@@ -381,7 +392,7 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
                   )}
                 </span>
                 <span className="pnl-week-days">{w.open.n} open</span>
-              </div>
+              </button>
             ) : (
               <div className="pnl-week pnl-week--empty" role="gridcell">—</div>
             )}
@@ -537,55 +548,77 @@ export function SymbolTable({ rows, onSymbol }) {
 
 // ---------------------------------------------------------------- YTD
 
-/** One gain/loss column per month (0-based months 0..lastMonth); only the
- *  best and worst months are labeled — the tooltip and table carry the rest. */
-export function MonthlyBarsChart({ trades, lastMonth, partialNote, onMonth }) {
-  const data = useMemo(() => {
-    const out = []
-    for (let m = 0; m <= lastMonth; m++) {
+/** Month-by-month grid for the year, laid out like MonthCalendar: one tile
+ *  per month shaded by its P&L, three to a row, with the quarter's total at
+ *  the end of each row. Months after lastMonth (0-based) haven't happened. */
+export function MonthGrid({ trades, lastMonth, partialNote, onMonth, onQuarter }) {
+  const { quarters, maxAbs } = useMemo(() => {
+    const months = MONTH_NAMES.map((label, m) => {
       const st = tradeStats(trades.filter((t) => utcDate(t.close_date).getUTCMonth() === m))
-      out.push({ m, label: MONTH_NAMES[m], net: st.net, n: st.n, winRate: st.winRate })
-    }
-    return out
+      return { m, label, net: st.n ? st.net : null, n: st.n, winRate: st.winRate, future: m > lastMonth }
+    })
+    const quarters = [0, 1, 2, 3].map((q) => {
+      const ms = months.slice(q * 3, q * 3 + 3)
+      const traded = ms.filter((x) => x.net != null)
+      return { q, months: ms, total: traded.reduce((s, x) => s + x.net, 0), tradedMonths: traded.length }
+    })
+    return { quarters, maxAbs: Math.max(0, ...months.map((x) => Math.abs(x.net ?? 0))) }
   }, [trades, lastMonth])
-  const nets = data.map((d) => d.net)
-  const iMax = nets.indexOf(Math.max(...nets))
-  const iMin = nets.indexOf(Math.min(...nets))
-  const ExtremeLabel = ({ x, y, width, height, index, value }) => {
-    if ((index !== iMax && index !== iMin) || !value) return null
-    const below = value < 0
-    const top = height < 0 ? y + height : y
-    return (
-      <text x={x + width / 2} y={below ? top + Math.abs(height) + 14 : top - 6} textAnchor="middle" className="report-end-label">
-        {compactUsd(value)}
-      </text>
-    )
-  }
+
   return (
-    <ResponsiveContainer width="100%" height="100%" minHeight={CHART_MIN_HEIGHT}>
-      <BarChart data={data} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid vertical={false} stroke="var(--border)" />
-        <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} />
-        <YAxis tick={axisTick} tickLine={false} axisLine={false} width={56} tickFormatter={compactUsd} />
-        <ReferenceLine y={0} stroke="var(--border-strong)" />
-        <Tooltip
-          cursor={{ fill: 'var(--bg)' }}
-          content={({ active, payload }) => {
-            if (!active || !payload?.length) return null
-            const p = payload[0].payload
-            return (
-              <TooltipCard
-                title={p.m === lastMonth && partialNote ? `${p.label} (${partialNote})` : p.label}
-                rows={[['P&L', signedUsd(p.net), signClass(p.net)], ['Trades', String(p.n)], ['Win rate', pct(p.winRate)]]}
-              />
-            )
-          }}
-        />
-        <Bar dataKey="net" maxBarSize={28} shape={<PnlBar />} cursor="pointer" onClick={(d) => onMonth(d.m)} isAnimationActive={false}>
-          <LabelList dataKey="net" content={<ExtremeLabel />} />
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+    <>
+      <div className="pnl-cal pnl-cal--months" role="grid" aria-label="P&L by month">
+        {quarters.map((qr) => (
+          <div key={qr.q} className="pnl-cal-row" role="row">
+            {qr.months.map((x) => {
+              if (x.future) {
+                return <div key={x.m} className="pnl-day pnl-day--future" role="gridcell"><span className="pnl-day-num">{x.label}</span></div>
+              }
+              const title = x.m === lastMonth && partialNote ? `${x.label} (${partialNote})` : x.label
+              const label = x.net == null
+                ? `${title}: no trades closed`
+                : `${title}: ${signedUsd(x.net)}, ${plural(x.n, 'trade')}, win rate ${pct(x.winRate)}`
+              return (
+                <button
+                  key={x.m}
+                  type="button"
+                  role="gridcell"
+                  className={`pnl-day${x.net == null ? ' pnl-day--empty' : ''}`}
+                  style={pnlStep(x.net, maxAbs) ?? undefined}
+                  title={label}
+                  aria-label={label}
+                  onClick={() => onMonth(x.m)}
+                >
+                  <span className="pnl-day-top">
+                    <span className="pnl-day-num">{x.label}</span>
+                    {x.n > 0 && <span className="pnl-day-count">{x.n}<span className="pnl-full"> trade{x.n === 1 ? '' : 's'}</span></span>}
+                  </span>
+                  <span className="pnl-day-value">{x.net == null ? '—' : compactUsd(x.net)}</span>
+                </button>
+              )
+            })}
+            {qr.tradedMonths ? (
+              <button
+                type="button"
+                role="gridcell"
+                className="pnl-week"
+                title={`Q${qr.q + 1}: ${signedUsd(qr.total)}`}
+                onClick={() => onQuarter(qr.q)}
+              >
+                <span className={`pnl-week-value ${signClass(qr.total)}`}>
+                  <span className="pnl-full">{signedUsd(qr.total)}</span>
+                  <span className="pnl-short">{qr.total > 0 ? '+' : ''}{compactUsd(qr.total)}</span>
+                </span>
+                <span className="pnl-week-days">Q{qr.q + 1} · {qr.tradedMonths} mo</span>
+              </button>
+            ) : (
+              <div className="pnl-week pnl-week--empty" role="gridcell">—</div>
+            )}
+          </div>
+        ))}
+      </div>
+      <HeatScale maxAbs={maxAbs} />
+    </>
   )
 }
 

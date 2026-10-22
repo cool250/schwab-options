@@ -5,7 +5,7 @@ import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import {
   KpiStrip, MonthCalendar, DailyRunChart, SymbolTable,
-  MonthlyBarsChart, CumulativeChart, SymbolMonthHeat, YearCalendar, SourceTabs,
+  MonthGrid, CumulativeChart, SymbolMonthHeat, YearCalendar, SourceTabs,
 } from '../components/ReportViews'
 import { closedTrades, tradeStats, openTradeStats, symbolBreakdown, symbolOf, todayIso, utcDate, addDays, MONTH_NAMES } from '../utils/reportStats'
 
@@ -237,16 +237,19 @@ export default function Reports() {
   const sourceEmpty = `No ${{ options: 'option ', equity: 'equity or futures ', all: '' }[source]}trades closed in ${report?.label ?? ''}.`
 
   // ---- Click-through to the matching transactions ----
-  function openTransactions({ ticker, start, end, tab }) {
+  // open: the range has still-open trades (Month calendar) — show those too.
+  function openTransactions({ ticker, start, end, tab, open = false }) {
     const params = new URLSearchParams({ start, end, realized: String(REALIZED_ONLY) })
+    if (open) params.set('unrealized', 'true')
     if (ticker) params.set('ticker', ticker)
     if (tab) params.set('tab', tab)
     navigate(`/transactions?${params}`)
   }
   const monthBounds = (m) => monthRange(report.year, m + 1)
-  const openDay = (date) => openTransactions({ start: date, end: date })
-  const openWeek = (start, end) => openTransactions({ start, end })
+  const openDay = (date, open) => openTransactions({ start: date, end: date, open })
+  const openWeek = (start, end, open) => openTransactions({ start, end, open })
   const openMonth = (m) => openTransactions(monthBounds(m))
+  const openQuarter = (q) => openTransactions({ start: monthBounds(q * 3).start, end: monthBounds(q * 3 + 2).end })
 
   // Transactions shows one tab at a time, so a by-symbol click opens the tab
   // holding those trades — for "All", options when the symbol had any in the
@@ -337,9 +340,9 @@ export default function Reports() {
             <div className="report-row">
               <div className="card">
                 <div className="report-card-head">
-                  <h3 className="section-title">{isMonth ? `${monthName(report.month)} calendar` : 'Monthly P&L'}</h3>
+                  <h3 className="section-title">{isMonth ? 'Daily P&L' : 'Monthly P&L'}</h3>
                   <span className="report-card-note">
-                    {isMonth ? 'Options · click a day or week · dashed days: open trades expiring' : `Options · ${derived.positiveMonths} · click a month`}
+                    {isMonth ? 'Options · click a day or week · dashed days: open trades expiring' : `Options · ${derived.positiveMonths} · click a month or quarter`}
                   </span>
                 </div>
                 {isMonth ? (
@@ -354,14 +357,13 @@ export default function Reports() {
                     openLoading={openNow?.loading ?? false}
                   />
                 ) : (
-                  <div className="report-chart-fill">
-                    <MonthlyBarsChart
-                      trades={derived.optionTrades}
-                      lastMonth={derived.lastMonth}
-                      partialNote={report.year === currentYear() ? 'to date' : null}
-                      onMonth={openMonth}
-                    />
-                  </div>
+                  <MonthGrid
+                    trades={derived.optionTrades}
+                    lastMonth={derived.lastMonth}
+                    partialNote={report.year === currentYear() ? 'to date' : null}
+                    onMonth={openMonth}
+                    onQuarter={openQuarter}
+                  />
                 )}
               </div>
 
