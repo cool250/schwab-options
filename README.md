@@ -260,6 +260,36 @@ fly ssh sftp shell
 » put token.json /data/token.json
 ```
 
+### Custom domain (optional)
+
+The app works at `your-app-name.fly.dev` out of the box. To serve it from your own domain as well (e.g. `your-domain.com`):
+
+```bash
+fly ips list                              # needs a v4 (shared is fine) and a v6; if missing:
+fly ips allocate-v4 --shared && fly ips allocate-v6
+fly certs add your-domain.com             # prints the A/AAAA records it expects
+fly certs add www.your-domain.com
+```
+
+At your DNS provider, add:
+
+| Type | Host | Value |
+|---|---|---|
+| `A` | *(blank — the root)* | the shared v4 from `fly ips list` |
+| `AAAA` | *(blank — the root)* | a v6 from `fly ips list` |
+| `CNAME` | `www` | `your-app-name.fly.dev` |
+
+- Remove the registrar's parking defaults first — e.g. Porkbun's URL forwarding and its `ALIAS`/`*` `CNAME` records to `pixie.porkbun.com` — or they conflict with these. Leave `MX`/`TXT` (email forwarding) alone.
+- On Cloudflare DNS, set the records to **DNS only** (grey cloud); its proxy blocks Fly's certificate validation.
+- `fly certs check your-domain.com` shows progress; it reads **Issued** within minutes once DNS resolves.
+
+Then move the Schwab login to the new domain — otherwise **Reconnect Schwab** keeps returning you to the old one:
+
+1. Add `https://your-domain.com/api/auth/schwab/callback` to the callback URLs in Schwab's developer portal (keep the old ones) and wait for it to be approved.
+2. `fly secrets set SCHWAB_APP_CALLBACK_URL=https://your-domain.com/api/auth/schwab/callback` (restarts the app).
+
+Both hostnames keep working afterwards, but each has its own browser login, and a Schwab reconnect started on either one lands on the callback domain.
+
 ### Pushing new code
 
 From the repo root (the app name comes from `fly.toml`, so no `-a` needed):

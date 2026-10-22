@@ -108,7 +108,7 @@ export default function Reports() {
 
   // Month view: still-open option trades expiring in the shown month (today
   // or later), each priced at its live bid like Transactions' unrealized
-  // view — { year, month, legs: [{ expiration, unrealized }], loading }.
+  // view — { year, month, legs: [{ expiration, unrealized, atExpiry }], loading }.
   const [open, setOpen] = useState(null)
   const openRequestId = useRef(0)
 
@@ -134,6 +134,8 @@ export default function Reports() {
       const priced = (bids) => legs.map((t) => ({
         expiration: t.expirationDate,
         unrealized: bids[t.symbol] == null ? null : t.amount * getMultiplier(t.underlying_symbol) * (bids[t.symbol] - t.open_price),
+        // If it expires worthless: a short keeps its premium, a long loses its cost.
+        atExpiry: -t.amount * getMultiplier(t.underlying_symbol) * t.open_price,
       }))
       setOpen({ year, month, legs: priced({}), loading: legs.length > 0 })
       if (!legs.length) return

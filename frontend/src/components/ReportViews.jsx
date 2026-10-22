@@ -167,6 +167,9 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, open = 
         <>
           {plural(open.stats.n, 'open trade')} · expiring in {open.monthName}
           {open.stats.unpriced > 0 && open.stats.unrealized != null && (open.loading ? ' · pricing…' : ` · ${open.stats.unpriced} unpriced`)}
+          <span className="report-kpi-subline" title="P&L if every open option expires worthless: shorts keep their premium, longs lose their cost">
+            Max at expiry <span className={signClass(open.stats.atExpiry)}>{usd(open.stats.atExpiry)}</span>
+          </span>
         </>
       ),
       hero: true,

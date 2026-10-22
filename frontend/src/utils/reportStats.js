@@ -50,15 +50,21 @@ export function tradeStats(trades) {
 }
 
 /** Open (still-unrealized) trades, as the page annotates them: each
- *  { expiration: "YYYY-MM-DD", unrealized: number | null } — null while its
- *  live quote is loading or when it couldn't be priced. The total covers
- *  the priced ones; `unpriced` says how many it leaves out. */
+ *  { expiration: "YYYY-MM-DD", unrealized: number | null, atExpiry?: number }
+ *  — unrealized is null while its live quote is loading or when it couldn't
+ *  be priced. The total covers the priced ones; `unpriced` says how many it
+ *  leaves out. atExpiry: P&L if every leg expires worthless (all of them,
+ *  priced or not). */
 export function openTradeStats(legs) {
   const priced = legs.filter((l) => l.unrealized != null)
   return {
     n: legs.length,
     unrealized: priced.length ? priced.reduce((s, l) => s + l.unrealized, 0) : null,
     unpriced: legs.length - priced.length,
+    // null when no leg carries it (e.g. an unknown entry price), not a misleading $0.
+    atExpiry: legs.some((l) => Number.isFinite(l.atExpiry))
+      ? legs.reduce((s, l) => s + (Number.isFinite(l.atExpiry) ? l.atExpiry : 0), 0)
+      : null,
   }
 }
 
