@@ -287,10 +287,15 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
               if (!d.inMonth) {
                 return <div key={d.date} className="pnl-day pnl-day--out" role="gridcell"><span className="pnl-day-num">{MONTH_NAMES[utcDate(d.date).getUTCMonth()]} {dayNum}</span></div>
               }
-              // Open trades expiring this day: "2 open, unrealized +$340".
+              // Open trades expiring this day: "2 open, unrealized +$340, max at expiry +$900".
               const openLabel = d.open
                 ? `${plural(d.open.n, 'open trade')} expiring, unrealized ${d.open.unrealized == null ? (openLoading ? 'loading' : 'unknown') : signedUsd(d.open.unrealized)}`
+                  + (d.open.atExpiry == null ? '' : `, max at expiry ${signedUsd(d.open.atExpiry)}`)
                 : null
+              // Under the unrealized amount: the P&L if they all expire worthless.
+              const openMax = d.open?.atExpiry != null && (
+                <span className="pnl-day-max">max {compactUsd(d.open.atExpiry)}</span>
+              )
               if (d.future) {
                 if (!d.open) {
                   return <div key={d.date} className="pnl-day pnl-day--future" role="gridcell"><span className="pnl-day-num">{dayNum}</span></div>
@@ -314,6 +319,7 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
                     </span>
                     <span className={`pnl-day-value${openStep ? '' : ` ${signClass(d.open.unrealized)}`}`}>
                       {openCompact(d.open, openLoading)}
+                      {openMax}
                     </span>
                   </button>
                 )
@@ -350,6 +356,7 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
                   {openOnly ? (
                     <span className={`pnl-day-value${step ? '' : ` ${signClass(d.open.unrealized)}`}`}>
                       {openCompact(d.open, openLoading)}
+                      {openMax}
                     </span>
                   ) : <span className="pnl-day-value">
                     {d.open && <span className="pnl-day-open" title="Unrealized, open trades expiring">{openCompact(d.open, openLoading)} open · </span>}

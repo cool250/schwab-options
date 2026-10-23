@@ -61,15 +61,31 @@ class _SPAStaticFiles(StaticFiles):
     """Serve a React SPA: fall back to index.html for unknown paths so
     client-side routing continues to work after a hard refresh. Unknown
     /api paths stay a 404: an HTML 200 there would read as a broken JSON
-    response instead of a missing route."""
+    response instead of a missing route.
+
+    Caching: Vite's assets/ files are content-hashed (a new build means new
+    names), so they're cached for a year. Everything else — index.html above
+    all, which names the current assets — is no-cache: the browser
+    revalidates each load (a cheap 304 via the ETag), so a deploy shows up
+    without a hard refresh."""
 
     async def get_response(self, path: str, scope):
+        fallback = False
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             if exc.status_code == 404 and not (path == "api" or path.startswith("api/")):
-                return await super().get_response("index.html", scope)
-            raise
+                response = await super().get_response("index.html", scope)
+                fallback = True
+            else:
+                raise
+        # Only a real hashed asset is immutable — never the index.html
+        # fallback served for a missing (e.g. previous build's) asset.
+        if path.startswith("assets/") and not fallback and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 app = FastAPI(

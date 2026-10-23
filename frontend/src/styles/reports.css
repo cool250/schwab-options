@@ -70,6 +70,8 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
 .pnl-week--empty { cursor: default; color: var(--text-faint); }
 /* Unrealized P&L of open trades on a day/week that also has closed ones. */
 .pnl-day-open { font-size: 0.68rem; font-weight: 500; font-style: italic; opacity: 0.85; }
+/* Open day's max at expiry, on its own line under the unrealized amount. */
+.pnl-day-max { display: block; font-size: 0.68rem; font-weight: 500; opacity: 0.85; }
 .pnl-week-open { font-size: 0.72rem; font-style: italic; white-space: nowrap; }
 .pnl-week--open .pnl-week-value { font-weight: 600; font-style: italic; }
 .pnl-week-value { font-weight: 700; font-size: 0.9rem; white-space: nowrap; }
