@@ -11,7 +11,7 @@ import logging
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
-from service.portfolio.date_windows import EQUITY_LOOKBACK_DAYS, expand_date_range, open_position_lookback_days
+from service.portfolio.date_windows import equity_lookback_days, expand_date_range, open_position_lookback_days
 from service.portfolio.equity_matching import combine_equity_lots, match_equity_fills
 from service.portfolio.option_matching import identify_trade_type, match_option_trades
 from service.portfolio.providers import TransactionProvider, get_transaction_provider
@@ -173,7 +173,7 @@ class TransactionService:
         """
         # Positions can sit open far longer than a weekly option, so look back
         # further than the options matcher does for the opening lot.
-        expanded = expand_date_range(start_date, end_date, lookback_days=EQUITY_LOOKBACK_DAYS)
+        expanded = expand_date_range(start_date, end_date, lookback_days=equity_lookback_days())
 
         raw_trades = self.provider.fetch_equity_future_legs(expanded["start_date"], expanded["end_date"])
 

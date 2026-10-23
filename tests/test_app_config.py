@@ -67,3 +67,18 @@ def test_a_missing_explicit_file_is_an_error(tmp_path, monkeypatch):
 
 def test_public_config_only_exposes_the_frontend_settings():
     assert set(app_config.public_config()) == set(app_config.PUBLIC_SETTINGS)
+
+
+def test_transaction_padding_follows_the_config(tmp_path, monkeypatch):
+    from service.portfolio.date_windows import equity_lookback_days, expand_date_range
+
+    path = tmp_path / "padding.properties"
+    path.write_text(
+        "transactions.option_lookback_days=60\n"
+        "transactions.option_lookforward_days=0\n"
+        "transactions.equity_lookback_days=90\n"
+    )
+    monkeypatch.setenv("APP_PROPERTIES", str(path))
+    app_config.reload_config()
+    assert expand_date_range("2026-10-01", "2026-10-31") == {"start_date": "2026-08-02", "end_date": "2026-10-31"}
+    assert equity_lookback_days() == 90

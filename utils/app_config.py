@@ -25,6 +25,9 @@ SETTINGS: dict[str, tuple[type, Any, Optional[tuple], Optional[int]]] = {
     "trades.group_ratio_spreads": (bool, True, None, None),
     "transactions.default_view": (str, "realized", ("realized", "unrealized", "both"), None),
     "positions.open_lookback_days": (int, 30, None, 1),
+    "transactions.option_lookback_days": (int, 30, None, 1),
+    "transactions.option_lookforward_days": (int, 5, None, 0),
+    "transactions.equity_lookback_days": (int, 180, None, 1),
     "copilot.history_days": (int, 90, None, 1),
 }
 

@@ -1,26 +1,25 @@
 """How far around a requested date range to fetch transactions, so a trade
 whose open (or close) falls just outside the range can still be matched.
 
-The windows are named here rather than scattered as magic numbers:
-  OPTION_LOOKBACK_DAYS / OPTION_LOOKFORWARD_DAYS   options matcher padding
-  EQUITY_LOOKBACK_DAYS                              equities/futures sit open longer
-  MAX_SPAN_DAYS                                     Schwab rejects requests over a year
-
-How far back open futures / futures-option positions are rebuilt from
-history is an application setting instead: positions.open_lookback_days in
-config/app.properties (open_position_lookback_days() below)."""
+The padding is set in config/app.properties (transactions.option_lookback_days,
+transactions.option_lookforward_days, transactions.equity_lookback_days),
+as is how far back open futures / futures-option positions are rebuilt
+(positions.open_lookback_days). MAX_SPAN_DAYS stays here: it's Schwab's
+one-year request limit, not a preference."""
 
 import logging
 from datetime import timedelta
-from typing import Dict
+from typing import Dict, Optional
 
 from utils.app_config import get_config
 from utils.utils import get_date_object
 
-OPTION_LOOKBACK_DAYS = 30
-OPTION_LOOKFORWARD_DAYS = 5
-EQUITY_LOOKBACK_DAYS = 180
 MAX_SPAN_DAYS = 364
+
+
+def equity_lookback_days() -> int:
+    """How far before a range equity/futures round-trips look for their open."""
+    return get_config()["transactions.equity_lookback_days"]
 
 
 def open_position_lookback_days() -> int:
@@ -32,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 def expand_date_range(start_date: str, end_date: str,
-                       lookback_days: int = OPTION_LOOKBACK_DAYS,
-                       lookforward_days: int = OPTION_LOOKFORWARD_DAYS,
+                       lookback_days: Optional[int] = None,
+                       lookforward_days: Optional[int] = None,
                        max_span_days: int = MAX_SPAN_DAYS) -> Dict[str, str]:
     """
     Expand a date range by a specified number of days in both directions.
@@ -47,13 +46,20 @@ def expand_date_range(start_date: str, end_date: str,
     Args:
         start_date (str): Original start date in YYYY-MM-DD format
         end_date (str): Original end date in YYYY-MM-DD format
-        lookback_days (int): Number of days to look back
-        lookforward_days (int): Number of days to look forward
+        lookback_days (int): Number of days to look back (default:
+            transactions.option_lookback_days)
+        lookforward_days (int): Number of days to look forward (default:
+            transactions.option_lookforward_days)
         max_span_days (int): Hard cap on the total expanded span
 
     Returns:
         dict: Expanded date range with keys 'start_date' and 'end_date'
     """
+    # Defaults read at call time (not def time) so they follow the config.
+    if lookback_days is None:
+        lookback_days = get_config()["transactions.option_lookback_days"]
+    if lookforward_days is None:
+        lookforward_days = get_config()["transactions.option_lookforward_days"]
     start_date_obj = get_date_object(start_date)
     end_date_obj = get_date_object(end_date)
 
