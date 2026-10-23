@@ -7,6 +7,11 @@ signed "qty" (positive = bought, negative = sold). Every figure is per share
 of one unit of the position — callers scale by contract multiplier and
 quantity themselves.
 
+A "STOCK" leg is shares of the underlying (a covered call's): its "strike"
+is the entry price and its expiration value is price − entry, so it carries
+no premium ("price" 0) and qty 1 = one share per unit, i.e. 100 shares per
+contract once scaled.
+
 The payoff at expiration is piecewise linear with kinks only at the strikes,
 so everything (max profit/loss, breakevens, probability of profit) is found
 exactly by evaluating the kinks plus the slope past the highest strike —
@@ -18,6 +23,8 @@ from typing import Optional
 
 
 def intrinsic(option_type: str, strike: float, price: float) -> float:
+    if option_type == "STOCK":
+        return price - strike  # shares: gain or loss from the entry price
     return max(strike - price, 0.0) if option_type == "PUT" else max(price - strike, 0.0)
 
 
@@ -38,14 +45,15 @@ def payoff_profile(legs: list[dict], credit: float) -> dict:
     Returns {"points", "values", "upsideSlope", "maxProfit", "maxLoss",
     "breakevens"}. maxProfit/maxLoss are None when unbounded (P&L keeps
     growing/falling past the highest strike — only net long/short calls
-    can do that; the downside always stops at a price of zero).
+    (or shares) can do that; the downside always stops at a price of zero).
     """
     strikes = sorted({leg["strike"] for leg in legs})
     points = [0.0, *strikes]
     values = [payoff(legs, credit, p) for p in points]
-    # Past the highest strike every put is worthless and every call gains
-    # $1 per $1 of price, so the slope there is just the net call quantity.
-    upside_slope = sum(leg["qty"] for leg in legs if leg["type"] == "CALL")
+    # Past the highest strike every put is worthless and every call (and
+    # share) gains $1 per $1 of price, so the slope there is the net call
+    # plus share quantity — 0 for a covered call: the shares cover the call.
+    upside_slope = sum(leg["qty"] for leg in legs if leg["type"] in ("CALL", "STOCK"))
 
     breakevens = []
     for (p1, v1), (p2, v2) in zip(zip(points, values), zip(points[1:], values[1:])):

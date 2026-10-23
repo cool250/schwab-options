@@ -187,7 +187,8 @@ def _strategy_legs_doc() -> str:
             else f'{leg["key"]} (same strike as {leg["of"]})'
             for leg in TEMPLATES[key]["legs"]
         )
-        lines.append(f"{key}: {legs}")
+        shares = TEMPLATES[key].get("shares")
+        lines.append(f"{key}: {legs}" + (f" — plus {shares * 100} shares held per contract (bought at spot)" if shares else ""))
     return "\n".join(lines)
 
 

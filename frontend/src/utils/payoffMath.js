@@ -5,7 +5,10 @@
  * the same cases in tests/fixtures/payoff_cases.json.
  *
  * A leg: { type: "PUT"|"CALL", side: "BUY"|"SELL", strike, premium, qty,
- *          multiplier? } — qty unsigned, P&L in dollars (x multiplier). */
+ *          multiplier? } — qty unsigned, P&L in dollars (x multiplier).
+ * A "STOCK" leg is shares (a covered call's): `strike` is the entry price,
+ * `premium` 0, and qty counts contracts' worth (x multiplier = shares) — its
+ * value is just price − entry, before and at expiration. */
 
 import { MULTIPLIER } from "./contractMultiplier.js";
 
@@ -42,9 +45,13 @@ export function blackScholes(spot, strike, dte, iv, isCall) {
    PAYOFF MATH
 ============================================================================ */
 
+function intrinsicValue(leg, price) {
+  if (leg.type === "STOCK") return price - leg.strike;
+  return leg.type === "CALL" ? Math.max(0, price - leg.strike) : Math.max(0, leg.strike - price);
+}
+
 export function legPL(leg, price) {
-  const intrinsic =
-    leg.type === "CALL" ? Math.max(0, price - leg.strike) : Math.max(0, leg.strike - price);
+  const intrinsic = intrinsicValue(leg, price);
   const perShare = leg.side === "BUY" ? intrinsic - leg.premium : leg.premium - intrinsic;
   return perShare * leg.qty * (leg.multiplier ?? MULTIPLIER);
 }
@@ -91,7 +98,7 @@ export function findBreakevens(legs) {
  *  Black-Scholes approximation the mock chain is built from. At dte<=0 this
  *  collapses to pure intrinsic value, matching the at-expiration payoff. */
 export function legTheoPL(leg, price, dte, iv) {
-  if (dte <= 0) return legPL(leg, price);
+  if (dte <= 0 || leg.type === "STOCK") return legPL(leg, price);
   const value = blackScholes(price, leg.strike, dte, iv, leg.type === "CALL");
   const perShare = leg.side === "BUY" ? value - leg.premium : leg.premium - value;
   return perShare * leg.qty * (leg.multiplier ?? MULTIPLIER);
@@ -108,12 +115,13 @@ export function maxLossProfit(legs) {
   return { maxProfit, maxLoss };
 }
 
-// Net calls held, multiplier-weighted: the P&L slope past the highest
-// strike. > 0 = unlimited profit to the upside, < 0 = unlimited loss.
+// Net calls (and shares) held, multiplier-weighted: the P&L slope past the
+// highest strike. > 0 = unlimited profit to the upside, < 0 = unlimited loss;
+// 0 for a covered call, whose shares cover the call.
 export function upsideSlope(legs) {
   return legs.reduce(
     (sum, leg) =>
-      leg.type === "CALL" ? sum + (leg.side === "BUY" ? 1 : -1) * leg.qty * (leg.multiplier ?? MULTIPLIER) : sum,
+      leg.type === "CALL" || leg.type === "STOCK" ? sum + (leg.side === "BUY" ? 1 : -1) * leg.qty * (leg.multiplier ?? MULTIPLIER) : sum,
     0
   );
 }

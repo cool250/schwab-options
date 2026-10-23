@@ -75,6 +75,8 @@
 .ruler-tag.tag-below { top: 34px; }
 .ruler-tag.tag-sell { background: var(--error-bg);   color: var(--error);   border: 1px solid var(--error-border); }
 .ruler-tag.tag-buy  { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
+/* Shares (a covered call's): dashed, since they're not an option strike and don't drag. */
+.ruler-tag.tag-stock { border-style: dashed; }
 .ruler-tag-dragging { box-shadow: var(--shadow-md); transform: translateX(-50%) scale(1.12); z-index: 2; }
 
 /* ─── StrikeLab: P&L heatmap (Table view) ─────────────── */

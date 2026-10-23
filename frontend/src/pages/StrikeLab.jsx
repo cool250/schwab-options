@@ -1270,6 +1270,10 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symb
         {legs.map((leg) => {
           const stackIdx = stackIndexById[leg.id] ?? 0;
           const stackOffset = stackIdx * STACK_STEP_PX;
+          // Shares (a covered call's) sit at their entry price; there's no
+          // other strike to drag them to, so a click just opens the editor.
+          const isStock = leg.type === "STOCK";
+          const draggable = onUpdateLeg && !isStock;
           return (
             <div
               key={leg.id}
@@ -1277,14 +1281,14 @@ function StrikeRuler({ legs, spot, lo, hi, chain, onUpdateLeg, onRemoveLeg, symb
               style={{
                 left: `${pct(leg.strike)}%`,
                 top: leg.side === "SELL" ? `calc(34px + ${stackOffset}px)` : `calc(-44px - ${stackOffset}px)`,
-                cursor: onUpdateLeg ? "ew-resize" : "pointer",
+                cursor: draggable ? "ew-resize" : "pointer",
               }}
-              onMouseDown={onUpdateLeg ? (e) => { e.preventDefault(); draggedRef.current = false; setDraggingId(leg.id); } : undefined}
-              onTouchStart={onUpdateLeg ? () => { draggedRef.current = false; setDraggingId(leg.id); } : undefined}
-              title={onUpdateLeg ? "Click to edit, drag to change strike" : undefined}
+              onMouseDown={draggable ? (e) => { e.preventDefault(); draggedRef.current = false; setDraggingId(leg.id); } : undefined}
+              onTouchStart={draggable ? () => { draggedRef.current = false; setDraggingId(leg.id); } : undefined}
+              onClick={isStock ? () => setOpenLegId((prev) => (prev === leg.id ? null : leg.id)) : undefined}
+              title={isStock ? `${shareCount(leg)} shares at $${leg.strike} — click to edit` : onUpdateLeg ? "Click to edit, drag to change strike" : undefined}
             >
-              {leg.strike}
-              {leg.type[0]}
+              {isStock ? `${shareCount(leg)} sh` : <>{leg.strike}{leg.type[0]}</>}
             </div>
           );
         })}
@@ -1325,6 +1329,9 @@ function legRoi(leg) {
 // multi-leg strategy doesn't need a full table's worth of vertical space for
 // legs that aren't being edited right now.
 const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, expLabel, quote, onUpdate, onRemove, onClose }, ref) {
+  if (leg.type === "STOCK") {
+    return <StockPopover ref={ref} leg={leg} left={left} symbol={symbol} onUpdate={onUpdate} onRemove={onRemove} onClose={onClose} />;
+  }
   const roi = legRoi(leg);
   return (
     <div className="leg-popover" style={{ left: `${left}%` }} ref={ref}>
@@ -1404,6 +1411,64 @@ const LegPopover = React.forwardRef(function LegPopover({ leg, left, symbol, exp
           {roi.annualized != null && <span>Annualized {roi.annualized.toFixed(1)}%</span>}
         </div>
       )}
+      <button type="button" className="btn btn-primary leg-popover-remove" onClick={onRemove}>
+        Remove
+      </button>
+    </div>
+  );
+});
+
+// Shares a STOCK leg holds: qty counts contracts' worth (see payoffMath.js).
+function shareCount(leg) {
+  return leg.qty * (leg.multiplier ?? 100);
+}
+
+// A share leg's editor (a covered call's shares): side, how many, and the
+// entry price its P&L is measured from — no premium, type or chain quote.
+const StockPopover = React.forwardRef(function StockPopover({ leg, left, symbol, onUpdate, onRemove, onClose }, ref) {
+  const perContract = leg.multiplier ?? 100;
+  return (
+    <div className="leg-popover" style={{ left: `${left}%` }} ref={ref}>
+      <div className="leg-popover-header">
+        <span>{symbol} shares</span>
+        <button type="button" className="leg-popover-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+      <div className="leg-popover-grid">
+        <label>
+          Side
+          <select
+            className={`leg-cell leg-side-${leg.side.toLowerCase()}`}
+            value={leg.side}
+            onChange={(e) => onUpdate({ side: e.target.value })}
+          >
+            <option value="BUY">LONG</option>
+            <option value="SELL">SHORT</option>
+          </select>
+        </label>
+        <label>
+          Shares
+          <input
+            className="leg-cell"
+            type="number"
+            min={perContract}
+            step={perContract}
+            value={shareCount(leg)}
+            onChange={(e) => onUpdate({ qty: Math.max(1, Math.round(+e.target.value / perContract)) })}
+          />
+        </label>
+        <label className="leg-popover-premium">
+          Entry price
+          <input
+            className="leg-cell"
+            type="number"
+            step="0.01"
+            value={leg.strike}
+            onChange={(e) => onUpdate({ strike: Math.max(0, +e.target.value) })}
+          />
+        </label>
+      </div>
       <button type="button" className="btn btn-primary leg-popover-remove" onClick={onRemove}>
         Remove
       </button>

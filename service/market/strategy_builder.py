@@ -21,6 +21,12 @@ net credit at mid, "debit" ones for a net debit. Extra per-template rules:
   creditCoversWing  (leg, wing): net credit >= that call spread's width —
                the jade lizard's "no upside risk" property, same rule as
                the screener's jade_lizard_rows
+  shares       shares of the underlying held per unit (1 = 100 shares per
+               contract), bought at spot — a covered call's. Not a leg: it
+               has no strike to place and no premium, so the credit rule
+               and the search ignore it; it only enters the payoff (max
+               profit/loss, breakevens, POP, return) as a STOCK leg (see
+               service/shared/strategy_math.py).
 
 Adding a strategy = adding a TEMPLATES entry; the solver and the frontend
 form (built from GET /api/market/strategies) need no changes. The Options
@@ -79,9 +85,11 @@ TEMPLATES: dict[str, dict] = {
         "description": "Sell one put below the market; keep the premium if it expires above the strike.",
         "legs": [_anchor("short_put", "PUT", -1, "Short put", "delta", 0.30)],
     },
-    "SHORT_CALL": {
-        "name": "Short Call", "direction": "credit",
-        "description": "Sell one call above the market; unlimited risk to the upside.",
+    "COVERED_CALL": {
+        "name": "Covered Call", "direction": "credit",
+        "description": "Own 100 shares and sell one call above the market; the shares cover the call, "
+                       "capping the upside at the strike.",
+        "shares": 1,
         "legs": [_anchor("short_call", "CALL", -1, "Short call", "delta", 0.30)],
     },
     "PUT_CREDIT_SPREAD": {
@@ -229,6 +237,7 @@ def list_templates() -> list[dict]:
             "description": t["description"],
             "legs": t["legs"],
             "order": t.get("order", []),
+            "shares": t.get("shares", 0),
             "anchorModes": ANCHOR_MODES,
             "wingModes": WING_MODES,
         }
@@ -372,9 +381,13 @@ def _candidate(template: dict, placed: dict[str, dict], spot: float, iv: Optiona
     if covers and credit < abs(placed[covers[1]]["strike"] - placed[covers[0]]["strike"]):
         return None
 
-    profile = payoff_profile(legs, credit)
+    # Shares (a covered call's) are bought at spot: no premium, so they're
+    # outside the credit above, but they're in every payoff figure below.
+    shares = template.get("shares", 0)
+    payoff_legs = legs + ([{"type": "STOCK", "strike": spot, "qty": shares}] if shares else [])
+    profile = payoff_profile(payoff_legs, credit)
     max_profit, max_loss = profile["maxProfit"], profile["maxLoss"]
-    pop = probability_of_profit(legs, credit, spot, iv, dte)
+    pop = probability_of_profit(payoff_legs, credit, spot, iv, dte)
     risk = -max_loss if max_loss is not None and max_loss < 0 else None
     ret = None
     if risk and max_profit is not None:
@@ -392,6 +405,8 @@ def _candidate(template: dict, placed: dict[str, dict], spot: float, iv: Optiona
         ],
         # Per share, for one unit of the position. Positive = net credit.
         "netPremium": credit,
+        # Shares held per unit, bought at `price` (spot); None without any.
+        "shares": {"qty": shares, "price": spot} if shares else None,
         # The same at the natural price (sell at the bid, buy at the ask) —
         # what an order filled immediately would get; the copilot's
         # net-credit rule is checked against this, not mid.
@@ -405,8 +420,9 @@ def _candidate(template: dict, placed: dict[str, dict], spot: float, iv: Optiona
         # either side is unbounded.
         "returnOnRisk": ret,
         "annualizedReturn": ret * 365 / max(dte, 1) if ret is not None and template["direction"] == "credit" else None,
-        "pnlAtSpot": payoff(legs, credit, spot),
-        "netDelta": sum(leg["qty"] * leg["delta"] for leg in legs) if all(d is not None for d in deltas) else None,
+        "pnlAtSpot": payoff(payoff_legs, credit, spot),
+        # A share's delta is 1.
+        "netDelta": shares + sum(leg["qty"] * leg["delta"] for leg in legs) if all(d is not None for d in deltas) else None,
     }
 
 

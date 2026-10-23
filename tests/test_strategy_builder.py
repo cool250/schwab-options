@@ -70,6 +70,22 @@ def test_ratio_put_opens_for_a_credit_with_two_short_puts():
     assert best["netPremium"] > 0
 
 
+def test_covered_call_counts_the_shares_in_risk_and_return():
+    best = sb.build("COVERED_CALL", {"short_call": {"mode": "strike", "value": 105}}, CHAIN)["best"]
+    call = legs_by_key(best)["short_call"]
+    credit = call["mid"]
+    assert call["strike"] == 105 and call["qty"] == -1
+    assert best["shares"] == {"qty": 1, "price": SPOT}
+    assert best["netPremium"] == pytest.approx(credit)  # the shares carry no premium
+    # Capped upside (the shares cover the call), not the naked call's unlimited loss.
+    assert best["maxProfit"] == pytest.approx(credit + 105 - SPOT)
+    assert best["maxLoss"] == pytest.approx(credit - SPOT)
+    assert best["breakevens"] == pytest.approx([SPOT - credit])
+    assert best["returnOnRisk"] == pytest.approx((credit + 105 - SPOT) / (SPOT - credit))
+    assert best["annualizedReturn"] is not None
+    assert best["netDelta"] == pytest.approx(1 + -1 * call["delta"])
+
+
 def test_ratio_call_opens_for_a_credit_with_two_higher_short_calls():
     best = sb.build("RATIO_CALL", {}, CHAIN)["best"]
     legs = legs_by_key(best)

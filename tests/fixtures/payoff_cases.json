@@ -148,6 +148,30 @@
     89.0
    ],
    "pop": 0.9884208598
+  },
+  {
+   "name": "covered call",
+   "legs": [
+    {
+     "type": "STOCK",
+     "strike": 105,
+     "qty": 1,
+     "price": 0.0
+    },
+    {
+     "type": "CALL",
+     "strike": 110,
+     "qty": -1,
+     "price": 2.0
+    }
+   ],
+   "netPremium": 2.0,
+   "maxProfit": 7.0,
+   "maxLoss": -103.0,
+   "breakevens": [
+    103.0
+   ],
+   "pop": 0.5919194634
   }
  ]
 }

@@ -18,7 +18,9 @@
    are always on screen. */
 .sb-dialog {
   width: 100%;
-  max-width: 880px;
+  /* Wide enough for the result's seven key numbers on one line (see
+     .sb-metrics); narrower screens wrap them instead of scrolling. */
+  max-width: 1040px;
   max-height: 100%;
   display: flex;
   flex-direction: column;
@@ -156,10 +158,8 @@
 .sb-metrics {
   flex-direction: row; /* overrides metrics.css's stacked phone layout */
   align-items: flex-start;
-  gap: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  gap: 10px 0;
+  flex-wrap: wrap; /* a second line rather than a horizontal scrollbar */
   margin-bottom: 0;
 }
 .sb-metrics .metric { flex: none; padding-right: 16px; margin-right: 16px; border-right: 1px solid var(--border); }

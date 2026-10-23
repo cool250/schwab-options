@@ -130,7 +130,10 @@ function PayoffSketch({ template }) {
     const intrinsic = (type, k, s) => (type === 'PUT' ? Math.max(k - s, 0) : Math.max(s - k, 0))
     const premium = (type, k) => intrinsic(type, k, 100) + 5 * Math.exp(-Math.abs(k - 100) / 12)
     const credit = template.legs.reduce((sum, l) => sum - l.qty * premium(l.type, strikes[l.key]), 0)
-    const pl = (s) => credit + template.legs.reduce((sum, l) => sum + l.qty * intrinsic(l.type, strikes[l.key], s), 0)
+    // Shares held (a covered call's), bought at the nominal spot of 100.
+    const shares = template.shares || 0
+    const pl = (s) =>
+      credit + shares * (s - 100) + template.legs.reduce((sum, l) => sum + l.qty * intrinsic(l.type, strikes[l.key], s), 0)
     const xs = Array.from({ length: 61 }, (_, i) => 76 + i * 0.8)
     const ys = xs.map(pl)
     const lo = Math.min(...ys, 0)
@@ -302,13 +305,20 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
     onApply({
       expirationDate: chosen.expirationDate ?? result.expirationDate,
       dte: chosen.dte ?? result.dte,
-      legs: chosen.legs.map((l) => ({
-        side: l.qty < 0 ? 'SELL' : 'BUY',
-        qty: Math.abs(l.qty) * qty,
-        type: l.type,
-        strike: l.strike,
-        premium: +l.mid.toFixed(2),
-      })),
+      legs: [
+        // Shares first (a covered call's): a STOCK leg entered at spot, no
+        // premium — see utils/payoffMath.js.
+        ...(chosen.shares
+          ? [{ side: 'BUY', qty: chosen.shares.qty * qty, type: 'STOCK', strike: +chosen.shares.price.toFixed(2), premium: 0 }]
+          : []),
+        ...chosen.legs.map((l) => ({
+          side: l.qty < 0 ? 'SELL' : 'BUY',
+          qty: Math.abs(l.qty) * qty,
+          type: l.type,
+          strike: l.strike,
+          premium: +l.mid.toFixed(2),
+        })),
+      ],
       label: [
         template.name,
         placementSummary(template, result.params),
@@ -586,6 +596,19 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
                             : `${chosen.returnOnRisk.toFixed(2)}×`}
                       </span>
                     </div>
+                    {isCredit && (
+                      <div className="metric">
+                        <span className="metric-label">
+                          Annualized Return
+                          <HelpTip label="About annualized return">
+                            Return on Risk scaled to a 365-day year (× 365 ÷ {chosen.dte ?? result.dte} days), so
+                            trades on different expirations compare fairly. It assumes the same return could be
+                            repeated all year.
+                          </HelpTip>
+                        </span>
+                        <span className="metric-value">{fmtPct(chosen.annualizedReturn)}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="sb-table-wrap">
@@ -603,6 +626,16 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
                         </tr>
                       </thead>
                       <tbody>
+                        {chosen.shares && (
+                          <tr>
+                            <td>
+                              <span className="sb-side buy">Own {(chosen.shares.qty * scale).toLocaleString()}</span>
+                            </td>
+                            <td>{symbol} shares</td>
+                            <td colSpan={5} className="text-muted">Held to cover the call · priced at spot</td>
+                            <td>{fmtPrice(chosen.shares.price)}</td>
+                          </tr>
+                        )}
                         {chosen.legs.map((l) => (
                           <tr key={l.key}>
                             <td>
@@ -646,6 +679,9 @@ export default function StrategyBuilderOverlay({ symbol, spot, expirations, init
                               {fmtUsd(c.netPremium)} {c.netPremium >= 0 ? 'cr' : 'db'}
                             </span>
                             <span className="text-muted">POP {fmtPct(c.pop)}</span>
+                            {isCredit && c.annualizedReturn != null && (
+                              <span className="text-muted">{fmtPct(c.annualizedReturn)}/yr</span>
+                            )}
                             {i === 0 && <span className="sb-alt-tag">Best match</span>}
                           </button>
                         ))}
