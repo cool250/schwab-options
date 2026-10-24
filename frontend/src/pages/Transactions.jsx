@@ -125,10 +125,11 @@ export default function Transactions() {
   const cachedOptions = null
   const cachedEquity = null
 
+  // One ticker for both tabs: typed on either, it's there on the other
+  // (both searches accept a stock ticker or a futures root, with or without "/").
+  const [ticker, setTicker] = useState(searchParams.get('ticker')?.toUpperCase() ?? '')
+
   // ---- Option transactions ----
-  const [ticker, setTicker] = useState(
-    initialTab === 'options' ? (searchParams.get('ticker')?.toUpperCase() ?? cachedOptions?.ticker ?? '') : ''
-  )
   const [contractType, setContractType] = useState(cachedOptions?.contractType ?? 'ALL')
   const [ignoreFutures, setIgnoreFutures] = useState(cachedOptions?.ignoreFutures ?? false)
   const [ignoreGrouping, setIgnoreGrouping] = useState(cachedOptions?.ignoreGrouping ?? false)
@@ -321,9 +322,6 @@ export default function Transactions() {
     : null
 
   // ---- Equity / futures transactions ----
-  const [equityTicker, setEquityTicker] = useState(
-    initialTab === 'equity' ? (searchParams.get('ticker')?.toUpperCase() ?? cachedEquity?.ticker ?? '') : ''
-  )
   const [assetType, setAssetType] = useState(cachedEquity?.assetType ?? 'ALL')
   const [equityRealizedOnly, setEquityRealizedOnly] = useState(
     initialTab === 'equity' && searchParams.get('realized') ? searchParams.get('realized') !== 'false' : cachedEquity?.realizedOnly ?? true
@@ -354,13 +352,13 @@ export default function Transactions() {
 
   function handleEquitySearch(e) {
     e.preventDefault()
-    runEquitySearch(equityTicker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
+    runEquitySearch(ticker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
   }
 
   // Mirrors the options-tab bootstrap above, for links that arrive with ?tab=equity.
   useEffect(() => {
     if (initialTab === 'equity' && fromLink) {
-      runEquitySearch(equityTicker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
+      runEquitySearch(ticker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -528,8 +526,8 @@ export default function Transactions() {
                   <label>Ticker / Futures Root</label>
                   <input
                     type="text"
-                    value={equityTicker}
-                    onChange={(e) => setEquityTicker(e.target.value.toUpperCase())}
+                    value={ticker}
+                    onChange={(e) => setTicker(e.target.value.toUpperCase())}
                     placeholder="e.g. AAPL, ES (blank = all)"
                     className="input"
                   />
