@@ -10,9 +10,10 @@ from service.shared.contracts import get_contract_multiplier
 class FakeTransactions:
     """A TransactionProvider serving fixed legs, no network."""
 
-    def __init__(self, option_legs=(), equity_legs=()):
+    def __init__(self, option_legs=(), equity_legs=(), income_fees=()):
         self.option_legs = list(option_legs)
         self.equity_legs = list(equity_legs)
+        self.income_fees = list(income_fees)
 
     def fetch_raw_transactions(self, start_date, end_date):
         return []
@@ -23,6 +24,9 @@ class FakeTransactions:
 
     def fetch_equity_future_legs(self, start_date, end_date):
         return [dict(leg) for leg in self.equity_legs]
+
+    def fetch_income_and_fees(self, start_date, end_date):
+        return [dict(row) for row in self.income_fees]
 
     def normalize_futures_symbol(self, symbol):
         # '/ESZ26:XCME' -> 'ES' (root before the month code + 2-digit year)
@@ -72,7 +76,7 @@ def equity_leg(date, symbol, amount, price, *, asset_type="EQUITY", multiplier=1
 def make_service():
     from service.portfolio import TransactionService
 
-    def make(option_legs=(), equity_legs=()):
-        return TransactionService(provider=FakeTransactions(option_legs, equity_legs))
+    def make(option_legs=(), equity_legs=(), income_fees=()):
+        return TransactionService(provider=FakeTransactions(option_legs, equity_legs, income_fees))
 
     return make

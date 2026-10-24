@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getAllocations, getEquityTransactions, getOptionTransactions, getOptionBids, friendlyErrorMessage } from '../api/client'
+import { getAllocations, getEquityTransactions, getIncomeAndFees, getOptionTransactions, getOptionBids, friendlyErrorMessage } from '../api/client'
 import { loadOpenPositionsPl } from '../utils/openPositions'
 import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
@@ -62,6 +62,20 @@ function normalizeEquityRows(rows) {
 // showing up as $2,800 "P&L" for a month it was never closed in.
 function normalizeOptionRows(rows) {
   return rows.map((t) => (t.type === 'TRADE' ? { ...t, total_amount: 0 } : t))
+}
+
+// { income, fees, incomeBy, feesBy } of getIncomeAndFees rows — totals, and
+// { [category]: dollars } for each kind — or null when they didn't load.
+function incomeFeeTotals(rows) {
+  if (!rows) return null
+  const out = { income: 0, fees: 0, incomeBy: {}, feesBy: {} }
+  for (const r of rows) {
+    const amount = r.amount ?? 0
+    const [key, by] = r.kind === 'INCOME' ? ['income', out.incomeBy] : ['fees', out.feesBy]
+    out[key] += amount
+    by[r.category] = (by[r.category] ?? 0) + amount
+  }
+  return out
 }
 
 // Calendar date only — the views key everything by "YYYY-MM-DD".
@@ -182,13 +196,17 @@ export default function Reports() {
       const prevMonth = period === 'month' ? previousMonth(year, month) : null
       const prevRange = prevMonth && monthRange(prevMonth.year, prevMonth.month)
       const prevName = prevMonth ? MONTH_NAMES[prevMonth.month - 1] : null
-      const [data, equityData, prevData, prevEquityData] = await Promise.all([
+      const [data, equityData, prevData, prevEquityData, incomeFees, prevIncomeFees] = await Promise.all([
         getAllocations(start, end, REALIZED_ONLY),
         getEquityTransactions('', start, end, 'ALL', REALIZED_ONLY),
         // Only for the "vs last month" comparison — the report still loads
         // without them.
         prevRange ? getAllocations(prevRange.start, prevRange.end, REALIZED_ONLY).catch(() => null) : Promise.resolve(null),
         prevRange ? getEquityTransactions('', prevRange.start, prevRange.end, 'ALL', REALIZED_ONLY).catch(() => null) : Promise.resolve(null),
+        // Dividends, interest and fees: shown beside the trade P&L — the
+        // report still loads without them.
+        getIncomeAndFees(start, end).catch(() => null),
+        prevRange ? getIncomeAndFees(prevRange.start, prevRange.end).catch(() => null) : Promise.resolve(null),
       ])
       if (!current()) return
       setReports((s) => ({ ...s, [period]: {
@@ -198,6 +216,8 @@ export default function Reports() {
         equityRows: withDay(normalizeEquityRows(equityData ?? [])),
         prevOptionRows: prevData ? withDay(normalizeOptionRows(prevData)) : null,
         prevEquityRows: prevEquityData ? withDay(normalizeEquityRows(prevEquityData)) : null,
+        incomeFees,
+        prevIncomeFees,
         prevName,
       } }))
     } catch (err) {
@@ -244,6 +264,8 @@ export default function Reports() {
       prevStats: report.prevOptionRows ? tradeStats(closedTrades(report.prevOptionRows)) : null,
       equityNet: tradeStats(equityTrades).net,
       prevEquityNet: report.prevEquityRows ? tradeStats(closedTrades(report.prevEquityRows, { dropZero: true })).net : null,
+      incomeFees: incomeFeeTotals(report.incomeFees),
+      prevIncomeFees: incomeFeeTotals(report.prevIncomeFees),
       today,
       lastMonth,
       yearEnd: isCurrentYear ? today : `${report.year}-12-31`,
@@ -370,6 +392,8 @@ export default function Reports() {
             netNote={isMonth ? null : positiveMonths}
             extraNet={derived.equityNet}
             prevExtraNet={derived.prevEquityNet}
+            incomeFees={derived.incomeFees}
+            prevIncomeFees={derived.prevIncomeFees}
             unrealized={!isMonth && unrealized && unrealized.year === report.year ? unrealized : null}
             open={openNow && (openLegs.length > 0 || openNow.loading)
               ? { stats: openTradeStats(openLegs), loading: openNow.loading, monthName: monthName(report.month) }

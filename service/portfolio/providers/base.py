@@ -144,6 +144,17 @@ class TransactionProvider(Protocol):
         broker request allows; the provider splits it."""
         ...
 
+    def fetch_income_and_fees(self, start_date: str, end_date: str) -> list[dict]:
+        """Dividends, interest and trading fees in the window, one dict each:
+        {date, kind: "INCOME" | "FEE", category, description, amount}.
+        amount is signed (paid out negative: fees, margin interest,
+        dividends charged on a short). INCOME categories: "INTEREST",
+        "MARGIN_INTEREST", "DIVIDEND", "SHORT_DIVIDEND",
+        "MONEY_FUND_DIVIDEND"; a FEE's category is the broker's own fee type
+        (e.g. "COMMISSION"). Transfers, sweeps and journals are never
+        included."""
+        ...
+
     def normalize_futures_symbol(self, symbol: str) -> str:
         """Collapse a broker-native futures/futures-option symbol to its
         bare CME root (e.g. 'ES', 'NQ'). Non-futures symbols pass through

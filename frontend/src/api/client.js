@@ -263,6 +263,13 @@ export async function getOptionBids(options) {
   return bids
 }
 
+// Dividends, interest and trading fees, start..end inclusive:
+// [{ date, kind: 'INCOME'|'FEE', category, description, amount }] (amount signed).
+export function getIncomeAndFees(startDate, endDate) {
+  const p = new URLSearchParams({ start_date: startDate, end_date: endDate })
+  return request(`/portfolio/transactions/income-fees?${p}`)
+}
+
 export function getEquityTransactions(stockTicker, startDate, endDate, assetType, realizedGainsOnly) {
   const p = new URLSearchParams({
     stock_ticker: stockTicker,

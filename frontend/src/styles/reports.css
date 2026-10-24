@@ -15,18 +15,24 @@
 .pnl-down { color: var(--error); }
 
 /* Key numbers */
-/* Hero tile, the wider Trades tile (its breakdown stays on one line), then four. */
-.report-kpis { display: grid; grid-template-columns: 1.3fr 1.6fr repeat(4, minmax(0, 1fr)); }
-.report-kpi { display: flex; flex-direction: column; gap: 4px; padding: 2px 18px; border-left: 1px solid var(--border); min-width: 0; }
-.report-kpi:first-child { border-left: none; padding-left: 0; }
+/* One row of tiles — Total P&L, Unrealized (YTD), Income, Fees, Trades,
+   Win rate — sharing the width (wrapping only on a phone, below). Each
+   tile's left divider sits 1px outside it and the row clips that edge, so
+   the first tile of a line has none. */
+.report-kpis { display: flex; flex-wrap: nowrap; row-gap: 14px; overflow: hidden; }
+.report-kpi { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 2px 14px; margin-left: -1px; border-left: 1px solid var(--border); }
+.report-kpi:first-child { padding-left: 0; }
+.report-kpi--hero { flex-grow: 1.25; }
+.report-kpi--wide { flex-grow: 1.35; }
 .report-kpi-label { font-size: 0.75rem; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
 .report-kpi-value { font-size: 1.25rem; font-weight: 700; color: var(--text); white-space: nowrap; }
-.report-kpi--hero .report-kpi-value { font-size: 2rem; line-height: 1.1; }
+.report-kpi--hero .report-kpi-value { font-size: 1.6rem; line-height: 1.15; }
 .report-kpi-sub { font-size: 0.78rem; color: var(--text-muted); }
 /* A second line in a sub, e.g. Unrealized P&L's max at expiry. */
 .report-kpi-subline { display: block; margin-top: 2px; }
-/* Trades tile: "3 closed · 13 expired · 2 exercised" on one line. */
-.report-kpi-breakdown { display: flex; flex-wrap: nowrap; gap: 6px; white-space: nowrap; }
+/* Trades tile: "3 closed · 13 expired · 2 assigned", wrapping inside the
+   tile when the row is tight. */
+.report-kpi-breakdown { display: flex; flex-wrap: wrap; gap: 0 6px; white-space: nowrap; }
 .report-kpi-breakdown > span { cursor: help; }
 .report-kpi-breakdown > span + span::before { content: "·"; margin-right: 6px; color: var(--text-faint); }
 .report-kpi-inline { margin-left: 4px; font-size: 0.78rem; font-weight: 500; color: var(--text-muted); }
@@ -35,8 +41,6 @@
 .report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
 .report-filters .form-group { flex: 1 1 180px; min-width: 0; }
 .report-filters .btn { flex: none; }
-/* Month view with open trades: an Unrealized P&L column after Option P&L. */
-.report-kpis--with-open { grid-template-columns: 1.3fr 1.3fr 1.6fr repeat(4, minmax(0, 1fr)); }
 
 /* Month calendar */
 .pnl-cal { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 0.9fr); gap: 4px; }
@@ -146,20 +150,13 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
 .report-ycal-cell { cursor: pointer; }
 .report-ycal-cell:hover, .report-ycal-cell:focus-visible { outline: none; stroke: var(--text); stroke-width: 1.5; }
 
-/* Below this the six tiles can't keep the Trades breakdown on one line:
-   two rows of three. */
-@media (max-width: 1240px) {
-  .report-kpis, .report-kpis--with-open { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 14px; }
-  .report-kpi:nth-child(3n + 1) { border-left: none; padding-left: 0; }
-}
 @media (max-width: 960px) {
   .report-row { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
-  .report-kpis, .report-kpis--with-open { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .report-kpi { border-left: none; padding-left: 0; }
-  .report-kpi--hero { grid-column: 1 / -1; }
-  .report-kpi--wide { grid-column: 1 / -1; }
+  .report-kpis { flex-wrap: wrap; }
+  .report-kpi { flex: 1 1 40%; border-left: none; margin-left: 0; padding-left: 0; }
+  .report-kpi--hero, .report-kpi--wide { flex-basis: 100%; }
   .pnl-cal { gap: 3px; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1fr); }
   .pnl-cal--months { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1fr); }
   .pnl-day { min-height: 46px; padding: 4px 5px; }

@@ -141,6 +141,15 @@ class TransactionService:
 
         return result_transactions
 
+    def get_income_and_fees(self, start_date: str, end_date: str) -> List[Dict]:
+        """Dividends, interest and trading fees dated start_date..end_date
+        (inclusive), oldest first — see TransactionProvider.fetch_income_and_fees
+        for the row shape."""
+        # The request's end is midnight of end_date, so ask for one day more.
+        fetch_end = (get_date_object(end_date) + timedelta(days=1)).strftime("%Y-%m-%d")
+        rows = self.provider.fetch_income_and_fees(start_date, fetch_end)
+        return sorted((r for r in rows if start_date <= r["date"] <= end_date), key=lambda r: r["date"])
+
     def get_equity_transactions(self, stock_ticker: str, start_date: str, end_date: str,
                                  asset_type: str = "ALL", realized_gains_only: bool = False) -> List[Dict]:
         """

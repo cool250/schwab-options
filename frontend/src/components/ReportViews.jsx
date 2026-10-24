@@ -130,6 +130,9 @@ const keyActivate = (fn) => (e) => {
  * comparison period (or null). extraNet: this period's equity/futures P&L;
  * prevExtraNet: the comparison period's (null when it didn't load). The
  * lead tile is the total of both, with each part on its own line below.
+ * incomeFees / prevIncomeFees: { income, fees } dividends + interest and
+ * trading fees (signed) of this / the comparison period, or null when they
+ * didn't load — the total adds them, each on its own line.
  * unrealized (YTD, current year): { loading, data, failed } from
  * loadOpenPositionsPl() — once loaded, the total adds it and it gets its own
  * tile broken down by stocks / options / futures.
@@ -149,14 +152,51 @@ function openCompact(stats, loading) {
   return compactUsd(stats.unrealized)
 }
 
+// The Income and Fees tiles' lines: a label and the categories it sums
+// (TransactionProvider.fetch_income_and_fees). A `rest` line takes every
+// category not named elsewhere, so a new fee type still adds up.
+const INCOME_LINES = [
+  { label: 'Interest', categories: ['INTEREST', 'MONEY_FUND_DIVIDEND'], title: 'Interest on cash and money-fund dividends' },
+  { label: 'Dividends', categories: ['DIVIDEND'], title: 'Dividends received on shares held' },
+  { label: 'Short dividends', categories: ['SHORT_DIVIDEND'], title: 'Dividends charged on shares held short' },
+  { label: 'Margin interest', categories: ['MARGIN_INTEREST'], title: 'Interest charged on money borrowed' },
+]
+const FEE_LINES = [
+  { label: 'Commissions', categories: ['COMMISSION'], title: 'Commissions on each trade' },
+  { label: 'Exchange & regulatory', rest: true, title: 'Exchange, SEC, FINRA (TAF), options regulatory and index option fees' },
+]
+
+/** One line per `lines` entry that has a non-zero total in `byCategory`. */
+function CategoryLines({ byCategory, lines }) {
+  const named = new Set(lines.flatMap((l) => l.categories ?? []))
+  return lines.map((l) => {
+    const cats = l.rest ? Object.keys(byCategory).filter((c) => !named.has(c)) : l.categories
+    const v = cats.reduce((s, c) => s + (byCategory[c] ?? 0), 0)
+    if (!v) return null
+    return (
+      <span key={l.label} className="report-kpi-subline" title={l.title}>
+        {l.label} <span className={signClass(v)}>{usd(v)}</span>
+      </span>
+    )
+  })
+}
+
 /** Key numbers. `open` (Month view): { stats: openTradeStats(...), loading,
  *  monthName } — the still-open trades expiring in that month, shown as an
  *  Unrealized P&L column beside Total P&L (live prices), with their count. */
-export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, prevExtraNet = null, open = null, unrealized = null }) {
-  const realized = stats.net + extraNet
+export function KpiStrip({
+  stats, prev, prevName, netNote, extraNet = 0, prevExtraNet = null,
+  incomeFees = null, prevIncomeFees = null, open = null, unrealized = null,
+}) {
+  const cashNet = (x) => (x ? x.income + x.fees : 0)
+  const realized = stats.net + extraNet + cashNet(incomeFees)
   const openPl = unrealized?.data ?? null
   const total = realized + (openPl?.total ?? 0)
-  const delta = prev && prevExtraNet != null ? realized - (prev.net + prevExtraNet) : null
+  // Like for like: income and fees count on both sides or neither.
+  const both = incomeFees && prevIncomeFees
+  const delta = prev && prevExtraNet != null
+    ? (stats.net + extraNet + (both ? cashNet(incomeFees) : 0)) - (prev.net + prevExtraNet + (both ? cashNet(prevIncomeFees) : 0))
+    : null
   // "…" while loading, "—" if it couldn't load.
   const unrealizedText = openPl ? usd(openPl.total) : unrealized?.loading ? '…' : '—'
   const tiles = [
@@ -170,6 +210,7 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, prevExt
             : netNote}
           <span className="report-kpi-subline">Options <span className={signClass(stats.net)}>{usd(stats.net)}</span></span>
           <span className="report-kpi-subline">Equity &amp; futures <span className={signClass(extraNet)}>{usd(extraNet)}</span></span>
+          {incomeFees && <span className="report-kpi-subline">Income &amp; fees <span className={signClass(cashNet(incomeFees))}>{usd(cashNet(incomeFees))}</span></span>}
           {unrealized && (
             <span className="report-kpi-subline">Unrealized <span className={signClass(openPl?.total)}>{unrealizedText}</span></span>
           )}
@@ -215,6 +256,17 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, prevExt
       ),
       hero: true,
     },
+    // Dividends and interest, then trading fees — each broken down.
+    incomeFees && {
+      label: 'Income',
+      value: <span className={signClass(incomeFees.income)}>{usd(incomeFees.income)}</span>,
+      sub: <CategoryLines byCategory={incomeFees.incomeBy} lines={INCOME_LINES} />,
+    },
+    incomeFees && {
+      label: 'Fees',
+      value: <span className={signClass(incomeFees.fees)}>{usd(incomeFees.fees)}</span>,
+      sub: <CategoryLines byCategory={incomeFees.feesBy} lines={FEE_LINES} />,
+    },
     {
       label: 'Trades',
       // Total, broken down as closed + expired + assigned/exercised.
@@ -243,17 +295,10 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, prevExt
       value: pct(stats.winRate),
       sub: prev ? `${pct(prev.winRate)} in ${prevName}` : stats.exercised ? 'excl. assigned' : '',
     },
-    { label: 'Avg win', value: <span className="pnl-up">{usd(stats.avgWin)}</span>, sub: 'per winning trade' },
-    { label: 'Avg loss', value: <span className="pnl-down">{usd(stats.avgLoss)}</span>, sub: 'per losing trade' },
-    {
-      label: 'Profit factor',
-      value: stats.profitFactor == null ? '—' : stats.profitFactor.toFixed(2),
-      sub: 'gross wins ÷ gross losses',
-    },
   ].filter(Boolean)
   return (
     <div className="card">
-      <div className={`report-kpis${open || unrealized ? ' report-kpis--with-open' : ''}`}>
+      <div className="report-kpis">
         {tiles.map((t) => (
           <div key={t.label} className={`report-kpi${t.hero ? ' report-kpi--hero' : ''}${t.wide ? ' report-kpi--wide' : ''}`}>
             <span className="report-kpi-label">{t.label}</span>

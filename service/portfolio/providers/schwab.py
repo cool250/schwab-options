@@ -319,6 +319,48 @@ class SchwabTransactionProvider:
 
         return parsed_transactions
 
+    @staticmethod
+    def _income_category(description: str, amount: float) -> str:
+        """What a DIVIDEND_OR_INTEREST record is, from Schwab's description:
+        "SCHWAB1 INT 06/29-07/29" is interest earned on cash, "INTEREST
+        02/26THRU 03/29" margin interest charged, a money fund's name its
+        dividend, and any other name a stock dividend — received, or charged
+        (negative) on shares held short."""
+        text = (description or "").upper()
+        if text.startswith("SCHWAB1 INT"):
+            return "INTEREST"
+        if text.startswith("INTEREST"):
+            return "MARGIN_INTEREST"
+        if "MONEY" in text:
+            return "MONEY_FUND_DIVIDEND"
+        return "DIVIDEND" if amount >= 0 else "SHORT_DIVIDEND"
+
+    def fetch_income_and_fees(self, start_date: str, end_date: str) -> list[dict]:
+        transactions = self.fetch_raw_transactions(start_date, end_date)
+        rows = []
+        for transaction in transactions:
+            try:
+                trade_date = getattr(transaction, "tradeDate", None)
+                date = get_date_string(trade_date) if trade_date else ""
+                kind = getattr(transaction, "type", None)
+                description = getattr(transaction, "description", "") or ""
+                if kind == "DIVIDEND_OR_INTEREST":
+                    amount = float(getattr(transaction, "netAmount", 0) or 0)
+                    rows.append({"date": date, "kind": "INCOME", "category": self._income_category(description, amount),
+                                 "description": description, "amount": amount})
+                elif kind == "TRADE":
+                    # Each fee is its own transfer item, its cost negative.
+                    for item in getattr(transaction, "transferItems", []) or []:
+                        fee_type = getattr(item, "feeType", None)
+                        cost = float(getattr(item, "cost", 0) or 0)
+                        if fee_type and cost:
+                            rows.append({"date": date, "kind": "FEE", "category": fee_type,
+                                         "description": description, "amount": cost})
+            except Exception as e:
+                logger.error(f"Error processing income/fee transaction: {e}")
+                continue
+        return rows
+
     def fetch_equity_future_legs(self, start_date: str, end_date: str) -> list[dict]:
         transactions = self.fetch_raw_transactions(start_date, end_date)
         results = []
