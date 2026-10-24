@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionQuotes, friendlyErrorMessage } from '../api/client'
-import { futuresOptionContracts, futuresOptionRowPl } from '../utils/positionPl'
+import { futuresOptionContracts, futuresOptionRowPl, futuresRowPl } from '../utils/positionPl'
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
@@ -423,6 +423,42 @@ export default function Positions() {
     }
   }
 
+  // P&L of an outright futures row at its live price — (price - entry) x
+  // quantity x point value (utils/positionPl.js, shared with Reports).
+  function futuresContractPnLColumn() {
+    return {
+      key: 'pl',
+      label: 'P&L',
+      align: 'right',
+      render: (row) => {
+        const pl = futuresRowPl(row, futuresContractQuotes)
+        if (pl == null) return futuresContractQuotesLoading ? 'Loading...' : '—'
+        return <span className={pl > 0 ? 'cell-positive' : pl < 0 ? 'cell-negative' : ''}>{money(pl)}</span>
+      },
+    }
+  }
+
+  // "Total: N | P&L: $X" over the Futures table, like the Stocks table's —
+  // waiting for the live prices, and saying how many rows it leaves out.
+  function futuresContractSummary(rows) {
+    const pls = rows.map((row) => futuresRowPl(row, futuresContractQuotes))
+    const priced = pls.filter((pl) => pl != null)
+    let plText
+    if (priced.length === 0) {
+      plText = futuresContractQuotesLoading ? 'Loading...' : '—'
+    } else {
+      plText = money(priced.reduce((sum, pl) => sum + pl, 0))
+      if (priced.length < rows.length) {
+        plText += futuresContractQuotesLoading ? ' (loading…)' : ` (${rows.length - priced.length} unpriced)`
+      }
+    }
+    return (
+      <p className="summary-line">
+        Total: {rows.length}&nbsp;&nbsp;|&nbsp;&nbsp;P&amp;L: {plText}
+      </p>
+    )
+  }
+
   // current_price arrives separately (see futuresQuotes above) — this column
   // looks it up by symbol at render time instead of reading it off the row.
   // For a grouped ratio-spread row (long_leg/short_leg present), row.symbol is
@@ -658,7 +694,8 @@ export default function Positions() {
               {futures.length > 0 ? (
                 <div className="card">
                   <h3 className="section-title">Futures</h3>
-                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn()]} defaultSortKey="symbol" />
+                  {futuresContractSummary(futures)}
+                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No open futures positions found.</div>

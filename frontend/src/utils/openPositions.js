@@ -21,10 +21,12 @@ function sumPriced(values) {
 /**
  * Unrealized P&L of every open position, loaded fresh (never cached —
  * account data). Resolves to { total, stocks, options, futures, unpriced,
- * futuresMissing }: each part a dollar figure over what could be priced;
- * `unpriced` counts the positions left out for want of a quote;
- * `futuresMissing` is true when the futures positions couldn't be loaded,
- * so `futures` (and the total) leaves them out.
+ * futuresMissing }: each part a dollar figure over what could be priced —
+ * `options` covers equity and futures options, `futures` the outright
+ * contracts only (as the Positions page's Futures table); `unpriced` counts
+ * the positions left out for want of a quote; `futuresMissing` is true when
+ * the futures or futures-option positions couldn't be loaded, so the total
+ * leaves them out.
  */
 export async function loadOpenPositionsPl() {
   const [positions, futures, futuresOptions] = await Promise.all([
@@ -33,7 +35,6 @@ export async function loadOpenPositionsPl() {
     getFuturesOptionPosition().catch(() => null),
   ])
   const stocks = sumPriced((positions.stocks ?? []).map((s) => s.broker_pl ?? null))
-  const options = sumPriced([...(positions.puts ?? []), ...(positions.calls ?? [])].map((o) => o.total_value ?? null))
 
   const futuresMissing = futures == null || futuresOptions == null
   const roots = (futures ?? []).map((f) => f.symbol).filter(Boolean)
@@ -42,10 +43,11 @@ export async function loadOpenPositionsPl() {
     roots.length ? getMarketQuotes({ futures: roots }).then((q) => q.futures ?? {}).catch(() => ({})) : {},
     getOptionBids(contracts).catch(() => ({})),
   ])
-  const fut = sumPriced([
-    ...(futures ?? []).map((f) => futuresRowPl(f, prices)),
+  const options = sumPriced([
+    ...[...(positions.puts ?? []), ...(positions.calls ?? [])].map((o) => o.total_value ?? null),
     ...[...(futuresOptions?.puts ?? []), ...(futuresOptions?.calls ?? [])].map((r) => futuresOptionRowPl(r, bids)),
   ])
+  const fut = sumPriced((futures ?? []).map((f) => futuresRowPl(f, prices)))
 
   return {
     total: stocks.pl + options.pl + fut.pl,

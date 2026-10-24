@@ -183,7 +183,7 @@ function CategoryLines({ byCategory, lines }) {
 
 /** Key numbers. `open` (Month view): { stats: openTradeStats(...), loading,
  *  monthName } — the still-open trades expiring in that month, shown as an
- *  Unrealized P&L column beside Total P&L (live prices), with their count. */
+ *  Unrealized option P&L column beside Total P&L (live prices), with their count. */
 export function KpiStrip({
   stats, prev, prevName, netNote, extraNet = 0, prevExtraNet = null,
   incomeFees = null, prevIncomeFees = null, open = null, unrealized = null,
@@ -243,7 +243,7 @@ export function KpiStrip({
     },
     // Still-open trades expiring this month, beside the realized figure.
     open && {
-      label: 'Unrealized P&L',
+      label: 'Unrealized option P&L',
       value: <span className={signClass(open.stats.unrealized)}>{openValueText(open.stats, open.loading)}</span>,
       sub: (
         <>

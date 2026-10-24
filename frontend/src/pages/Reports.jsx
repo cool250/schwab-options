@@ -350,6 +350,9 @@ export default function Reports() {
   // Open trades for the month on screen (not a different one still loading).
   const openNow = isMonth && open && open.year === report.year && open.month === report.month ? open : null
   const openLegs = openNow?.legs ?? []
+  // The calendar's dashed days are open option legs — not shown under
+  // "Equity & futures". (The key numbers' tile shows them either way.)
+  const calendarOpenLegs = source === 'equity' ? [] : openLegs
   const noData = derived && derived.optionTrades.length === 0 && derived.equityTrades.length === 0 && openLegs.length === 0
   const show = derived && !noData && !loading
 
@@ -432,10 +435,12 @@ export default function Reports() {
               <div className="report-card-head">
                 <h3 className="section-title">{isMonth ? 'Daily P&L' : 'Monthly P&L'}</h3>
                 <span className="report-card-note">
-                  {isMonth ? `${sourceLabel} · click a day or week · dashed days: open trades expiring` : `${sourceLabel} · ${positiveMonths} · click a month or quarter`}
+                  {isMonth
+                    ? `${sourceLabel} · click a day or week${source === 'equity' ? '' : ' · dashed days: open options expiring'}`
+                    : `${sourceLabel} · ${positiveMonths} · click a month or quarter`}
                 </span>
               </div>
-              {!(sourceTrades.length > 0 || (isMonth && openLegs.length > 0)) ? (
+              {!(sourceTrades.length > 0 || (isMonth && calendarOpenLegs.length > 0)) ? (
                 <p className="summary-line">{sourceEmpty}</p>
               ) : isMonth ? (
                 <MonthCalendar
@@ -445,8 +450,8 @@ export default function Reports() {
                   today={derived.today}
                   onDay={openDay}
                   onWeek={openWeek}
-                  openLegs={openLegs}
-                  openLoading={openNow?.loading ?? false}
+                  openLegs={calendarOpenLegs}
+                  openLoading={source !== 'equity' && (openNow?.loading ?? false)}
                 />
               ) : (
                 <MonthGrid
