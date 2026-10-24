@@ -12,7 +12,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from service.portfolio.date_windows import equity_lookback_days, expand_date_range, open_position_lookback_days
-from service.portfolio.equity_matching import combine_equity_lots, match_equity_fills
+from service.portfolio.equity_matching import combine_equity_lots, cost_of_held_position, match_equity_fills
 from service.portfolio.option_matching import match_option_trades
 from service.portfolio.providers import TransactionProvider, get_transaction_provider
 from service.shared.contracts import CONTRACT_MULTIPLIER
@@ -140,6 +140,19 @@ class TransactionService:
                     result_transactions.append(transaction)
 
         return result_transactions
+
+    def get_stock_fill_costs(self, held: Dict[str, float]) -> Dict[str, Optional[float]]:
+        """{symbol: per-share price of the shares held now, as their fills
+        were priced (the strike, for shares from an assignment) — or None
+        where the last equity_lookback_days of history doesn't account for
+        the whole position}. `held`: {symbol: signed quantity}."""
+        end = (market_today() + timedelta(days=2)).strftime("%Y-%m-%d")
+        start = (market_today() - timedelta(days=equity_lookback_days())).strftime("%Y-%m-%d")
+        fills = [f for f in self.provider.fetch_equity_future_legs(start, end) if f["asset_type"] == "EQUITY"]
+        by_symbol: Dict[str, List[Dict]] = {}
+        for fill in combine_equity_lots(fills):
+            by_symbol.setdefault(fill["symbol"], []).append(fill)
+        return {symbol: cost_of_held_position(by_symbol.get(symbol, []), qty) for symbol, qty in held.items()}
 
     def get_income_and_fees(self, start_date: str, end_date: str) -> List[Dict]:
         """Dividends, interest and trading fees dated start_date..end_date

@@ -42,3 +42,17 @@ export function futuresOptionContracts(puts, calls) {
   }
   return contracts
 }
+
+/** A stock / ETF position's unrealized P&L at `basis`, the per-share price
+ *  its own fills had (GET /portfolio/positions/stocks/trade-basis).
+ *
+ *  Schwab's average price for shares that came from an assignment already
+ *  has the option's premium folded in (a QQQ short assigned at $610 shows
+ *  at $654), and Reports counts that premium in realized option P&L too —
+ *  so valuing the shares at Schwab's price would count it twice. Where the
+ *  basis is unknown (null: bought before the history reaches), Schwab's
+ *  own figure, `broker_pl`, is used. */
+export function stockRowPl(stock, basis) {
+  if (basis == null || stock.current_price == null) return stock.broker_pl ?? null
+  return (stock.current_price - basis) * (stock.quantity ?? 0)
+}

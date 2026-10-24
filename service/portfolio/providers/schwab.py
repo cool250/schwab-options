@@ -366,6 +366,11 @@ class SchwabTransactionProvider:
         results = []
         for transaction in transactions:
             try:
+                # Only trades (assignments and exercises are trades too): a
+                # transfer in (RECEIVE_AND_DELIVER) carries no price, and
+                # taken as a fill it reads as shares bought for $0.
+                if getattr(transaction, "type", None) != "TRADE":
+                    continue
                 transfer_items = getattr(transaction, "transferItems", []) or []
                 trade_date = getattr(transaction, "tradeDate", None)
                 trade_date_str = get_date_string(trade_date) if trade_date else ""

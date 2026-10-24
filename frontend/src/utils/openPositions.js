@@ -1,10 +1,11 @@
-import { getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionBids } from '../api/client'
-import { futuresOptionContracts, futuresOptionRowPl, futuresRowPl } from './positionPl'
+import { getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionBids, getStockTradeBasis } from '../api/client'
+import { futuresOptionContracts, futuresOptionRowPl, futuresRowPl, stockRowPl } from './positionPl'
 
 /*
  * Unrealized P&L of the positions open right now, valued the way the
  * Positions page values them — shared so the two can't drift apart:
- *   stocks / ETFs     Schwab's own unrealized P&L (broker_pl)
+ *   stocks / ETFs     at the price their own fills had, falling back to
+ *                     Schwab's own unrealized P&L (stockRowPl explains why)
  *   equity options    total_value, priced at live quotes on the backend
  *   futures options   entry value (total_value) minus the position re-priced
  *                     at the live bid (futuresOptionRowPl)
@@ -29,12 +30,13 @@ function sumPriced(values) {
  * leaves them out.
  */
 export async function loadOpenPositionsPl() {
-  const [positions, futures, futuresOptions] = await Promise.all([
+  const [positions, futures, futuresOptions, basis] = await Promise.all([
     getPositions(),
     getFuturesPosition().catch(() => null),
     getFuturesOptionPosition().catch(() => null),
+    getStockTradeBasis().catch(() => ({})), // without it, Schwab's figures
   ])
-  const stocks = sumPriced((positions.stocks ?? []).map((s) => s.broker_pl ?? null))
+  const stocks = sumPriced((positions.stocks ?? []).map((s) => stockRowPl(s, basis[s.symbol] ?? null)))
 
   const futuresMissing = futures == null || futuresOptions == null
   const roots = (futures ?? []).map((f) => f.symbol).filter(Boolean)

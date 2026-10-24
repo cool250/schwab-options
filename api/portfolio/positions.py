@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -36,6 +38,15 @@ def get_balances(service: PositionService = Depends(get_service)):
 @router.get("/stocks", summary="Stock / ETF positions", response_model=list[StockPosition])
 def get_stock_position(service: PositionService = Depends(get_service)):
     return service.get_stock_position()
+
+
+@router.get(
+    "/stocks/trade-basis",
+    summary="Per-share price of each stock position as its own fills were priced (null where history doesn't cover it) — unlike average_price, without assigned options' premium folded in",
+    response_model=dict[str, Optional[float]],
+)
+def get_stock_trade_basis(service: PositionService = Depends(get_service)):
+    return service.get_stock_trade_basis()
 
 
 @router.get(

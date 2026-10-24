@@ -2,7 +2,7 @@
 // rows (utils/positionPl.js), as the Positions page and Reports show it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { futuresOptionContracts, futuresOptionRowPl, futuresRowPl } from "./positionPl.js";
+import { futuresOptionContracts, futuresOptionRowPl, futuresRowPl, stockRowPl } from "./positionPl.js";
 
 test("a short futures option gains what it lost in value", () => {
   // Sold 2 NQ puts at 136 ($20/pt): entry value +5,440; now bid 100.
@@ -29,4 +29,14 @@ test("quote requests cover both legs of a spread", () => {
     [{ ticker: "NQ", expiration_date: "2026-10-30", symbol: "C", strike_price: 29500 }],
   );
   assert.deepEqual(contracts.map((c) => [c.key, c.underlying, c.type]), [["L", "/ES", "PUT"], ["S", "/ES", "PUT"], ["C", "/NQ", "CALL"]]);
+});
+
+test("stock from an assignment is valued at its fill price, not Schwab's premium-adjusted price", () => {
+  // Short 1,100 assigned at 610.91 on average; Schwab shows 654.46 with the premium folded in.
+  const stock = { quantity: -1100, current_price: 700, broker_pl: (654.46 - 700) * 1100 };
+  assert.ok(Math.abs(stockRowPl(stock, 610.91) - (610.91 - 700) * 1100) < 1e-6);
+});
+
+test("stock whose fills history doesn't cover keeps Schwab's figure", () => {
+  assert.equal(stockRowPl({ quantity: 200, current_price: 317, broker_pl: 27690 }, null), 27690);
 });

@@ -210,6 +210,12 @@ export function getPositions() {
   return request('/portfolio/positions/')
 }
 
+// { [symbol]: per-share price of each stock position as its fills were
+// priced, or null } — without assigned options' premium folded in.
+export function getStockTradeBasis() {
+  return request('/portfolio/positions/stocks/trade-basis')
+}
+
 export function getFuturesPosition() {
   return request('/portfolio/positions/futures')
 }

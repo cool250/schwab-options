@@ -99,6 +99,21 @@ class PositionService:
             })
         return [StockPosition(**s) for s in self.get_current_price(stocks)]
 
+    def get_stock_trade_basis(self) -> dict[str, Optional[float]]:
+        """{symbol: per-share price of each stock/ETF position as its own
+        fills were priced, or None when history doesn't cover it}.
+
+        Differs from Schwab's average_price for shares that came from an
+        assignment: Schwab folds the option's premium into that price, while
+        Reports already counts the premium as option P&L — valuing the shares
+        at Schwab's price there would count it twice."""
+        held = {}
+        for position in self._require_snapshot()["positions"]:
+            if position["asset_type"] not in ("EQUITY", "COLLECTIVE_INVESTMENT"):
+                continue
+            held[position["symbol"]] = position["long_quantity"] - position["short_quantity"]
+        return TransactionService().get_stock_fill_costs(held)
+
     def get_futures_position(self, lookback_days: Optional[int] = None) -> list[FuturesPosition]:
         """Currently-open outright futures positions (e.g. root 'ES', 'NQ').
 

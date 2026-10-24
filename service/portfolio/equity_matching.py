@@ -4,7 +4,7 @@ tested in tests/test_equity_matching.py."""
 
 import logging
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -140,3 +140,29 @@ def match_equity_fills(trades: List[Dict]) -> List[Dict]:
             })
 
     return matched + unmatched
+
+
+def cost_of_held_position(fills: List[Dict], held: float) -> Optional[float]:
+    """Per-share price of the `held` shares (signed: negative = short) as
+    the fills that built them were priced, or None if `fills` doesn't reach
+    back far enough to account for all of them.
+
+    Under FIFO, what's still open is the newest fills in the position's
+    direction: walking back from the latest, take those fills (only the
+    part still needed from the oldest one) until they add up to `held`.
+    Fills the other way only ever closed older lots, so they're skipped.
+    Working back from today means a history that starts partway through
+    the position's life can't mis-pair anything — it just comes up short.
+    """
+    if abs(held) < 1e-9:
+        return None
+    need, cost = abs(held), 0.0
+    for fill in sorted(fills, key=lambda f: f["date"], reverse=True):
+        if (fill["amount"] > 0) != (held > 0) or not fill.get("price"):
+            continue
+        take = min(abs(fill["amount"]), need)
+        cost += take * fill["price"]
+        need -= take
+        if need < 1e-9:
+            return cost / abs(held)
+    return None

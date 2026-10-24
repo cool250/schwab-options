@@ -89,3 +89,32 @@ def test_lookback_is_not_shrunk_to_one_request(make_service):
     svc.get_equity_transactions("", "2026-01-01", "2026-10-23", "ALL", realized_gains_only=True)
     [(start, _)] = seen
     assert start <= "2025-01-01"
+
+
+def test_cost_of_held_position_takes_the_newest_fills_in_its_direction():
+    from service.portfolio.equity_matching import cost_of_held_position
+    fills = [
+        {"date": "2026-02-05", "amount": 1000, "price": 620.0},   # long, later sold
+        {"date": "2026-04-14", "amount": -1000, "price": 610.0},  # closes the long
+        {"date": "2026-04-28", "amount": -100, "price": 620.0},   # short from an assignment
+        {"date": "2026-04-30", "amount": -1000, "price": 610.0},  # short from an assignment
+    ]
+    assert cost_of_held_position(fills, -1100) == pytest.approx((100 * 620 + 1000 * 610) / 1100)
+    # Part of the oldest fill still needed: only that part counts.
+    assert cost_of_held_position(fills, -1050) == pytest.approx((50 * 620 + 1000 * 610) / 1050)
+
+
+def test_cost_of_held_position_is_none_when_history_falls_short():
+    from service.portfolio.equity_matching import cost_of_held_position
+    # Held 200, but only 100 bought within the history; a $0 transfer doesn't count.
+    fills = [{"date": "2026-09-01", "amount": 100, "price": 300.0}, {"date": "2026-10-05", "amount": 90, "price": 0.0}]
+    assert cost_of_held_position(fills, 200) is None
+    assert cost_of_held_position([], -100) is None
+
+
+def test_stock_fill_costs_per_symbol(make_service):
+    svc = make_service(equity_legs=[
+        equity_leg("2026-09-18", "IWM", 300, 290.0),
+        equity_leg("2026-10-01", "/ESZ26:XCME", 1, 7700.0, asset_type="FUTURE", multiplier=50),
+    ])
+    assert svc.get_stock_fill_costs({"IWM": 300, "GOOG": 200}) == {"IWM": pytest.approx(290.0), "GOOG": None}

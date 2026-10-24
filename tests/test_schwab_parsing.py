@@ -43,7 +43,7 @@ def _activity(activity_id, date, symbol, asset_type, amount, price, effect):
         instrument=SimpleNamespace(symbol=symbol, assetType=asset_type),
         amount=amount, price=price, cost=-amount * price, positionEffect=effect,
     )
-    return SimpleNamespace(activityId=activity_id, tradeDate=get_date_object(date), transferItems=[item])
+    return SimpleNamespace(activityId=activity_id, tradeDate=get_date_object(date), type="TRADE", transferItems=[item])
 
 
 class _FakeClient:
@@ -103,3 +103,11 @@ def test_income_and_fees_are_read_from_dividend_and_trade_records():
         ("FEE", "COMMISSION", -1.75),
         ("FEE", "OPT_REG_FEE", -0.06),
     ]
+
+
+def test_a_share_transfer_is_not_a_fill():
+    from types import SimpleNamespace
+    transfer = SimpleNamespace(activityId=9, tradeDate=get_date_object("2026-10-05"), type="RECEIVE_AND_DELIVER", transferItems=[
+        SimpleNamespace(instrument=SimpleNamespace(symbol="META", assetType="EQUITY"), amount=90.0, price=0.0, cost=0.0, positionEffect=None),
+    ])
+    assert SchwabTransactionProvider(client=_FakeClient([transfer])).fetch_equity_future_legs("2026-10-01", "2026-10-31") == []
