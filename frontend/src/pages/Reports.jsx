@@ -5,7 +5,7 @@ import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import {
   KpiStrip, MonthCalendar, DailyRunChart, SymbolTable,
-  MonthGrid, CumulativeChart, SymbolMonthHeat, YearCalendar, SourceTabs,
+  MonthGrid, MonthlyRunChart, SymbolMonthHeat, YearCalendar, SourceTabs,
 } from '../components/ReportViews'
 import { closedTrades, tradeStats, openTradeStats, symbolBreakdown, symbolOf, todayIso, utcDate, addDays, MONTH_NAMES } from '../utils/reportStats'
 
@@ -100,9 +100,9 @@ export default function Reports() {
   const report = reports[period]
   const loading = loadingFor[period]
   const error = errors[period]
-  // Which trades the by-symbol tables show — options, equity & futures, or
-  // both. One setting for both tables and both tabs.
-  const [source, setSource] = useState('options') // 'options' | 'equity' | 'all'
+  // Which trades the calendars, running totals and by-symbol tables show —
+  // options, equity & futures, or both. One setting for every view and both tabs.
+  const [source, setSource] = useState('all') // 'options' | 'equity' | 'all'
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear() - i)
 
@@ -162,12 +162,13 @@ export default function Reports() {
       const prevMonth = period === 'month' ? previousMonth(year, month) : null
       const prevRange = prevMonth && monthRange(prevMonth.year, prevMonth.month)
       const prevName = prevMonth ? MONTH_NAMES[prevMonth.month - 1] : null
-      const [data, equityData, prevData] = await Promise.all([
+      const [data, equityData, prevData, prevEquityData] = await Promise.all([
         getAllocations(start, end, REALIZED_ONLY),
         getEquityTransactions('', start, end, 'ALL', REALIZED_ONLY),
         // Only for the "vs last month" comparison — the report still loads
-        // without it.
+        // without them.
         prevRange ? getAllocations(prevRange.start, prevRange.end, REALIZED_ONLY).catch(() => null) : Promise.resolve(null),
+        prevRange ? getEquityTransactions('', prevRange.start, prevRange.end, 'ALL', REALIZED_ONLY).catch(() => null) : Promise.resolve(null),
       ])
       if (!current()) return
       setReports((s) => ({ ...s, [period]: {
@@ -176,6 +177,7 @@ export default function Reports() {
         optionRows: withDay(normalizeOptionRows(data ?? [])),
         equityRows: withDay(normalizeEquityRows(equityData ?? [])),
         prevOptionRows: prevData ? withDay(normalizeOptionRows(prevData)) : null,
+        prevEquityRows: prevEquityData ? withDay(normalizeEquityRows(prevEquityData)) : null,
         prevName,
       } }))
     } catch (err) {
@@ -215,27 +217,34 @@ export default function Reports() {
     // YTD: the months shown run through the current one (this year) or
     // December (a past year).
     const lastMonth = isCurrentYear ? new Date().getMonth() : 11
-    const traded = Array.from({ length: lastMonth + 1 }, (_, m) =>
-      tradeStats(optionTrades.filter((t) => utcDate(t.close_date).getUTCMonth() === m))).filter((st) => st.n > 0)
     return {
       optionTrades,
       equityTrades,
       stats: tradeStats(optionTrades),
       prevStats: report.prevOptionRows ? tradeStats(closedTrades(report.prevOptionRows)) : null,
       equityNet: tradeStats(equityTrades).net,
+      prevEquityNet: report.prevEquityRows ? tradeStats(closedTrades(report.prevEquityRows, { dropZero: true })).net : null,
       today,
       lastMonth,
-      positiveMonths: `${traded.filter((st) => st.net > 0).length} of ${traded.length} months positive`,
       yearEnd: isCurrentYear ? today : `${report.year}-12-31`,
     }
   }, [report])
 
-  // By-symbol tables follow the source switch.
-  const sourceTrades = !derived ? [] :
+  // Every view below the key numbers follows the source switch.
+  const sourceTrades = useMemo(() => !derived ? [] :
     source === 'options' ? derived.optionTrades :
     source === 'equity' ? derived.equityTrades :
-    [...derived.optionTrades, ...derived.equityTrades]
+    [...derived.optionTrades, ...derived.equityTrades], [derived, source])
+  // The running total always covers every trade, whatever the switch says.
+  const allTrades = useMemo(() => !derived ? [] : [...derived.optionTrades, ...derived.equityTrades], [derived])
   const sourceSymbols = useMemo(() => symbolBreakdown(sourceTrades), [sourceTrades])
+  const sourceLabel = { options: 'Options', equity: 'Equity & futures', all: 'All trades' }[source]
+  const positiveMonths = useMemo(() => {
+    if (!derived) return ''
+    const traded = Array.from({ length: derived.lastMonth + 1 }, (_, m) =>
+      tradeStats(sourceTrades.filter((t) => utcDate(t.close_date).getUTCMonth() === m))).filter((st) => st.n > 0)
+    return `${traded.filter((st) => st.net > 0).length} of ${traded.length} months positive`
+  }, [derived, sourceTrades])
   const sourceEmpty = `No ${{ options: 'option ', equity: 'equity or futures ', all: '' }[source]}trades closed in ${report?.label ?? ''}.`
 
   // ---- Click-through to the matching transactions ----
@@ -248,10 +257,19 @@ export default function Reports() {
     navigate(`/transactions?${params}`)
   }
   const monthBounds = (m) => monthRange(report.year, m + 1)
-  const openDay = (date, open) => openTransactions({ start: date, end: date, open })
-  const openWeek = (start, end, open) => openTransactions({ start, end, open })
-  const openMonth = (m) => openTransactions(monthBounds(m))
-  const openQuarter = (q) => openTransactions({ start: monthBounds(q * 3).start, end: monthBounds(q * 3 + 2).end })
+  const openRange = (start, end, open) =>
+    openTransactions({ start, end, open, tab: tabFor(null, (t) => t.close_date >= start && t.close_date <= end) })
+  const openDay = (date, open) => openRange(date, date, open)
+  const openWeek = (start, end, open) => openRange(start, end, open)
+  const openMonth = (m) => openRange(monthBounds(m).start, monthBounds(m).end)
+  // Running-total clicks: the tab holding that range's trades, across all of them.
+  const openAllRange = (start, end) => {
+    const hasOptions = derived.optionTrades.some((t) => t.close_date >= start && t.close_date <= end)
+    openTransactions({ start, end, tab: hasOptions ? undefined : 'equity' })
+  }
+  const openAllDay = (date) => openAllRange(date, date)
+  const openAllMonth = (m) => openAllRange(monthBounds(m).start, monthBounds(m).end)
+  const openQuarter = (q) => openRange(monthBounds(q * 3).start, monthBounds(q * 3 + 2).end)
 
   // Transactions shows one tab at a time, so a by-symbol click opens the tab
   // holding those trades — for "All", options when the symbol had any in the
@@ -264,7 +282,6 @@ export default function Reports() {
   }
   const openSymbol = (ticker) => openTransactions({ ticker, start: report.start, end: report.end, tab: tabFor(ticker, () => true) })
   const openSymbolMonth = (ticker, m) => openTransactions({ ticker, ...monthBounds(m), tab: tabFor(ticker, (t) => monthOfTrade(t) === m) })
-  const openSourceMonth = (m) => openTransactions({ ...monthBounds(m), tab: tabFor(null, (t) => monthOfTrade(t) === m) })
 
   const isMonth = report?.period === 'month'
   // Open trades for the month on screen (not a different one still loading).
@@ -330,64 +347,65 @@ export default function Reports() {
             stats={derived.stats}
             prev={derived.prevStats}
             prevName={report.prevName}
-            netNote={isMonth ? null : derived.positiveMonths}
+            netNote={isMonth ? null : positiveMonths}
             extraNet={derived.equityNet}
+            prevExtraNet={derived.prevEquityNet}
             open={openNow && (openLegs.length > 0 || openNow.loading)
               ? { stats: openTradeStats(openLegs), loading: openNow.loading, monthName: monthName(report.month) }
               : null}
           />
 
-          {/* 2. P&L by period (left) and the running total (right) — same slots in both views */}
-          {(derived.optionTrades.length > 0 || (isMonth && openLegs.length > 0)) && (
-            <div className="report-row">
-              <div className="card">
-                <div className="report-card-head">
-                  <h3 className="section-title">{isMonth ? 'Daily P&L' : 'Monthly P&L'}</h3>
-                  <span className="report-card-note">
-                    {isMonth ? 'Options · click a day or week · dashed days: open trades expiring' : `Options · ${derived.positiveMonths} · click a month or quarter`}
-                  </span>
-                </div>
-                {isMonth ? (
-                  <MonthCalendar
-                    year={report.year}
-                    month={report.month}
-                    trades={derived.optionTrades}
-                    today={derived.today}
-                    onDay={openDay}
-                    onWeek={openWeek}
-                    openLegs={openLegs}
-                    openLoading={openNow?.loading ?? false}
-                  />
-                ) : (
-                  <MonthGrid
-                    trades={derived.optionTrades}
-                    lastMonth={derived.lastMonth}
-                    partialNote={report.year === currentYear() ? 'to date' : null}
-                    onMonth={openMonth}
-                    onQuarter={openQuarter}
-                  />
-                )}
+          {/* 2. P&L by period (left) and the running total (right) — same slots in both views.
+              The running total covers every trade, so the row shows whatever the switch says. */}
+          <SourceTabs value={source} onChange={setSource} />
+          <div className="report-row">
+            <div className="card">
+              <div className="report-card-head">
+                <h3 className="section-title">{isMonth ? 'Daily P&L' : 'Monthly P&L'}</h3>
+                <span className="report-card-note">
+                  {isMonth ? `${sourceLabel} · click a day or week · dashed days: open trades expiring` : `${sourceLabel} · ${positiveMonths} · click a month or quarter`}
+                </span>
               </div>
+              {!(sourceTrades.length > 0 || (isMonth && openLegs.length > 0)) ? (
+                <p className="summary-line">{sourceEmpty}</p>
+              ) : isMonth ? (
+                <MonthCalendar
+                  year={report.year}
+                  month={report.month}
+                  trades={sourceTrades}
+                  today={derived.today}
+                  onDay={openDay}
+                  onWeek={openWeek}
+                  openLegs={openLegs}
+                  openLoading={openNow?.loading ?? false}
+                />
+              ) : (
+                <MonthGrid
+                  trades={sourceTrades}
+                  lastMonth={derived.lastMonth}
+                  partialNote={report.year === currentYear() ? 'to date' : null}
+                  onMonth={openMonth}
+                  onQuarter={openQuarter}
+                />
+              )}
+            </div>
 
-              <div className="card">
-                <div className="report-card-head">
-                  <h3 className="section-title">Running total</h3>
-                  <span className="report-card-note">Options · click a day to open it</span>
-                </div>
-                {isMonth && (
-                  <div className="report-legend">
-                    <span><i className="report-key-bar" style={{ background: 'var(--success)' }} /><i className="report-key-bar" style={{ background: 'var(--error)' }} />Daily P&amp;L</span>
-                    <span><i className="report-key-line" />Running total</span>
-                  </div>
-                )}
-                <div className="report-chart-fill">
-                  {isMonth
-                    ? <DailyRunChart trades={derived.optionTrades} onDay={openDay} />
-                    : <CumulativeChart trades={derived.optionTrades} onDay={openDay} />}
-                </div>
+            <div className="card">
+              <div className="report-card-head">
+                <h3 className="section-title">Running total</h3>
+                <span className="report-card-note">All trades · click a {isMonth ? 'day' : 'month'} to open it</span>
+              </div>
+              <div className="report-legend">
+                <span><i className="report-key-bar" style={{ background: 'var(--success)' }} /><i className="report-key-bar" style={{ background: 'var(--error)' }} />{isMonth ? 'Daily' : 'Monthly'} P&amp;L</span>
+                <span><i className="report-key-line" />Running total</span>
+              </div>
+              <div className="report-chart-fill">
+                {isMonth
+                  ? <DailyRunChart trades={allTrades} onDay={openAllDay} />
+                  : <MonthlyRunChart trades={allTrades} lastMonth={derived.lastMonth} onMonth={openAllMonth} />}
               </div>
             </div>
-          )}
+          </div>
 
           {/* 3. By symbol — options, equity & futures, or both */}
           <div className="card">
@@ -415,7 +433,7 @@ export default function Reports() {
                     trades={sourceTrades}
                     lastMonth={derived.lastMonth}
                     onCell={openSymbolMonth}
-                    onMonth={openSourceMonth}
+                    onMonth={openMonth}
                   />
                 ) : (
                   <p className="summary-line">{sourceEmpty}</p>
@@ -428,13 +446,13 @@ export default function Reports() {
                 )}
               </div>
 
-              {derived.optionTrades.length > 0 && (
+              {sourceTrades.length > 0 && (
                 <div className="card">
                   <div className="report-card-head">
                     <h3 className="section-title">{report.year} calendar</h3>
-                    <span className="report-card-note">Options · click a day to open it</span>
+                    <span className="report-card-note">{sourceLabel} · click a day to open it</span>
                   </div>
-                  <YearCalendar year={report.year} trades={derived.optionTrades} endIso={derived.yearEnd} onDay={openDay} />
+                  <YearCalendar year={report.year} trades={sourceTrades} endIso={derived.yearEnd} onDay={openDay} />
                 </div>
               )}
             </>

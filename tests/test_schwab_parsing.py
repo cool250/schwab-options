@@ -4,6 +4,7 @@ Descriptions are the exact text Schwab uses."""
 import pytest
 
 from service.portfolio.providers.schwab import SchwabTransactionProvider
+from utils.utils import get_date_object
 
 classify = SchwabTransactionProvider._identify_close_event
 
@@ -34,3 +35,43 @@ def test_close_event_classification(raw_type, description, expected):
 def test_futures_root_normalization(symbol, root):
     provider = SchwabTransactionProvider(client=object())  # no network
     assert provider.normalize_futures_symbol(symbol) == root
+
+
+def _activity(activity_id, date, symbol, asset_type, amount, price, effect):
+    from types import SimpleNamespace
+    item = SimpleNamespace(
+        instrument=SimpleNamespace(symbol=symbol, assetType=asset_type),
+        amount=amount, price=price, cost=-amount * price, positionEffect=effect,
+    )
+    return SimpleNamespace(activityId=activity_id, tradeDate=get_date_object(date), transferItems=[item])
+
+
+class _FakeClient:
+    """Serves fixed records, recording each requested window."""
+
+    def __init__(self, records):
+        self.records, self.windows = records, []
+
+    def fetch_transactions(self, start_date, end_date):
+        self.windows.append((start_date, end_date))
+        start, end = get_date_object(start_date), get_date_object(end_date)
+        return [r for r in self.records if start <= r.tradeDate <= end]
+
+
+def test_etf_fills_count_as_equity():
+    client = _FakeClient([_activity(1, "2026-09-18", "IWM", "COLLECTIVE_INVESTMENT", 300.0, 290.0, "CLOSING")])
+    [leg] = SchwabTransactionProvider(client=client).fetch_equity_future_legs("2026-09-01", "2026-09-30")
+    assert (leg["symbol"], leg["asset_type"], leg["position_effect"]) == ("IWM", "EQUITY", "CLOSING")
+
+
+def test_long_range_is_fetched_a_year_at_a_time_without_duplicates():
+    # Record 2 sits on the boundary date, so both windows return it.
+    client = _FakeClient([
+        _activity(1, "2025-02-01", "CRM", "EQUITY", 200.0, 250.0, "OPENING"),
+        _activity(2, "2026-01-01", "CRM", "EQUITY", 100.0, 240.0, "OPENING"),
+        _activity(3, "2026-09-08", "CRM", "EQUITY", -200.0, 200.0, "CLOSING"),
+    ])
+    legs = SchwabTransactionProvider(client=client).fetch_equity_future_legs("2025-01-02", "2026-10-23")
+    assert len(client.windows) == 2
+    assert all((get_date_object(e) - get_date_object(s)).days <= 364 for s, e in client.windows)
+    assert [leg["date"] for leg in legs] == ["2025-02-01", "2026-01-01", "2026-09-08"]

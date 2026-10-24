@@ -9,7 +9,7 @@ one-year request limit, not a preference."""
 
 import logging
 from datetime import timedelta
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from utils.app_config import get_config
 from utils.utils import get_date_object
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 def expand_date_range(start_date: str, end_date: str,
                        lookback_days: Optional[int] = None,
                        lookforward_days: Optional[int] = None,
-                       max_span_days: int = MAX_SPAN_DAYS) -> Dict[str, str]:
+                       max_span_days: Optional[int] = MAX_SPAN_DAYS) -> Dict[str, str]:
     """
     Expand a date range by a specified number of days in both directions.
 
@@ -50,7 +50,8 @@ def expand_date_range(start_date: str, end_date: str,
             transactions.option_lookback_days)
         lookforward_days (int): Number of days to look forward (default:
             transactions.option_lookforward_days)
-        max_span_days (int): Hard cap on the total expanded span
+        max_span_days (int): Hard cap on the total expanded span; None for
+            no cap (the caller fetches through split_date_range)
 
     Returns:
         dict: Expanded date range with keys 'start_date' and 'end_date'
@@ -63,14 +64,15 @@ def expand_date_range(start_date: str, end_date: str,
     start_date_obj = get_date_object(start_date)
     end_date_obj = get_date_object(end_date)
 
-    user_span_days = (end_date_obj - start_date_obj).days
-    available_padding = max(max_span_days - user_span_days, 0)
-    # Lookback claims the padding first (per the docstring above) — it was
-    # backwards here: lookforward was consuming the budget first, leaving
-    # lookback with the scraps whenever the caller's own span already ate
-    # most of max_span_days.
-    lookback_days = min(lookback_days, available_padding)
-    lookforward_days = min(lookforward_days, max(available_padding - lookback_days, 0))
+    if max_span_days is not None:
+        user_span_days = (end_date_obj - start_date_obj).days
+        available_padding = max(max_span_days - user_span_days, 0)
+        # Lookback claims the padding first (per the docstring above) — it was
+        # backwards here: lookforward was consuming the budget first, leaving
+        # lookback with the scraps whenever the caller's own span already ate
+        # most of max_span_days.
+        lookback_days = min(lookback_days, available_padding)
+        lookforward_days = min(lookforward_days, max(available_padding - lookback_days, 0))
 
     expanded_start_date = (start_date_obj - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
     expanded_end_date = (end_date_obj + timedelta(days=lookforward_days)).strftime('%Y-%m-%d')
@@ -79,3 +81,20 @@ def expand_date_range(start_date: str, end_date: str,
         "start_date": expanded_start_date,
         "end_date": expanded_end_date
     }
+
+
+def split_date_range(start_date: str, end_date: str,
+                     max_span_days: int = MAX_SPAN_DAYS) -> List[Tuple[str, str]]:
+    """Split start_date..end_date into consecutive windows of at most
+    max_span_days, for a range longer than one Schwab request allows. Each
+    window starts where the previous one ended (the request's end is
+    midnight of end_date), so no day falls between two windows."""
+    windows = []
+    cursor = get_date_object(start_date)
+    end = get_date_object(end_date)
+    while True:
+        window_end = min(cursor + timedelta(days=max_span_days), end)
+        windows.append((cursor.strftime('%Y-%m-%d'), window_end.strftime('%Y-%m-%d')))
+        if window_end >= end:
+            return windows
+        cursor = window_end

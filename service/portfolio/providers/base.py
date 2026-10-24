@@ -137,8 +137,11 @@ class TransactionProvider(Protocol):
     def fetch_equity_future_legs(self, start_date: str, end_date: str) -> list[dict]:
         """Every equity/futures fill in the window, one dict per leg, not
         filtered by ticker/asset type (callers filter the result):
-        {date, symbol, asset_type: "EQUITY"|"FUTURE", amount, price, cost}.
-        cost is already multiplier-adjusted, credit-positive/debit-negative."""
+        {date, symbol, asset_type: "EQUITY"|"FUTURE", amount, price, cost,
+         position_effect: "OPENING" | "CLOSING" | None}.
+        ETFs count as "EQUITY". cost is already multiplier-adjusted,
+        credit-positive/debit-negative. The window may be longer than one
+        broker request allows; the provider splits it."""
         ...
 
     def normalize_futures_symbol(self, symbol: str) -> str:

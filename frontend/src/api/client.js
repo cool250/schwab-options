@@ -289,6 +289,10 @@ export function getAllocations(startDate, endDate, realizedGainsOnly) {
     end_date: endDate,
     contract_type: 'ALL',
     realized_gains_only: realizedGainsOnly,
+    // Reports dates P&L by day: a ratio spread whose legs closed on
+    // different days must keep each leg's own close date, not the merged
+    // record's last one (that moved a 9/29 loss into October once).
+    group_ratio_spreads: false,
   })
   return request(`/portfolio/transactions/options?${p}`)
 }

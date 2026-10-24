@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ResponsiveContainer, ComposedChart, AreaChart, Bar, Line, Area, XAxis, YAxis,
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceLine, LabelList,
 } from 'recharts'
 import {
@@ -126,9 +126,10 @@ const keyActivate = (fn) => (e) => {
 // ---------------------------------------------------------------- key numbers
 
 /**
- * stats: tradeStats() of this period. prev: tradeStats() of the comparison
- * period (or null). extraNet: equity/futures P&L to mention under the net
- * (or 0).
+ * stats: tradeStats() of this period's options. prev: the same for the
+ * comparison period (or null). extraNet: this period's equity/futures P&L;
+ * prevExtraNet: the comparison period's (null when it didn't load). The
+ * lead tile is the total of both, with each part on its own line below.
  */
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -147,16 +148,23 @@ function openCompact(stats, loading) {
 
 /** Key numbers. `open` (Month view): { stats: openTradeStats(...), loading,
  *  monthName } — the still-open trades expiring in that month, shown as an
- *  Unrealized P&L column beside Option P&L (live prices), with their count. */
-export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, open = null }) {
-  const delta = prev ? stats.net - prev.net : null
+ *  Unrealized P&L column beside Total P&L (live prices), with their count. */
+export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, prevExtraNet = null, open = null }) {
+  const total = stats.net + extraNet
+  const delta = prev && prevExtraNet != null ? total - (prev.net + prevExtraNet) : null
   const tiles = [
     {
-      label: 'Option P&L',
-      value: <span className={signClass(stats.net)}>{usd(stats.net)}</span>,
-      sub: delta != null
-        ? <><span className={signClass(delta)}>{delta >= 0 ? '▲' : '▼'} {usd(Math.abs(delta))}</span> vs {prevName}</>
-        : netNote,
+      label: 'Total P&L',
+      value: <span className={signClass(total)}>{usd(total)}</span>,
+      sub: (
+        <>
+          {delta != null
+            ? <><span className={signClass(delta)}>{delta >= 0 ? '▲' : '▼'} {usd(Math.abs(delta))}</span> vs {prevName}</>
+            : netNote}
+          <span className="report-kpi-subline">Options <span className={signClass(stats.net)}>{usd(stats.net)}</span></span>
+          <span className="report-kpi-subline">Equity &amp; futures <span className={signClass(extraNet)}>{usd(extraNet)}</span></span>
+        </>
+      ),
       hero: true,
     },
     // Still-open trades expiring this month, beside the realized figure.
@@ -176,7 +184,7 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, open = 
     },
     {
       label: 'Trades',
-      // Total, broken down as closed + expired + exercised.
+      // Total, broken down as closed + expired + assigned/exercised.
       // Last month's total sits beside this month's, on the same line.
       value: (
         <>
@@ -189,8 +197,8 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, open = 
           <span className="report-kpi-breakdown">
             <span title="Bought or sold back before expiration">{stats.closed} closed</span>
             <span title="Expired worthless">{stats.expired} expired</span>
-            <span title={`Futures options exercised into their future (${signedUsd(stats.exercisedNet)} premium). Their premium is in Option P&L but not in win rate; the future's result is under Equity/futures.`}>
-              {stats.exercised} exercised
+            <span title={`Options assigned into shares or exercised into their future (${signedUsd(stats.exercisedNet)} premium). Their premium is in Options P&L but not in win rate; the shares' or future's result is under Equity & futures.`}>
+              {stats.exercised} assigned
             </span>
           </span>
         </>
@@ -200,7 +208,7 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, open = 
     {
       label: 'Win rate',
       value: pct(stats.winRate),
-      sub: prev ? `${pct(prev.winRate)} in ${prevName}` : stats.exercised ? 'excl. exercised' : '',
+      sub: prev ? `${pct(prev.winRate)} in ${prevName}` : stats.exercised ? 'excl. assigned' : '',
     },
     { label: 'Avg win', value: <span className="pnl-up">{usd(stats.avgWin)}</span>, sub: 'per winning trade' },
     { label: 'Avg loss', value: <span className="pnl-down">{usd(stats.avgLoss)}</span>, sub: 'per losing trade' },
@@ -221,11 +229,6 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, open = 
           </div>
         ))}
       </div>
-      {extraNet !== 0 && (
-        <p className="summary-line report-kpi-extra">
-          Equity/futures: <span className={signClass(extraNet)}>{usd(extraNet)}</span>
-        </p>
-      )}
     </div>
   )
 }
@@ -509,9 +512,9 @@ export function SymbolTable({ rows, onSymbol }) {
                   {r.exercised > 0 && (
                     <span
                       className="report-exercised"
-                      title={`${r.exercised} exercised into the future (${signedUsd(r.exercisedNet)} premium). Counted in net P&L, not in win rate — the future's result is under Equity & futures.`}
+                      title={`${r.exercised} assigned or exercised (${signedUsd(r.exercisedNet)} premium). Counted in net P&L, not in win rate — the shares' or future's result is under Equity & futures.`}
                     >
-                      {r.exercised} exercised
+                      {r.exercised} assigned
                     </span>
                   )}
                 </td>
@@ -548,8 +551,8 @@ export function SymbolTable({ rows, onSymbol }) {
       </table>
       {anyExercised && (
         <p className="report-footnote">
-          Exercised: a futures option exercised into its future. Its premium is in net P&amp;L but left out of win
-          rate; the future&apos;s own result is under Equity &amp; futures.
+          Assigned: an option assigned into shares, or a futures option exercised into its future. Its premium is
+          in net P&amp;L but left out of win rate; the shares&apos; or future&apos;s own result is under Equity &amp; futures.
         </p>
       )}
     </div>
@@ -632,48 +635,65 @@ export function MonthGrid({ trades, lastMonth, partialNote, onMonth, onQuarter }
   )
 }
 
-/** Cumulative realized P&L across the year, one point per trading day. */
-export function CumulativeChart({ trades, onDay }) {
-  const data = useMemo(() => runningTotal(trades), [trades])
-  const monthTicks = useMemo(() => {
-    const seen = new Set()
-    return data.filter((p) => { const m = p.date.slice(0, 7); if (seen.has(m)) return false; seen.add(m); return true }).map((p) => p.date)
-  }, [data])
-  if (data.length === 0) return null
+/** Monthly P&L as gain/loss bars with the running total (at each month's
+ *  end) as a line — the YTD counterpart of DailyRunChart. Months after
+ *  lastMonth (0-based) haven't happened and are left out. */
+export function MonthlyRunChart({ trades, lastMonth, onMonth }) {
+  const data = useMemo(() => {
+    const byMonth = sumBy(trades, (t) => utcDate(t.close_date).getUTCMonth())
+    const counts = countBy(trades, (t) => utcDate(t.close_date).getUTCMonth())
+    let run = 0
+    return MONTH_NAMES.slice(0, lastMonth + 1).map((label, m) => {
+      const month = byMonth.get(m) ?? 0
+      run += month
+      return { m, label, month, total: run, count: counts.get(m) ?? 0 }
+    })
+  }, [trades, lastMonth])
+  if (trades.length === 0) return null
   const EndLabel = endLabel(data.length, compactUsd)
   return (
     <ResponsiveContainer width="100%" height="100%" minHeight={CHART_MIN_HEIGHT}>
-      <AreaChart
+      <ComposedChart
         data={data}
-        margin={{ top: 20, right: 64, left: 0, bottom: 0 }}
-        onClick={(s) => s?.activeLabel && onDay(s.activeLabel)}
+        margin={{ top: 12, right: 64, left: 0, bottom: 0 }}
+        onClick={(s) => s?.activePayload?.length && onMonth(s.activePayload[0].payload.m)}
         style={{ cursor: 'pointer' }}
       >
         <CartesianGrid vertical={false} stroke="var(--border)" />
-        <XAxis dataKey="date" ticks={monthTicks} tick={axisTick} tickLine={false} axisLine={false} tickFormatter={(d) => MONTH_NAMES[utcDate(d).getUTCMonth()]} />
+        <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval={0} />
         <YAxis tick={axisTick} tickLine={false} axisLine={false} width={56} tickFormatter={compactUsd} />
         <ReferenceLine y={0} stroke="var(--border-strong)" />
         <Tooltip
-          cursor={{ stroke: 'var(--border-strong)', strokeWidth: 1 }}
+          cursor={{ stroke: 'var(--border-strong)', strokeWidth: 1, fill: 'none' }}
           content={({ active, payload }) => {
             if (!active || !payload?.length) return null
             const p = payload[0].payload
-            return <TooltipCard title={longDate(p.date)} rows={[['Running total', usd(p.total), signClass(p.total)], ['That day', signedUsd(p.day), signClass(p.day)]]} />
+            return (
+              <TooltipCard
+                title={p.label}
+                rows={[
+                  ['That month', signedUsd(p.month), signClass(p.month)],
+                  ['Running total', usd(p.total), signClass(p.total)],
+                  ['Trades', String(p.count)],
+                ]}
+              />
+            )
           }}
         />
-        <Area
+        <Bar dataKey="month" name="Monthly P&L" maxBarSize={32} shape={<PnlBar />} isAnimationActive={false} />
+        <Line
           dataKey="total"
+          name="Running total"
           type="linear"
           stroke="var(--primary)"
           strokeWidth={2}
-          fill="var(--primary)"
-          fillOpacity={0.1}
+          dot={false}
           activeDot={{ r: 4.5, fill: 'var(--primary)', stroke: 'var(--card-bg)', strokeWidth: 2 }}
           isAnimationActive={false}
         >
           <LabelList dataKey="total" content={<EndLabel />} />
-        </Area>
-      </AreaChart>
+        </Line>
+      </ComposedChart>
     </ResponsiveContainer>
   )
 }

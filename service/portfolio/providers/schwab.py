@@ -11,6 +11,7 @@ from typing import Optional
 
 from broker.schwab import Client
 from broker.schwab.data.account_data import Position, SecuritiesAccount
+from service.portfolio.date_windows import split_date_range
 from service.portfolio.providers.base import OptionTransaction
 from service.shared.contracts import get_contract_multiplier, parse_option_symbol
 from utils.utils import get_date_string
@@ -134,7 +135,22 @@ class SchwabTransactionProvider:
         self.client = client or Client()
 
     def fetch_raw_transactions(self, start_date: str, end_date: str) -> list:
-        return self.client.fetch_transactions(start_date=start_date, end_date=end_date)
+        # Schwab rejects a request spanning more than a year, so a longer
+        # range (the equity lookback) is fetched a year at a time. A record
+        # stamped exactly at a window boundary can come back twice — keep one.
+        windows = split_date_range(start_date, end_date)
+        if len(windows) == 1:
+            return self.client.fetch_transactions(start_date=start_date, end_date=end_date)
+        records, seen = [], set()
+        for window_start, window_end in windows:
+            for record in self.client.fetch_transactions(start_date=window_start, end_date=window_end):
+                activity_id = getattr(record, "activityId", None)
+                if activity_id is not None:
+                    if activity_id in seen:
+                        continue
+                    seen.add(activity_id)
+                records.append(record)
+        return records
 
     def normalize_futures_symbol(self, symbol: str) -> str:
         """Return the CME root symbol for a Schwab futures contract symbol.
@@ -318,6 +334,10 @@ class SchwabTransactionProvider:
                         continue
 
                     asset = getattr(instrument, "assetType", None)
+                    # ETFs (IWM, SPY, QQQ shares) are COLLECTIVE_INVESTMENT
+                    # to Schwab — stock for every purpose here.
+                    if asset == "COLLECTIVE_INVESTMENT":
+                        asset = "EQUITY"
                     if asset not in ("EQUITY", "FUTURE"):
                         continue
 
@@ -335,6 +355,7 @@ class SchwabTransactionProvider:
                         # Schwab's own `cost` already nets in the contract multiplier
                         # (e.g. $50/point for ES) and is credit-positive / debit-negative.
                         "cost": float(getattr(item, "cost", 0) or 0),
+                        "position_effect": getattr(item, "positionEffect", None),
                     })
             except Exception as e:
                 logger.error(f"Error processing equity/future transaction: {e}")

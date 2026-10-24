@@ -55,10 +55,11 @@ their own Schwab connection** (positions/transactions are per-user);
   "Removal of option due to expiration of …") and the delivered future is a
   separate fill at the strike. `SchwabTransactionProvider._identify_close_event`
   maps these to `EXERCISE`/`EXPIRATION`, and the matched leg's type is
-  `EXERCISED`, which, unlike an equity `ASSIGNED`, **keeps its premium as P&L**
-  (zeroing it would drop the premium from the total, since the future is
-  booked at the strike). Reports counts `EXERCISED` in net P&L but not in win
-  rate / avg win-loss / profit factor. Any code listing "closed" types must
+  `EXERCISED`, which, like an equity `ASSIGNED`, **keeps its premium as P&L**
+  (zeroing it would drop the premium from the total, since the future /
+  shares are booked at the strike — thinkorswim counts it the same way).
+  Reports counts `EXERCISED` and `ASSIGNED` in net P&L but not in win rate /
+  avg win-loss / profit factor. Any code listing "closed" types must
   include `EXERCISED` alongside `CLOSED`/`EXPIRED`/`ASSIGNED`.
 - **One broker per side.** Portfolio data (positions, balances,
   transactions) is **Schwab only**; market data (option chains, the

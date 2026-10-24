@@ -27,7 +27,7 @@ SETTINGS: dict[str, tuple[type, Any, Optional[tuple], Optional[int]]] = {
     "positions.open_lookback_days": (int, 30, None, 1),
     "transactions.option_lookback_days": (int, 30, None, 1),
     "transactions.option_lookforward_days": (int, 5, None, 0),
-    "transactions.equity_lookback_days": (int, 180, None, 1),
+    "transactions.equity_lookback_days": (int, 365, None, 1),
     "copilot.history_days": (int, 90, None, 1),
 }
 

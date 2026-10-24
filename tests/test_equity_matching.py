@@ -55,3 +55,37 @@ def test_close_without_its_open_in_the_window_is_not_realized(make_service):
     # no realized P&L can be computed for it.
     svc = make_service(equity_legs=[equity_leg("2026-10-05", "AAPL", -100, 110.0)])
     assert svc.get_equity_transactions("", "2026-10-01", "2026-10-31", "ALL", realized_gains_only=True) == []
+
+
+def test_sale_of_shares_bought_before_the_history_is_not_a_short(make_service):
+    # Sold shares bought before the fetched history: the sale must not open a
+    # phantom short that the next buy "closes" (pairing unrelated trades).
+    svc = make_service(equity_legs=[
+        {**equity_leg("2026-09-01", "CRM", -200, 250.0), "position_effect": "CLOSING"},
+        {**equity_leg("2026-09-10", "CRM", 200, 240.0), "position_effect": "OPENING"},
+        {**equity_leg("2026-10-05", "CRM", -200, 200.0), "position_effect": "CLOSING"},
+    ])
+    [trade] = svc.get_equity_transactions("", "2026-09-01", "2026-10-31", "ALL", realized_gains_only=True)
+    assert (trade["date"], trade["close_date"]) == ("2026-09-10", "2026-10-05")
+    assert trade["total_amount"] == pytest.approx(-8000.0)
+
+
+def test_short_stock_covered_by_an_assignment(make_service):
+    # Sold short, then a put assignment buys the shares back (tagged CLOSING).
+    svc = make_service(equity_legs=[
+        {**equity_leg("2026-04-10", "IWM", -300, 251.0), "position_effect": "OPENING"},
+        {**equity_leg("2026-09-18", "IWM", 300, 290.0), "position_effect": "CLOSING"},
+    ])
+    [trade] = svc.get_equity_transactions("", "2026-09-01", "2026-09-30", "ALL", realized_gains_only=True)
+    assert trade["total_amount"] == pytest.approx(-11700.0)
+
+
+def test_lookback_is_not_shrunk_to_one_request(make_service):
+    # A YTD range plus the full lookback is longer than one Schwab request;
+    # the service asks for all of it (the provider splits the fetch).
+    svc = make_service()
+    seen = []
+    svc.provider.fetch_equity_future_legs = lambda start, end: seen.append((start, end)) or []
+    svc.get_equity_transactions("", "2026-01-01", "2026-10-23", "ALL", realized_gains_only=True)
+    [(start, _)] = seen
+    assert start <= "2025-01-01"

@@ -54,6 +54,13 @@ def match_equity_fills(trades: List[Dict]) -> List[Dict]:
     lot itself. A fill can do both: partially close the queue, then open a
     new lot in the opposite direction for whatever quantity flips through.
 
+    The exception is a stock fill the broker tagged CLOSING with nothing
+    left to close: its open came before the fetched history, so it's
+    reported unmatched but never queued — queued, a sale of shares bought
+    before the window would become a phantom short that the next buy
+    "closes", pairing unrelated trades. (Stock tags are reliable; futures
+    tags aren't, see above, so futures keep the plain sign rule.)
+
     Realized P&L for a matched (or partially matched) quantity is the sum
     of the proportional share of each side's already-multiplier-correct
     `cost` — this sidesteps ever needing to know the actual per-contract
@@ -69,6 +76,7 @@ def match_equity_fills(trades: List[Dict]) -> List[Dict]:
     for symbol, group in by_symbol.items():
         fills = sorted(group, key=lambda t: t["date"])
         queue = []  # FIFO of still-open lots: {date, qty (signed), cost, price, asset_type}
+        orphans = []  # closes whose open predates the history, same shape
 
         for fill in fills:
             qty = fill["amount"]
@@ -107,9 +115,13 @@ def match_equity_fills(trades: List[Dict]) -> List[Dict]:
                 cost *= (1 - fill_frac)
 
             if abs(qty) > 1e-9:
-                queue.append({"date": date, "qty": qty, "cost": cost, "price": price, "asset_type": asset_type})
+                lot = {"date": date, "qty": qty, "cost": cost, "price": price, "asset_type": asset_type}
+                if asset_type == "EQUITY" and fill.get("position_effect") == "CLOSING":
+                    orphans.append(lot)
+                else:
+                    queue.append(lot)
 
-        for lot in queue:
+        for lot in orphans + queue:
             unmatched.append({
                 "date": lot["date"],
                 "close_date": None,

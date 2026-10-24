@@ -172,12 +172,11 @@ def match_open_close(contract_trades: Dict) -> List[Dict]:
             # Calculate P/L (open price - close price)
             price_difference = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0))
 
-            if trade_type == "ASSIGNED":
-                price_difference = 0  # Neutralize amount for assignments
-            # EXERCISED (a futures option) keeps its premium as P&L: the
-            # delivered future is booked at the strike, so the premium is
-            # the option's whole contribution, and zeroing it like an
-            # equity assignment would drop it from the total entirely.
+            # ASSIGNED (an equity option) and EXERCISED (a futures option)
+            # keep their premium as P&L: the delivered shares / future are
+            # booked at the strike, so the premium is the option's whole
+            # contribution, and zeroing it would drop it from the total
+            # entirely (as thinkorswim's own P&L also counts it).
 
             # Use the earliest of close date or expiration date
             # This handles transactions that might be recorded after expiration

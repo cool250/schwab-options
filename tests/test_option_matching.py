@@ -45,17 +45,16 @@ def test_exercised_futures_option_keeps_its_premium(make_service):
     assert trade["total_amount"] == pytest.approx(1000.0)  # 20 x 1 x $50
 
 
-def test_assigned_equity_option_is_left_out_of_realized_pnl(make_service):
+def test_assigned_equity_option_keeps_its_premium(make_service):
+    # The assigned shares are booked at the strike, so the premium is only
+    # counted here — zeroing it would drop it from the total.
     legs = [
         option_leg("2026-10-01", "OPENING", -1, 2.00),
         option_leg("2026-10-23", "CLOSING", 1, 0.00, close_event="ASSIGNMENT"),
     ]
-    assert realized(make_service(legs)) == []
-    # Including assignments, it shows as ASSIGNED with its P&L zeroed (the
-    # premium is part of the assigned shares' cost basis instead).
-    [trade] = make_service(legs).get_option_transactions("", *OCT, "ALL", realized_gains_only=False)
+    [trade] = realized(make_service(legs))
     assert trade["type"] == "ASSIGNED"
-    assert trade["total_amount"] == 0
+    assert trade["total_amount"] == pytest.approx(200.0)
 
 
 def test_open_leg_is_not_realized_but_is_returned_as_unrealized(make_service):

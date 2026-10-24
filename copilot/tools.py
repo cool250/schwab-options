@@ -318,7 +318,9 @@ TOOL_SCHEMAS = [
             "futures option that was exercised/assigned into its future: its total_amount is the "
             "option premium only (positive if it was sold, negative if bought), and the delivered "
             "future's P&L is separate (get_equity_trade_history / get_futures_positions), so don't "
-            "describe an exercised short as a clean win.",
+            "describe an exercised short as a clean win. type \"ASSIGNED\" is the same for an "
+            "equity option: total_amount is its premium, and the assigned shares' P&L (booked at "
+            "the strike) is in get_equity_trade_history.",
             "parameters": {
                 "type": "object",
                 "properties": {

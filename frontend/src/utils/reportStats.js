@@ -17,17 +17,18 @@ export function closedTrades(rows, { dropZero = false } = {}) {
 /** Net, trade count, win rate, average win/loss and profit factor.
  *  A trade closed at exactly $0 counts as a trade but neither a win nor a loss.
  *
- *  EXERCISED futures options count toward net P&L (their premium is real,
- *  and the delivered future is booked at the strike) but not toward win
+ *  ASSIGNED equity options and EXERCISED futures options (both counted as
+ *  `exercised` here) count toward net P&L (their premium is real, and the
+ *  delivered shares / future are booked at the strike) but not toward win
  *  rate, average win/loss or profit factor: the option's own result is just
- *  its premium, and how the trade actually ended shows up in the future's
- *  P&L instead — scoring a short that was exercised against you as a full
- *  win would flatter every one of those figures. */
+ *  its premium, and how the trade actually ended shows up in the shares' or
+ *  future's P&L instead — scoring a short that was assigned against you as
+ *  a full win would flatter every one of those figures. */
 export function tradeStats(trades) {
   let gw = 0, gl = 0, wins = 0, losses = 0, decided = 0, exercised = 0, exercisedNet = 0, expired = 0
   for (const t of trades) {
     const v = t.total_amount ?? 0
-    if (t.type === 'EXERCISED') { exercised++; exercisedNet += v; continue }
+    if (t.type === 'EXERCISED' || t.type === 'ASSIGNED') { exercised++; exercisedNet += v; continue }
     if (t.type === 'EXPIRED') expired++
     decided++
     if (v > 0) { gw += v; wins++ } else if (v < 0) { gl -= v; losses++ }

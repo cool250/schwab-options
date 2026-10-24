@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from service.portfolio.date_windows import equity_lookback_days, expand_date_range, open_position_lookback_days
 from service.portfolio.equity_matching import combine_equity_lots, match_equity_fills
-from service.portfolio.option_matching import identify_trade_type, match_option_trades
+from service.portfolio.option_matching import match_option_trades
 from service.portfolio.providers import TransactionProvider, get_transaction_provider
 from service.shared.contracts import CONTRACT_MULTIPLIER
 from utils.market_time import market_today
@@ -118,17 +118,8 @@ class TransactionService:
             stock_ticker = stock_ticker.lstrip("/")
             option_transactions = [t for t in option_transactions if t["underlying_symbol"] == stock_ticker]
 
-        # Filter out assignments close trade for realized gains only
-        # before matching trades to avoid confusion when a few are rolled over
-        filtered_transactions = [
-            transaction for transaction in option_transactions
-            if not (transaction["position_effect"] == "CLOSING" and 
-                   identify_trade_type(transaction) == "ASSIGNED" and
-                   realized_gains_only)
-        ]
-
         # Match opening and closing trades
-        matched_transactions = match_option_trades(filtered_transactions)
+        matched_transactions = match_option_trades(option_transactions)
 
         # Filter by date range and calculate totals
         result_transactions = []
@@ -138,7 +129,7 @@ class TransactionService:
                 if transaction["type"] != "TRADE":
                     continue
             # Skip if we only want realized gains and anything is still open
-            elif realized_gains_only and transaction["type"] not in ["EXPIRED", "CLOSED", "EXERCISED"]:
+            elif realized_gains_only and transaction["type"] not in ["EXPIRED", "CLOSED", "ASSIGNED", "EXERCISED"]:
                 continue
 
             # Only include transactions that closed within our original date range
@@ -172,8 +163,13 @@ class TransactionService:
                      "open_price", "close_price", "total_amount", "status"}, ...]
         """
         # Positions can sit open far longer than a weekly option, so look back
-        # further than the options matcher does for the opening lot.
-        expanded = expand_date_range(start_date, end_date, lookback_days=equity_lookback_days())
+        # further than the options matcher does for the opening lot — the full
+        # lookback whatever the range, not shrunk to fit one Schwab request
+        # (the provider fetches a long window a year at a time). Shrinking it
+        # once left a YTD report ~2 months of history, so stock held since
+        # last year closed with no cost basis and its loss disappeared.
+        expanded = expand_date_range(start_date, end_date, lookback_days=equity_lookback_days(),
+                                     max_span_days=None)
 
         raw_trades = self.provider.fetch_equity_future_legs(expanded["start_date"], expanded["end_date"])
 
