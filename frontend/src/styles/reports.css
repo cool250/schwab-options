@@ -37,10 +37,9 @@
 .report-kpi-breakdown > span + span::before { content: "·"; margin-right: 6px; color: var(--text-faint); }
 .report-kpi-inline { margin-left: 4px; font-size: 0.78rem; font-weight: 500; color: var(--text-muted); }
 
-/* Period filters: Year, Month and Submit on one row. */
+/* Period filters: Year and Month on one row. */
 .report-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
 .report-filters .form-group { flex: 1 1 180px; min-width: 0; }
-.report-filters .btn { flex: none; }
 
 /* Month calendar */
 .pnl-cal { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 0.9fr); gap: 4px; }

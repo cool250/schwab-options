@@ -122,8 +122,10 @@ export default function Reports() {
   const [loadingFor, setLoadingFor] = useState({ month: false, ytd: false })
   const [errors, setErrors] = useState({ month: null, ytd: null })
   // Latest request per tab, so a slow earlier response can't overwrite a
-  // newer one (e.g. Submit pressed twice).
+  // newer one (e.g. the year changed twice in quick succession).
   const requestIds = useRef({ month: 0, ytd: 0 })
+  // What each tab last asked for (loaded or still loading): { year, month }.
+  const requestedFor = useRef({ month: null, ytd: null })
   const report = reports[period]
   const loading = loadingFor[period]
   const error = errors[period]
@@ -198,6 +200,7 @@ export default function Reports() {
     if (period === 'month') loadOpen(year, month)
     if (period === 'ytd') loadUnrealized(year)
     const id = ++requestIds.current[period]
+    requestedFor.current[period] = { year, month }
     const current = () => requestIds.current[period] === id
     setLoadingFor((s) => ({ ...s, [period]: true }))
     setErrors((s) => ({ ...s, [period]: null }))
@@ -239,9 +242,15 @@ export default function Reports() {
     }
   }
 
-  function handleSubmit(e) {
-    e.preventDefault()
-    load(period, year, month)
+  // A dropdown change loads the report for it straight away.
+  function changeYear(y) {
+    setYear(y)
+    load(period, y, month)
+  }
+
+  function changeMonth(m) {
+    setMonth(m)
+    load('month', year, m)
   }
 
   // The current month loads as soon as the page opens; YTD loads the
@@ -254,9 +263,14 @@ export default function Reports() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Switching tabs reuses that tab's report (loaded or loading) only if it
+  // was asked for the current year (and month); a dropdown changed on the
+  // other tab means a reload.
   function selectPeriod(p) {
     setPeriod(p)
-    if (!reports[p] && !loadingFor[p]) load(p, year, month)
+    const asked = requestedFor.current[p]
+    const matches = asked && asked.year === year && (p === 'ytd' || asked.month === month)
+    if (!matches || errors[p]) load(p, year, month) // a failed load is retried
   }
 
   const derived = useMemo(() => {
@@ -359,27 +373,24 @@ export default function Reports() {
       </div>
 
       <div className="card">
-        <form onSubmit={handleSubmit} className="report-filters">
+        <div className="report-filters">
           <div className="form-group">
             <label htmlFor="report-year">Year</label>
-            <select id="report-year" value={year} onChange={(e) => setYear(Number(e.target.value))} className="input">
+            <select id="report-year" value={year} onChange={(e) => changeYear(Number(e.target.value))} className="input">
               {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
           {period === 'month' && (
             <div className="form-group">
               <label htmlFor="report-month">Month</label>
-              <select id="report-month" value={month} onChange={(e) => setMonth(Number(e.target.value))} className="input">
+              <select id="report-month" value={month} onChange={(e) => changeMonth(Number(e.target.value))} className="input">
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                   <option key={m} value={m}>{monthName(m)}</option>
                 ))}
               </select>
             </div>
           )}
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            Submit
-          </button>
-        </form>
+        </div>
       </div>
 
       {error && <div className="alert error">{error}</div>}
