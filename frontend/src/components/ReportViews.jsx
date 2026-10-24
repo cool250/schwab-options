@@ -130,6 +130,9 @@ const keyActivate = (fn) => (e) => {
  * comparison period (or null). extraNet: this period's equity/futures P&L;
  * prevExtraNet: the comparison period's (null when it didn't load). The
  * lead tile is the total of both, with each part on its own line below.
+ * unrealized (YTD, current year): { loading, data, failed } from
+ * loadOpenPositionsPl() — once loaded, the total adds it and it gets its own
+ * tile broken down by stocks / options / futures.
  */
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -149,9 +152,13 @@ function openCompact(stats, loading) {
 /** Key numbers. `open` (Month view): { stats: openTradeStats(...), loading,
  *  monthName } — the still-open trades expiring in that month, shown as an
  *  Unrealized P&L column beside Total P&L (live prices), with their count. */
-export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, prevExtraNet = null, open = null }) {
-  const total = stats.net + extraNet
-  const delta = prev && prevExtraNet != null ? total - (prev.net + prevExtraNet) : null
+export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, prevExtraNet = null, open = null, unrealized = null }) {
+  const realized = stats.net + extraNet
+  const openPl = unrealized?.data ?? null
+  const total = realized + (openPl?.total ?? 0)
+  const delta = prev && prevExtraNet != null ? realized - (prev.net + prevExtraNet) : null
+  // "…" while loading, "—" if it couldn't load.
+  const unrealizedText = openPl ? usd(openPl.total) : unrealized?.loading ? '…' : '—'
   const tiles = [
     {
       label: 'Total P&L',
@@ -163,6 +170,32 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, prevExt
             : netNote}
           <span className="report-kpi-subline">Options <span className={signClass(stats.net)}>{usd(stats.net)}</span></span>
           <span className="report-kpi-subline">Equity &amp; futures <span className={signClass(extraNet)}>{usd(extraNet)}</span></span>
+          {unrealized && (
+            <span className="report-kpi-subline">Unrealized <span className={signClass(openPl?.total)}>{unrealizedText}</span></span>
+          )}
+        </>
+      ),
+      hero: true,
+    },
+    // YTD: every position open now, valued as on the Positions page.
+    unrealized && {
+      label: 'Unrealized P&L',
+      value: <span className={signClass(openPl?.total)}>{unrealizedText}</span>,
+      sub: (
+        <>
+          <span title="Gain or loss on each open position since it was opened (not only this year), at live prices — same figures as the Positions page">
+            Open positions, since opened
+            {openPl?.unpriced > 0 && ` · ${openPl.unpriced} unpriced`}
+            {openPl?.futuresMissing && ' · futures unavailable'}
+            {unrealized.failed && ' · couldn’t load'}
+          </span>
+          {openPl && (
+            <>
+              <span className="report-kpi-subline">Stocks <span className={signClass(openPl.stocks)}>{usd(openPl.stocks)}</span></span>
+              <span className="report-kpi-subline">Options <span className={signClass(openPl.options)}>{usd(openPl.options)}</span></span>
+              <span className="report-kpi-subline">Futures <span className={signClass(openPl.futures)}>{usd(openPl.futures)}</span></span>
+            </>
+          )}
         </>
       ),
       hero: true,
@@ -220,7 +253,7 @@ export function KpiStrip({ stats, prev, prevName, netNote, extraNet = 0, prevExt
   ].filter(Boolean)
   return (
     <div className="card">
-      <div className={`report-kpis${open ? ' report-kpis--with-open' : ''}`}>
+      <div className={`report-kpis${open || unrealized ? ' report-kpis--with-open' : ''}`}>
         {tiles.map((t) => (
           <div key={t.label} className={`report-kpi${t.hero ? ' report-kpi--hero' : ''}${t.wide ? ' report-kpi--wide' : ''}`}>
             <span className="report-kpi-label">{t.label}</span>

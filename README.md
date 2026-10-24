@@ -42,6 +42,8 @@ For a deeper architectural tour (service layer, broker clients, copilot subsyste
 │       ├── components/   # Navbar, CopilotWidget, DataTable, HelpTip, Spinner
 │       ├── utils/        # Small shared helpers (date/symbol formatting, cross-page stores)
 │       └── api/          # Fetch wrappers for the FastAPI endpoints
+├── scripts/              # tos_statement_pl.py: P&L from a thinkorswim statement, to check Reports
+│                         # (see "Checking Reports against a thinkorswim statement")
 └── main.py               # Schwab OAuth token refresh utility (run this, not the app itself)
 ```
 
@@ -187,6 +189,52 @@ The **Screener** page ranks single puts or calls — or two multi-leg credit str
 - A ticker that fails (bad symbol, no listed options) is reported as a per-ticker warning; the rest of the scan still returns.
 - Option chains come from Tastytrade. A scan of several tickers typically takes ~10–15 s.
 - For futures options, ROI is still premium ÷ strike, which doesn't reflect the margin actually tied up.
+
+---
+
+## Checking Reports against a thinkorswim statement
+
+`scripts/tos_statement_pl.py` computes realized P&L from a thinkorswim Account Statement alone (no Schwab API, no app code), as an independent check on the **Reports** page.
+
+**1. Export the statement** — in thinkorswim: **Monitor → Account Statement**, set the range from 1 January to today, then **Export to File** (CSV, not Excel).
+
+**2. Run the script** with the statement and a folder for the output:
+
+```bash
+uv run python -m scripts.tos_statement_pl ~/Downloads/2026-10-23-AccountStatement.csv ~/Downloads/tos_pl
+```
+
+It prints the totals (illustrative numbers):
+
+```
+net 41250.0 {'option': 45200.0, 'stock': -3100.0, 'futures': -1500.0, 'fees': -350.0, 'income': 1000.0}
+open P/L -2400.0 statement YTD 38850.0 through 2026-10-23
+calendar rolls rebuilt: 2
+legacy stock closes (basis unknown): 1 | unmatched option closes: 0
+```
+
+**3. Open the CSVs** it writes to the output folder:
+
+| File | What's in it |
+|---|---|
+| `monthly_pnl.csv` | Total P&L per month |
+| `daily_pnl.csv` | Each day, split into option / stock / futures / fees / income, with a running total |
+| `pnl_by_symbol.csv` | Year total per underlying |
+| `pnl_month_symbol.csv` | Each underlying by month |
+| `pnl_day_symbol.csv` | Each underlying by day, with a running total |
+| `pnl_ticker.csv` | Per ticker: options, stock, futures, next to the statement's own open and YTD P/L |
+| `pnl_matches.csv` | Every closing trade with the opening trade it was matched to |
+| `reconciliation.csv` | Realized totals next to the statement's open P/L and YTD P/L |
+
+Any of these opens in Excel or Numbers (`open ~/Downloads/tos_pl/monthly_pnl.csv`, or double-click in Finder) or VS Code (a CSV extension such as Rainbow CSV helps). In the terminal: `column -s, -t < ~/Downloads/tos_pl/monthly_pnl.csv`.
+
+**Comparing with Reports:** start with `monthly_pnl.csv` and `pnl_month_symbol.csv` against the Reports YTD view; to see why a month differs, filter `pnl_matches.csv` to it. Some differences are expected, because the two count things differently by design:
+
+- **Futures** — the script counts the daily mark-to-market, open positions included; Reports counts a future when it's closed.
+- **Fees and income** (commissions, interest, dividends, margin interest) are in the script's totals, not in Reports.
+- **Anything from before the statement starts** — options opened last year and shares bought before it — has no opening trade in the statement, so the script leaves it out (it reports how many as `unmatched option closes` and `legacy stock closes`). Reports reads the account's full history, so it counts them.
+
+The module docstring has the full method, including how it rebuilds the calendar rolls thinkorswim exports as a single contract. The output contains account data — keep it out of the repo.
 
 ---
 

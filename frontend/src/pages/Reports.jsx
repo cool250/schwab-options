@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAllocations, getEquityTransactions, getOptionTransactions, getOptionBids, friendlyErrorMessage } from '../api/client'
+import { loadOpenPositionsPl } from '../utils/openPositions'
 import { getMultiplier } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import {
@@ -149,8 +150,27 @@ export default function Reports() {
     }
   }
 
+  // YTD view, current year: unrealized P&L of every position open right
+  // now (utils/openPositions.js) — { year, loading, data, failed }.
+  const [unrealized, setUnrealized] = useState(null)
+  const unrealizedRequestId = useRef(0)
+
+  async function loadUnrealized(year) {
+    const id = ++unrealizedRequestId.current
+    if (year !== currentYear()) { setUnrealized(null); return } // a past year's open positions aren't "now"
+    setUnrealized({ year, loading: true, data: null, failed: false })
+    try {
+      const data = await loadOpenPositionsPl()
+      if (unrealizedRequestId.current === id) setUnrealized({ year, loading: false, data, failed: false })
+    } catch {
+      // Like the Month view's open trades: a nicety on top of the realized report.
+      if (unrealizedRequestId.current === id) setUnrealized({ year, loading: false, data: null, failed: true })
+    }
+  }
+
   async function load(period, year, month) {
     if (period === 'month') loadOpen(year, month)
+    if (period === 'ytd') loadUnrealized(year)
     const id = ++requestIds.current[period]
     const current = () => requestIds.current[period] === id
     setLoadingFor((s) => ({ ...s, [period]: true }))
@@ -350,6 +370,7 @@ export default function Reports() {
             netNote={isMonth ? null : positiveMonths}
             extraNet={derived.equityNet}
             prevExtraNet={derived.prevEquityNet}
+            unrealized={!isMonth && unrealized && unrealized.year === report.year ? unrealized : null}
             open={openNow && (openLegs.length > 0 || openNow.loading)
               ? { stats: openTradeStats(openLegs), loading: openNow.loading, monthName: monthName(report.month) }
               : null}

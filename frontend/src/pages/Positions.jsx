@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionQuotes, friendlyErrorMessage } from '../api/client'
+import { futuresOptionContracts, futuresOptionRowPl } from '../utils/positionPl'
 import { formatOptionSymbol } from '../utils/optionSymbol'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
@@ -247,14 +248,7 @@ export default function Positions() {
   // fills in as soon as its own prices land.
   useEffect(() => {
     if (!futuresData) return
-    const contracts = []
-    for (const [rows, type] of [[futuresData.puts ?? [], 'PUT'], [futuresData.calls ?? [], 'CALL']]) {
-      for (const row of rows) {
-        for (const leg of row.long_leg ? [row.long_leg, row.short_leg] : [row]) {
-          contracts.push({ key: leg.symbol, underlying: `/${row.ticker}`, expiration: row.expiration_date, strike: leg.strike_price, type })
-        }
-      }
-    }
+    const contracts = futuresOptionContracts(futuresData.puts, futuresData.calls)
     setFuturesQuotesLoading(true)
     getOptionQuotes(contracts)
       .then((quotes) => {
@@ -460,21 +454,10 @@ export default function Positions() {
   // Unrealized P&L: total_value (trade_price-based cost basis, computed on
   // the backend) minus the same position re-priced at the live quote — so it
   // needs futuresQuotes the same way Current Price does, and can't be a plain
-  // data key. Null until that row's quote(s) are in.
+  // data key. Null until that row's quote(s) are in. Shared with Reports'
+  // unrealized total (utils/openPositions.js).
   function futuresRowPL(row) {
-    const multiplier = row.multiplier ?? 100
-    let currentValue = null
-    if (row.long_leg && row.short_leg) {
-      const longPrice = futuresQuotes[row.long_leg.symbol]
-      const shortPrice = futuresQuotes[row.short_leg.symbol]
-      if (longPrice != null && shortPrice != null) {
-        currentValue = ((row.short_leg.amount * shortPrice) - (row.long_leg.amount * longPrice)) * multiplier
-      }
-    } else {
-      const price = futuresQuotes[row.symbol]
-      if (price != null) currentValue = price * -(row.quantity ?? 0) * multiplier
-    }
-    return currentValue == null ? null : (row.total_value ?? 0) - currentValue
+    return futuresOptionRowPl(row, futuresQuotes)
   }
 
   // cell-positive/cell-negative applied manually since DataTable only
