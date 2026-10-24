@@ -355,9 +355,15 @@ export default function Reports() {
               : null}
           />
 
+          {/* One source switch for every card below it (the running total
+              always covers every trade). */}
+          <div className="report-source-bar">
+            <span className="report-source-label">Show</span>
+            <SourceTabs value={source} onChange={setSource} />
+          </div>
+
           {/* 2. P&L by period (left) and the running total (right) — same slots in both views.
               The running total covers every trade, so the row shows whatever the switch says. */}
-          <SourceTabs value={source} onChange={setSource} />
           <div className="report-row">
             <div className="card">
               <div className="report-card-head">
@@ -411,9 +417,8 @@ export default function Reports() {
           <div className="card">
             <div className="report-card-head">
               <h3 className="section-title">By symbol</h3>
-              <span className="report-card-note">Click a row to open its transactions</span>
+              <span className="report-card-note">{sourceLabel} · click a row to open its transactions</span>
             </div>
-            <SourceTabs value={source} onChange={setSource} />
             {sourceSymbols.length > 0
               ? <SymbolTable rows={sourceSymbols} onSymbol={openSymbol} />
               : <p className="summary-line">{sourceEmpty}</p>}
@@ -425,9 +430,8 @@ export default function Reports() {
               <div className="card">
                 <div className="report-card-head">
                   <h3 className="section-title">Symbol by month</h3>
-                  <span className="report-card-note">Click a cell for that symbol&apos;s trades that month</span>
+                  <span className="report-card-note">{sourceLabel} · click a cell for that symbol&apos;s trades that month</span>
                 </div>
-                <SourceTabs value={source} onChange={setSource} />
                 {sourceTrades.length > 0 ? (
                   <SymbolMonthHeat
                     trades={sourceTrades}

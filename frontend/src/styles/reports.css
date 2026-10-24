@@ -5,8 +5,11 @@
 .report-chart-fill { flex: 1; min-height: 260px; min-width: 0; }
 .report-card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
 .report-card-note { font-size: 0.8rem; color: var(--text-muted); }
-/* In-card source switch: sized to its tabs, not stretched like a page-level .tab-row. */
+/* Source switch above the report cards: sized to its tabs, not stretched like a page-level .tab-row. */
 .report-source-tabs { flex: none; }
+.report-source-bar { display: flex; align-items: center; gap: 10px; }
+.report-source-bar .report-source-tabs { margin: 0; }
+.report-source-label { font-size: 0.75rem; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; }
 
 .pnl-up { color: var(--success); }
 .pnl-down { color: var(--error); }
