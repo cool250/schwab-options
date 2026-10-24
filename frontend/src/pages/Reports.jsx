@@ -78,6 +78,18 @@ function incomeFeeTotals(rows) {
   return out
 }
 
+// "N of M months positive" over the months (through lastMonth, 0-based)
+// that had a closed trade.
+function monthsPositive(trades, lastMonth) {
+  const net = Array(lastMonth + 1).fill(null)
+  for (const t of trades) {
+    const m = utcDate(t.close_date).getUTCMonth()
+    if (m <= lastMonth) net[m] = (net[m] ?? 0) + (t.total_amount ?? 0)
+  }
+  const traded = net.filter((v) => v != null)
+  return `${traded.filter((v) => v > 0).length} of ${traded.length} months positive`
+}
+
 // Calendar date only — the views key everything by "YYYY-MM-DD".
 const withDay = (rows) => rows.map((t) => (t.close_date ? { ...t, close_date: String(t.close_date).slice(0, 10) } : t))
 
@@ -281,12 +293,10 @@ export default function Reports() {
   const allTrades = useMemo(() => !derived ? [] : [...derived.optionTrades, ...derived.equityTrades], [derived])
   const sourceSymbols = useMemo(() => symbolBreakdown(sourceTrades), [sourceTrades])
   const sourceLabel = { options: 'Options', equity: 'Equity & futures', all: 'All trades' }[source]
-  const positiveMonths = useMemo(() => {
-    if (!derived) return ''
-    const traded = Array.from({ length: derived.lastMonth + 1 }, (_, m) =>
-      tradeStats(sourceTrades.filter((t) => utcDate(t.close_date).getUTCMonth() === m))).filter((st) => st.n > 0)
-    return `${traded.filter((st) => st.net > 0).length} of ${traded.length} months positive`
-  }, [derived, sourceTrades])
+  // "7 of 10 months positive": for the shown source on the month grid, for
+  // every trade under Total P&L (which counts them all).
+  const positiveMonths = useMemo(() => derived ? monthsPositive(sourceTrades, derived.lastMonth) : '', [derived, sourceTrades])
+  const allPositiveMonths = useMemo(() => derived ? monthsPositive(allTrades, derived.lastMonth) : '', [derived, allTrades])
   const sourceEmpty = `No ${{ options: 'option ', equity: 'equity or futures ', all: '' }[source]}trades closed in ${report?.label ?? ''}.`
 
   // ---- Click-through to the matching transactions ----
@@ -299,26 +309,23 @@ export default function Reports() {
     navigate(`/transactions?${params}`)
   }
   const monthBounds = (m) => monthRange(report.year, m + 1)
-  const openRange = (start, end, open) =>
-    openTransactions({ start, end, open, tab: tabFor(null, (t) => t.close_date >= start && t.close_date <= end) })
+  // src: the trades the clicked view shows — the source switch's, or 'all'
+  // for the running total (which always covers every trade).
+  const openRange = (start, end, open, src = source) =>
+    openTransactions({ start, end, open, tab: tabFor(null, (t) => t.close_date >= start && t.close_date <= end, src) })
   const openDay = (date, open) => openRange(date, date, open)
   const openWeek = (start, end, open) => openRange(start, end, open)
   const openMonth = (m) => openRange(monthBounds(m).start, monthBounds(m).end)
-  // Running-total clicks: the tab holding that range's trades, across all of them.
-  const openAllRange = (start, end) => {
-    const hasOptions = derived.optionTrades.some((t) => t.close_date >= start && t.close_date <= end)
-    openTransactions({ start, end, tab: hasOptions ? undefined : 'equity' })
-  }
-  const openAllDay = (date) => openAllRange(date, date)
-  const openAllMonth = (m) => openAllRange(monthBounds(m).start, monthBounds(m).end)
+  const openAllDay = (date) => openRange(date, date, false, 'all')
+  const openAllMonth = (m) => openRange(monthBounds(m).start, monthBounds(m).end, false, 'all')
   const openQuarter = (q) => openRange(monthBounds(q * 3).start, monthBounds(q * 3 + 2).end)
 
   // Transactions shows one tab at a time, so a by-symbol click opens the tab
   // holding those trades — for "All", options when the symbol had any in the
   // range, else equity & futures.
   const monthOfTrade = (t) => utcDate(t.close_date).getUTCMonth()
-  const tabFor = (ticker, inRange) => {
-    if (source !== 'all') return source === 'equity' ? 'equity' : undefined
+  const tabFor = (ticker, inRange, src = source) => {
+    if (src !== 'all') return src === 'equity' ? 'equity' : undefined
     const hasOptions = derived.optionTrades.some((t) => inRange(t) && (ticker == null || symbolOf(t) === ticker))
     return hasOptions ? undefined : 'equity'
   }
@@ -389,7 +396,7 @@ export default function Reports() {
             stats={derived.stats}
             prev={derived.prevStats}
             prevName={report.prevName}
-            netNote={isMonth ? null : positiveMonths}
+            netNote={isMonth ? null : allPositiveMonths}
             extraNet={derived.equityNet}
             prevExtraNet={derived.prevEquityNet}
             incomeFees={derived.incomeFees}

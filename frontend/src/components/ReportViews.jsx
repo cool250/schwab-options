@@ -718,14 +718,14 @@ export function MonthGrid({ trades, lastMonth, partialNote, onMonth, onQuarter }
  *  lastMonth (0-based) haven't happened and are left out. */
 export function MonthlyRunChart({ trades, lastMonth, onMonth }) {
   const data = useMemo(() => {
-    const byMonth = sumBy(trades, (t) => utcDate(t.close_date).getUTCMonth())
-    const counts = countBy(trades, (t) => utcDate(t.close_date).getUTCMonth())
+    const months = MONTH_NAMES.slice(0, lastMonth + 1).map((label, m) => ({ m, label, month: 0, total: 0, count: 0 }))
+    for (const t of trades) {
+      const row = months[utcDate(t.close_date).getUTCMonth()]
+      if (row) { row.month += t.total_amount ?? 0; row.count++ }
+    }
     let run = 0
-    return MONTH_NAMES.slice(0, lastMonth + 1).map((label, m) => {
-      const month = byMonth.get(m) ?? 0
-      run += month
-      return { m, label, month, total: run, count: counts.get(m) ?? 0 }
-    })
+    for (const row of months) { run += row.month; row.total = run }
+    return months
   }, [trades, lastMonth])
   if (trades.length === 0) return null
   const EndLabel = endLabel(data.length, compactUsd)

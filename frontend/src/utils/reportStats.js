@@ -24,16 +24,17 @@ export function closedTrades(rows, { dropZero = false } = {}) {
  *  actually ended shows up in the shares' or future's P&L instead — scoring
  *  a short that was assigned against you as a full win would flatter it. */
 export function tradeStats(trades) {
-  let gw = 0, gl = 0, wins = 0, decided = 0, exercised = 0, exercisedNet = 0, expired = 0
+  let net = 0, wins = 0, decided = 0, exercised = 0, exercisedNet = 0, expired = 0
   for (const t of trades) {
     const v = t.total_amount ?? 0
+    net += v
     if (t.type === 'EXERCISED' || t.type === 'ASSIGNED') { exercised++; exercisedNet += v; continue }
     if (t.type === 'EXPIRED') expired++
     decided++
-    if (v > 0) { gw += v; wins++ } else if (v < 0) { gl -= v }
+    if (v > 0) wins++
   }
   return {
-    net: gw - gl + exercisedNet,
+    net,
     n: trades.length,
     // n = closed + expired + exercised (closed: bought/sold back before expiry)
     closed: decided - expired,
