@@ -6,14 +6,15 @@ api/users.py); api/auth.require_auth puts it on the request
 (broker.request_context), and get_broker() resolves it here. A user who
 hasn't chosen, or whose saved broker isn't registered, reads DEFAULT_BROKER.
 
-Adding a broker:
-  1. Write service/portfolio/providers/<broker>.py with classes implementing
+Adding a broker — the full checklist is in AGENTS.md ("Adding a Portfolio
+broker"). In short:
+  1. A read-only client and per-user credential storage, like broker/schwab.
+  2. A connect flow, like api/auth.py's /api/auth/schwab/*.
+  3. service/portfolio/providers/<broker>.py with classes implementing
      PositionProvider and TransactionProvider (base.py) — see schwab.py.
-  2. register() it below. It then appears in Settings' broker choice
+  4. register() it below. It then appears in Settings' broker choice
      (GET /api/portfolio/positions/brokers).
-  3. Give it a connect flow and per-user credential storage, the way
-     api/auth.py's /api/auth/schwab/* and broker/schwab/auth do for Schwab,
-     and a connection check for the Portfolio pages (today RequireSchwab).
+  5. A connection check for the Portfolio pages (today RequireSchwab).
 Nothing in PositionService, TransactionService or the API routes changes:
 they only see the Protocols. A test double is a third implementation:
 pass it straight to PositionService(provider=...) / TransactionService(...).
