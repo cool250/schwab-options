@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionQuotes, friendlyErrorMessage } from '../api/client'
 import { futuresOptionContracts, futuresOptionRowPl, futuresRowPl } from '../utils/positionPl'
 import { formatOptionSymbol } from '../utils/optionSymbol'
+import { formatDate } from '../utils/dateFormat'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 import { money, count } from '../utils/numberFormat'
@@ -207,7 +208,6 @@ export default function Positions() {
   // Options picked (across either tab) to send to StrikeLab — keyed by the
   // row's own symbol, since that's unique per contract.
   const [selected, setSelected] = useState(new Map())
-  const [analyzeError, setAnalyzeError] = useState(null)
 
   useEffect(() => {
     let cancelled = false // nothing lands after unmount (an account switch remounts the page)
@@ -334,7 +334,6 @@ export default function Positions() {
     // futures-option chain instead of an equity one, so it has to be put
     // back here or the graph silently comes back empty.
     const underlyingSymbol = isFutures ? `/${row.ticker}` : row.ticker
-    setAnalyzeError(null)
     setSelected((prev) => {
       const next = new Map(prev)
       if (row.long_leg && row.short_leg) {
@@ -545,29 +544,24 @@ export default function Positions() {
 
   // StrikeLab's payoff graph prices one spot for one underlying at one point
   // in time — legs from different tickers or different expirations can't be
-  // combined into a single meaningful graph, so this is checked up front
-  // rather than letting Analyze silently plot a nonsensical mix.
+  // combined into a single meaningful graph, so the selection bar says so
+  // and keeps Analyze disabled rather than letting it plot a nonsensical mix.
+  const selectedLegs = Array.from(selected.values())
+  const selectionMixed = new Set(selectedLegs.map((p) => p.ticker)).size > 1
+    || new Set(selectedLegs.map((p) => p.expirationDate)).size > 1
+
   function handleAnalyzeSelected() {
-    const positions = Array.from(selected.values())
-    const tickers = new Set(positions.map((p) => p.ticker))
-    const expirations = new Set(positions.map((p) => p.expirationDate))
-    if (tickers.size > 1 || expirations.size > 1) {
-      setAnalyzeError(
-        'Select options for a single ticker and expiration date to analyze together.'
-      )
-      return
-    }
-    setAnalyzeError(null)
+    if (selectionMixed) return
     navigate('/analyze', {
       state: {
-        analyzePositions: positions,
+        analyzePositions: selectedLegs,
         view: 'graph',
       },
     })
   }
 
   return (
-    <div className="page">
+    <div className={`page${selected.size > 0 ? ' page--with-selection-bar' : ''}`}>
       <div className="tab-bar">
         <div className="tab-row">
           <button
@@ -585,17 +579,28 @@ export default function Positions() {
             Equity
           </button>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={selected.size === 0}
-          onClick={handleAnalyzeSelected}
-        >
-          Analyze Selected {selected.size > 0 ? `(${selected.size})` : ''}
-        </button>
       </div>
 
-      {analyzeError && <div className="alert error">{analyzeError}</div>}
+      {/* Appears once an option is ticked, pinned to the bottom of the
+          screen so it's in reach beside whichever table you're in. */}
+      {selected.size > 0 && (
+        <div className="selection-bar" role="region" aria-label="Selected options">
+          <div className="selection-bar-inner">
+            <span className="selection-bar-count">{selected.size} selected</span>
+            <span className={`selection-bar-detail${selectionMixed ? ' selection-bar-detail--warn' : ''}`}>
+              {selectionMixed
+                ? 'Pick one ticker and expiration to analyze together'
+                : `${selectedLegs[0].symbol} · ${formatDate(selectedLegs[0].expirationDate)}`}
+            </span>
+            <button type="button" className="btn btn-secondary" onClick={() => setSelected(new Map())}>
+              Clear
+            </button>
+            <button type="button" className="btn btn-primary" disabled={selectionMixed} onClick={handleAnalyzeSelected}>
+              Analyze
+            </button>
+          </div>
+        </div>
+      )}
 
       {tab === 'equity' && (
         <>

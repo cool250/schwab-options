@@ -1,0 +1,37 @@
+/* ─── Positions page (pages/Positions.jsx) ─── */
+
+/* Selection bar: shown while options are ticked, fixed to the bottom of the
+   screen between the sidebar and the Copilot button (bottom right), so
+   Analyze is in reach wherever the tables are scrolled to. */
+.selection-bar {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  right: calc(96px + env(safe-area-inset-right, 0px)); /* clear of the Copilot button */
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  z-index: 150; /* under the Copilot widget (200) */
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.selection-bar-inner {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  max-width: 640px;
+  padding: 10px 12px 10px 18px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.selection-bar-count { font-weight: 600; white-space: nowrap; }
+.selection-bar-detail { flex: 1 1 auto; min-width: 0; color: var(--text-muted); font-size: 0.875rem; }
+.selection-bar-detail--warn { color: var(--warning); }
+/* Room below the last table so the bar never covers it. */
+.page--with-selection-bar { padding-bottom: 88px; }
+
+@media (min-width: 769px) {
+  .selection-bar { left: calc(var(--sidebar-width) + 16px); }
+}
