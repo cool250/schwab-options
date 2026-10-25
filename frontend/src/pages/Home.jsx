@@ -77,13 +77,14 @@ export default function Home() {
   const navigate = useNavigate()
   const [refreshKey, setRefreshKey] = useState(0)
   const [rules, setRules] = useState(DEFAULT_RULES)
+  const [rulesLoaded, setRulesLoaded] = useState(false)
   const [book, setBook] = useState({ loading: true }) // positions + futures + quotes
   const [month, setMonth] = useState({ loading: true }) // month-to-date realized
   const [ideas, setIdeas] = useState({ loading: true })
   const [ideaSide, setIdeaSide] = useState('PUT')
 
   useEffect(() => {
-    getAppConfig().then((c) => setRules((r) => ({ ...r, ...c }))).catch(() => {})
+    getAppConfig().then((c) => setRules((r) => ({ ...r, ...c }))).catch(() => {}).finally(() => setRulesLoaded(true))
   }, [])
 
   // Positions, futures and their live prices.
@@ -143,8 +144,11 @@ export default function Home() {
     return () => { cancelled = true }
   }, [refreshKey])
 
-  // New-income ideas: /ES and /NQ short puts and calls under the idea rules.
+  // New-income ideas: /ES and /NQ short puts and calls under the idea rules
+  // — once the rules have loaded, so the screener (the heaviest request)
+  // runs once per visit, not again when they arrive.
   useEffect(() => {
+    if (!rulesLoaded) return
     let cancelled = false
     setIdeas({ loading: true })
     const filters = {
@@ -162,7 +166,7 @@ export default function Home() {
       })
       .catch((err) => !cancelled && setIdeas({ loading: false, error: friendlyErrorMessage(err, 'Could not load /ES and /NQ ideas.') }))
     return () => { cancelled = true }
-  }, [refreshKey, rules])
+  }, [refreshKey, rules, rulesLoaded])
 
   const derived = useMemo(() => {
     if (book.loading || book.error) return null
