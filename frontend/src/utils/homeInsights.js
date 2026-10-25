@@ -292,8 +292,10 @@ function rootsRequirement(positions, move, futuresPct, ivRise) {
   return Object.values(roots).reduce((sum, group) => sum + rootRequirement(group, move, futuresPct, ivRise), 0)
 }
 
-/** The worst margin cushion over a crashPct drop and a crashPct rally, with
- *  `extra` positions added to the book. Adding them first uses up their
+/** The worst margin cushion over drops and rallies of crashPct and twice
+ *  that ("5% or more": a trade that only looks safe at exactly crashPct —
+ *  more uncovered calls on a book whose drop is the worse case — fails at
+ *  2x), with `extra` positions added to the book. Adding them first uses up their
  *  margin today — computed with the book's positions on the same root, so
  *  a trade that offsets them (a short call against long futures) costs
  *  less, or frees margin. */
@@ -303,7 +305,7 @@ export function worstCushion(cushion, book, extra, { crashPct, futuresPct, ivRis
     ? rootsRequirement(all.positions, 0, futuresPct, ivRise) - rootsRequirement(book.positions, 0, futuresPct, ivRise)
     : 0
   const at = (move) => cushion - upfront + cushionChange(all, move, { futuresPct, ivRise }).change
-  return Math.min(at(-crashPct / 100), at(crashPct / 100))
+  return Math.min(...[-2, -1, 1, 2].map((k) => at((k * crashPct) / 100)))
 }
 
 /** A new-income idea judged against the book it joins:
@@ -347,6 +349,20 @@ export function rootLean(positions) {
     lean[p.root] = (lean[p.root] ?? 0) + delta * p.qty
   }
   return lean
+}
+
+/** Long futures per root not yet covered by a short call (long calls
+ *  count back as cover): how many new short calls stay covered.
+ *  -> { ES: 2, NQ: 0 }, never negative. */
+export function callsCoverLeft(positions) {
+  const left = {}
+  for (const p of positions) {
+    if (!p.root) continue
+    if (p.kind === 'future') left[p.root] = (left[p.root] ?? 0) + p.qty
+    else if (p.type === 'CALL') left[p.root] = (left[p.root] ?? 0) + p.qty
+  }
+  for (const root of Object.keys(left)) left[root] = Math.max(0, Math.floor(left[root]))
+  return left
 }
 
 /** The smallest move in `direction` (-1 a drop, +1 a rally) that takes the

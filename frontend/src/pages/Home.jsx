@@ -13,7 +13,7 @@ import { closedTrades } from '../utils/reportStats'
 import { futuresOptionContracts, futuresOptionRowPl } from '../utils/positionPl'
 import { getMultiplier, MULTIPLIER } from '../utils/contractMultiplier'
 import {
-  futuresMarginEstimate, ideaStress, ideaFit, worstCushion, rootLean, takeProfitCandidates,
+  futuresMarginEstimate, ideaStress, ideaFit, worstCushion, rootLean, callsCoverLeft, takeProfitCandidates,
   equityShort, expiringSoon, uncoveredShares, concentration, expiryCalendar,
   stressBook, cushionChange, marginCallMove,
 } from '../utils/homeInsights'
@@ -247,6 +247,7 @@ export default function Home() {
       stressBook: stress,
       stressOptions,
       lean: rootLean(stress.positions),
+      coverLeft: callsCoverLeft(stress.positions),
       callDrop: cushion == null ? null : marginCallMove(cushion, stress, -1, stressOptions),
       callRally: cushion == null ? null : marginCallMove(cushion, stress, 1, stressOptions),
     }
@@ -286,7 +287,14 @@ export default function Home() {
     return Object.values(best)
       .sort(rank)
       .slice(0, IDEAS_SHOWN)
-      .map((row) => ({ ...row, maxContracts: worstNow == null ? null : fitted(row, 100).maxContracts }))
+      .map((row) => {
+        if (worstNow == null) return { ...row, maxContracts: null }
+        const byCushion = fitted(row, 100).maxContracts
+        // New short calls stay covered: no more than the long futures not
+        // yet sold against.
+        const cover = row.type === 'CALL' ? derived.coverLeft[row.underlying.replace(/^\//, '')] ?? 0 : null
+        return { ...row, maxContracts: cover == null ? byCushion : Math.min(byCushion, cover), capped: cover != null && cover < byCushion }
+      })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ideas, ideaSide, marginPct, crashPct, worstNow, rules])
 
@@ -402,6 +410,7 @@ export default function Home() {
                 {derived && (
                   <span className="summary-line">
                     {Math.abs(lean) < 0.05 ? 'book flat' : `book net ${lean > 0 ? 'long' : 'short'} ${Math.abs(lean).toFixed(1)} /${root}`}
+                    {ideaSide === 'CALL' && ` · ${derived.coverLeft[root] ?? 0} uncovered for calls`}
                   </span>
                 )}
               </div>
@@ -410,10 +419,10 @@ export default function Home() {
         </div>
         <p className="summary-line">
           Expiring within {rules['home.idea_max_dte']} days, delta {(rules['home.idea_min_delta_pct'] / 100).toFixed(2)}–{(rules['home.idea_max_delta_pct'] / 100).toFixed(2)},
-          judged against your positions as if the market moves {crashPct}% either way at once — trades that offset them first.
+          judged against your positions as if the market moves {crashPct}% or {2 * crashPct}% either way at once — trades that offset them first.
           {worstNow != null && (worstNow > 0
-            ? ` Worst cushion after that move today: ${money(worstNow, 0)}.`
-            : ` That move would already leave no cushion (${money(worstNow, 0)}) — only trades that offset your risk fit.`)}
+            ? ` Worst cushion after those moves today: ${money(worstNow, 0)}.`
+            : ` Those moves would already leave no cushion (${money(worstNow, 0)}) — only trades that offset your risk fit.`)}
         </p>
         {ideas.loading && <Spinner />}
         {ideas.error && <div className="alert error">{ideas.error}</div>}
@@ -439,7 +448,12 @@ export default function Home() {
                     : money(r.riskAdded, 0)),
                 },
                 { key: 'returnOnRisk', label: 'Return on risk', align: 'right', render: (r) => (r.hedges ? '—' : pct(r.returnOnRisk, 2)) },
-                { key: 'maxContracts', label: 'Max qty', align: 'right', render: (r) => (r.maxContracts == null ? '—' : count(r.maxContracts)) },
+                {
+                  key: 'maxContracts', label: 'Max qty', align: 'right',
+                  render: (r) => (r.maxContracts == null ? '—' : r.capped
+                    ? <span title="Capped at the long futures not yet covered by a short call">{count(r.maxContracts)} · covered</span>
+                    : count(r.maxContracts)),
+                },
                 {
                   key: 'analyze', label: '',
                   render: (r) => (

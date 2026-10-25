@@ -127,6 +127,16 @@ function thetaTotalText(rows, thetas, loading, multiplierOf) {
   return text
 }
 
+// Initial premium: the dollars taken in (short, positive) or paid (long,
+// negative) when the position opened — trade price x contracts x
+// multiplier. Futures-option rows already carry it as total_value (a
+// spread's net); equity rows get it added as initial_premium (withPremium).
+const initialPremiumColumn = (key) => ({ key, label: 'Initial Premium', align: 'right', render: (row) => money(row[key]) })
+const withPremium = (rows) => rows.map((row) => ({
+  ...row,
+  initial_premium: row.trade_price == null ? null : row.trade_price * -row.quantity * EQUITY_OPTION_MULTIPLIER,
+}))
+
 function optionColumns(optionType, theta) {
   return [
     { key: 'ticker',          label: 'Ticker' },
@@ -134,6 +144,7 @@ function optionColumns(optionType, theta) {
     { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
     quantityColumn,
     tradePriceColumn,
+    initialPremiumColumn('initial_premium'),
     currentPriceColumn,
     { key: 'total_value',     label: 'P&L',          align: 'right' },
     theta,
@@ -168,6 +179,7 @@ function futuresOptionColumns() {
     { key: 'days_to_expiry',  label: 'DTE',         align: 'right' },
     { ...quantityColumn, render: (row) => row.ratio ?? count(row.quantity) },
     tradePriceColumn,
+    initialPremiumColumn('total_value'),
   ]
 }
 
@@ -678,7 +690,7 @@ export default function Positions() {
                     Theta: {equityThetaTotal(puts)}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Maint. Req: {money(sumMaintReq(puts))}
                   </p>
-                  <DataTable data={puts} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} defaultSortKey="days_to_expiry" />
+                  <DataTable data={withPremium(puts)} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No PUT option positions found.</div>
@@ -694,7 +706,7 @@ export default function Positions() {
                     Theta: {equityThetaTotal(calls)}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Maint. Req: {money(sumMaintReq(calls))}
                   </p>
-                  <DataTable data={calls} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} defaultSortKey="days_to_expiry" />
+                  <DataTable data={withPremium(calls)} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No CALL option positions found.</div>

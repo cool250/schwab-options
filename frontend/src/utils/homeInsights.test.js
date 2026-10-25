@@ -162,3 +162,12 @@ test("an idea is judged against the book: offsetting trades are a hedge, stackin
   assert.equal(ideaFit(10000, book, idea("PUT", 6850), opts).maxContracts, 0);
   assert.equal(ideaFit(400000, book, idea("PUT", 6850), opts, { maxQty: 0 }).maxContracts, 0);
 });
+
+test("new short calls are capped at the long futures left uncovered", async () => {
+  const { callsCoverLeft } = await import("./homeInsights.js");
+  assert.deepEqual(callsCoverLeft([
+    { kind: "future", root: "ES", qty: 6 }, { kind: "option", root: "ES", type: "CALL", qty: -4 },
+    { kind: "future", root: "NQ", qty: 4 }, { kind: "option", root: "NQ", type: "CALL", qty: -6 },
+    { kind: "option", root: "NQ", type: "PUT", qty: -2 }, { kind: "stock", qty: 100 },
+  ]), { ES: 2, NQ: 0 });
+});
