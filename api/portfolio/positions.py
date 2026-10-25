@@ -15,7 +15,7 @@ from service.portfolio.models import (
     PositionsSummary,
     StockPosition,
 )
-from service.portfolio.providers import get_position_provider
+from service.portfolio.providers import get_broker, get_position_provider, is_registered, list_brokers
 
 router = APIRouter()
 
@@ -119,3 +119,26 @@ def set_account(choice: AccountChoice, user: User = Depends(require_auth)):
         raise HTTPException(status_code=404, detail="That account isn't part of your broker login.")
     users.set_broker_account(user.id, match["number"])
     return _accounts_for(users.get_user(user.id))
+
+
+def _brokers_for(user: User) -> list[dict]:
+    active = get_broker(user.broker).name
+    return [{"name": b.name, "label": b.label, "selected": b.name == active} for b in list_brokers()]
+
+
+@router.get("/brokers", summary="Brokers Portfolio data can come from, with the one this user reads marked selected")
+def get_brokers(user: User = Depends(require_auth)):
+    return _brokers_for(user)
+
+
+class BrokerChoice(BaseModel):
+    name: str  # a broker's "name" from GET /brokers
+
+
+@router.put("/broker", summary="Choose which broker Positions, Transactions and Reports read")
+def set_broker(choice: BrokerChoice, user: User = Depends(require_auth)):
+    if not is_registered(choice.name):
+        raise HTTPException(status_code=404, detail="That broker isn't available.")
+    if choice.name != get_broker(user.broker).name:
+        users.set_broker(user.id, choice.name)  # also clears the chosen account
+    return _brokers_for(users.get_user(user.id))

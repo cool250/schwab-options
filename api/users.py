@@ -65,6 +65,9 @@ class User:
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
+    # The broker this user's Portfolio pages read (a registered name, see
+    # service/portfolio/providers); None = the default broker.
+    broker: Optional[str] = None
     # The broker account (full account number) this user's Portfolio pages
     # read, when their broker login covers more than one; None = the
     # broker's first. Server-side only — deliberately not in public().
@@ -96,6 +99,7 @@ def _row_to_user(row: Optional[sqlite3.Row]) -> Optional[User]:
         first_name=row["first_name"],
         last_name=row["last_name"],
         email=row["email"],
+        broker=row["broker"] if "broker" in row.keys() else None,
         broker_account=row["broker_account"] if "broker_account" in row.keys() else None,
     )
 
@@ -188,7 +192,7 @@ def init_db() -> None:
         if "schwab_account" in existing and "broker_account" not in existing:
             conn.execute("ALTER TABLE users RENAME COLUMN schwab_account TO broker_account")
             existing = {*existing - {"schwab_account"}, "broker_account"}
-        for column in (*PROFILE_FIELDS, "broker_account"):
+        for column in (*PROFILE_FIELDS, "broker", "broker_account"):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -271,6 +275,13 @@ def set_password(user_id: int, password: str) -> None:
             "UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?",
             (hash_password(password), time.time(), user_id),
         )
+
+
+def set_broker(user_id: int, name: Optional[str]) -> None:
+    """Which broker this user's Portfolio pages read (None = the default).
+    Clears the chosen account too: account numbers belong to one broker."""
+    with _connect() as conn:
+        conn.execute("UPDATE users SET broker = ?, broker_account = NULL WHERE id = ?", (name, user_id))
 
 
 def set_broker_account(user_id: int, account_number: Optional[str]) -> None:

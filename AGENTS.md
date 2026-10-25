@@ -89,15 +89,25 @@ Portfolio flows read the broker through `service/portfolio/providers/`:
 equity/futures legs, futures-root normalization) and the `OptionTransaction`
 leg model (broker-neutral helpers — contract multipliers, OCC parsing — are
 in `service/shared/contracts.py`); `schwab.py` is the only implementation;
-`__init__.py` is the registry (`register()`, `ACTIVE_BROKER`). A new broker
-is a new module implementing both Protocols plus one `register()` line —
+`__init__.py` is the registry (`register()`, `DEFAULT_BROKER`). **Each user
+picks their broker in Settings** (`components/BrokerPicker.jsx`, via
+`GET /api/portfolio/positions/brokers` and `PUT .../broker`; saved as `broker`
+in SQLite, `api/users.set_broker`, which also clears the chosen account).
+`require_auth` puts it on the request (`broker.request_context.set_selected_broker`)
+and `get_broker()` resolves it, falling back to `DEFAULT_BROKER` when unset or
+no longer registered. A new broker is a new module implementing both
+Protocols plus one `register()` line — it then appears in Settings, and
 `PositionService`, `TransactionService` and the API routes don't change.
 Keep broker specifics (SDK models, symbol formats, how expirations /
 assignments / exercises are recorded → `close_event`) inside its module,
 raise `broker.exceptions` types, and honor `get_selected_account()`. It
 also needs its own connect flow and credential storage (Schwab's are
-`/api/auth/schwab/*` and `broker/schwab/auth`). Market data stays
-Tastytrade-only and is not part of this seam.
+`/api/auth/schwab/*` and `broker/schwab/auth`), and a connection check for the
+Portfolio pages in place of `RequireSchwab`. Market data stays
+Tastytrade-only and is not part of this seam. A Tastytrade portfolio broker
+would mean changing the Tastytrade guardrail above on purpose — a separate,
+read-only accounts client (never orders or writes) for per-user credentials —
+not adding account calls to the market-data `TastytradeClient`.
 
 ## Auth
 

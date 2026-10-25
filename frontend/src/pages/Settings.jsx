@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { beginSchwabConnect } from '../utils/schwabConnect'
 import { AccountCard, UsersCard } from '../components/AccountSettings'
 import AccountPicker from '../components/AccountPicker'
+import BrokerPicker from '../components/BrokerPicker'
 
 const THEMES = [
   { value: 'light', label: 'Light' },
@@ -82,6 +83,12 @@ export default function Settings() {
       )}
 
       <AccountCard />
+
+      {/* Where Positions, Transactions and Reports get their data (per user). */}
+      <div className="card">
+        <h3 className="section-title">Portfolio Broker</h3>
+        <BrokerPicker />
+      </div>
 
       <div className="card">
         <h3 className="section-title">Schwab Connection</h3>

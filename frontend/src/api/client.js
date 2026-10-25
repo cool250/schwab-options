@@ -187,6 +187,20 @@ export function startSchwabReconnect() {
   return request('/auth/schwab/start')
 }
 
+// Brokers Portfolio data can come from — [{ name, label, selected }] — and
+// choosing which one Positions, Transactions and Reports read (saved per user).
+export function getBrokers() {
+  return request('/portfolio/positions/brokers')
+}
+
+export function setBroker(name) {
+  return request('/portfolio/positions/broker', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
 // Accounts the broker login covers — [{ id, label: "…6112", type, value,
 // positions, selected }] — and choosing which one Portfolio pages read.
 export function getAccounts() {
