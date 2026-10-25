@@ -15,7 +15,7 @@ import { getMultiplier, MULTIPLIER } from '../utils/contractMultiplier'
 import {
   futuresMarginEstimate, contractsAffordable, futuresIdeaNumbers, takeProfitCandidates,
   equityShort, expiringSoon, uncoveredShares, concentration, expiryCalendar,
-  marginSensitivity, cushionAfter, moveToMarginCall,
+  stressBook, cushionChange, marginCallMove,
 } from '../utils/homeInsights'
 
 /*
@@ -31,10 +31,11 @@ const ROOTS = ['ES', 'NQ']
 const DEFAULT_RULES = {
   'home.futures_margin_pct': 11, 'home.available_funds': 0, 'home.take_profit_pct': 75, 'home.expiring_days': 7, 'home.at_risk_pct': 2,
   'home.concentration_pct': 25, 'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 10, 'home.idea_max_delta_pct': 30,
+  'home.stress_iv_rise': 20,
 }
 const CALENDAR_DAYS = 14
 const IDEAS_SHOWN = 8
-const STRESS_MOVES = [-0.10, -0.05, 0.05, 0.10]
+const STRESS_MOVES = [-0.20, -0.10, -0.05, 0.05, 0.10]
 
 const iso = (d) => d.toISOString().slice(0, 10)
 const signClass = (v) => (v > 0 ? 'cell-positive' : v < 0 ? 'cell-negative' : '')
@@ -180,42 +181,47 @@ export default function Home() {
     const maint = balances.maintenance_requirement ?? 0
     const netLiq = balances.account_value ?? null
 
-    // Each position's P&L and margin requirement for a +100% market move
-    // (scaled by the move in the stress test). A position with no price or
-    // delta is left out and counted.
-    const exposures = []
-    let unpricedRisk = 0
+    // The book for the margin stress test (utils/homeInsights.js revalues
+    // it after each move). Equity options price from Schwab's mark, with
+    // implied volatility and delta from Tastytrade.
+    const stressPositions = []
     for (const s of stocks) {
-      if (s.current_price == null) { unpricedRisk++; continue }
-      exposures.push({ pnl: s.quantity * s.current_price, req: s.maintenance_requirement ?? 0 })
+      stressPositions.push({ kind: 'stock', qty: s.quantity, price: s.current_price ?? null, req: s.maintenance_requirement ?? 0 })
     }
-    for (const r of [...puts, ...calls]) {
-      const delta = equityQuotes?.[r.symbol]?.delta
-      if (delta == null || r.underlying_price == null) { unpricedRisk++; continue }
-      exposures.push({ pnl: delta * r.quantity * MULTIPLIER * r.underlying_price, req: r.maintenance_requirement ?? 0 })
-    }
-    for (const f of futures ?? []) {
-      const price = prices[f.symbol]
-      if (price == null) { unpricedRisk++; continue }
-      const notional = f.quantity * price * getMultiplier(f.symbol)
-      exposures.push({ pnl: notional, req: Math.abs(notional) * (rules['home.futures_margin_pct'] / 100) })
-    }
-    for (const r of [...(futuresOptions?.puts ?? []), ...(futuresOptions?.calls ?? [])]) {
-      const price = prices[r.ticker]
-      const legs = r.long_leg
-        ? [[r.long_leg.symbol, r.long_leg.amount], [r.short_leg.symbol, -r.short_leg.amount]]
-        : [[r.symbol, r.quantity]]
-      for (const [key, qty] of legs) {
-        const delta = futuresQuotes?.[key]?.delta
-        if (delta == null || price == null) { unpricedRisk++; continue }
-        exposures.push({ pnl: delta * qty * (r.multiplier ?? getMultiplier(r.ticker)) * price, req: 0 })
+    for (const [type, rows] of [['PUT', puts], ['CALL', calls]]) {
+      for (const r of rows) {
+        const q = equityQuotes?.[r.symbol] ?? {}
+        stressPositions.push({
+          kind: 'option', root: null, type, strike: r.strike_price, dte: r.days_to_expiry, qty: r.quantity, mult: MULTIPLIER,
+          spot: r.underlying_price ?? null, iv: q.iv ?? null, mid: r.current_price ?? q.mid ?? null, delta: q.delta ?? null,
+          req: r.maintenance_requirement ?? 0,
+        })
       }
     }
+    for (const f of futures ?? []) {
+      stressPositions.push({ kind: 'future', root: f.symbol, qty: f.quantity, price: prices[f.symbol] ?? null, mult: getMultiplier(f.symbol) })
+    }
+    for (const [type, rows] of [['PUT', futuresOptions?.puts ?? []], ['CALL', futuresOptions?.calls ?? []]]) {
+      for (const r of rows) {
+        const legs = r.long_leg
+          ? [[r.long_leg, r.long_leg.amount], [r.short_leg, -r.short_leg.amount]]
+          : [[r, r.quantity]]
+        for (const [leg, qty] of legs) {
+          const q = futuresQuotes?.[leg.symbol] ?? {}
+          stressPositions.push({
+            kind: 'option', root: r.ticker, type, strike: leg.strike_price, dte: r.days_to_expiry, qty,
+            mult: r.multiplier ?? getMultiplier(r.ticker), spot: prices[r.ticker] ?? null,
+            iv: q.iv ?? null, mid: q.mid ?? null, delta: q.delta ?? null,
+          })
+        }
+      }
+    }
+    const stress = stressBook(stressPositions)
+    const stressOptions = { futuresPct: rules['home.futures_margin_pct'], ivRise: rules['home.stress_iv_rise'] }
     // Available funds: thinkorswim's figure from app.properties when set
     // (futures included), else Schwab's (securities only).
     const fundsFromSettings = rules['home.available_funds'] > 0
     const cushion = fundsFromSettings ? rules['home.available_funds'] : balances.available_funds ?? null
-    const sensitivity = marginSensitivity(exposures)
     return {
       balances,
       netLiq,
@@ -231,10 +237,10 @@ export default function Home() {
       calendar: expiryCalendar(shorts, CALENDAR_DAYS),
       cushion,
       fundsFromSettings,
-      sensitivity,
-      unpricedRisk,
-      stress: cushion == null ? [] : STRESS_MOVES.map((move) => ({ move, after: cushionAfter(cushion, sensitivity, move) })),
-      toCall: cushion == null ? null : moveToMarginCall(cushion, sensitivity),
+      unpricedRisk: stress.unpriced,
+      stress: cushion == null ? [] : STRESS_MOVES.map((move) => ({ move, after: cushion + cushionChange(stress, move, stressOptions).change })),
+      callDrop: cushion == null ? null : marginCallMove(cushion, stress, -1, stressOptions),
+      callRally: cushion == null ? null : marginCallMove(cushion, stress, 1, stressOptions),
     }
   }, [book, rules])
 
@@ -313,9 +319,8 @@ export default function Home() {
                 <span className="metric-label">{derived.fundsFromSettings ? 'Now (from thinkorswim)' : 'Now (securities only)'}</span>
                 <span className={`home-cushion-value ${derived.cushion < 0 ? 'cell-negative' : ''}`}>{money(derived.cushion)}</span>
                 <span className="summary-line">
-                  {derived.toCall == null
-                    ? 'The book is market-neutral to first order.'
-                    : `Margin call at about a ${pct(Math.abs(derived.toCall) * 100, 0)} ${derived.toCall < 0 ? 'drop' : 'rally'} in everything at once.`}
+                  Margin call at {derived.callDrop == null ? 'no drop up to 60%' : `about a ${pct(-derived.callDrop * 100, 1)} drop`}
+                  {' · '}{derived.callRally == null ? 'no rally up to 60%' : `about a ${pct(derived.callRally * 100, 1)} rally`}
                 </span>
               </div>
               <div className="home-stress">
@@ -334,15 +339,11 @@ export default function Home() {
                 </table>
               </div>
             </div>
-            <p className="summary-line">
-              {derived.fundsFromSettings
-                ? "thinkorswim's Available Funds For Trading, as entered in app.properties (home.available_funds) — futures included; update it there when it changes."
-                : "Schwab's margin excess for the securities account (equity minus maintenance requirement). thinkorswim's Available Funds For Trading is lower: it also covers futures margin the futures account doesn't — set home.available_funds in app.properties to start from it."}
-              {' '}The stress
-              test moves every stock, ETF and future together, using live deltas for options and requirements scaling with
-              price ({marginPct}% of notional for futures) — a first-order estimate
-              {derived.unpricedRisk > 0 ? `, leaving out ${derived.unpricedRisk} position${derived.unpricedRisk === 1 ? '' : 's'} with no price or delta` : ''}.
-            </p>
+            {derived.unpricedRisk > 0 && (
+              <p className="summary-line">
+                {derived.unpricedRisk} position{derived.unpricedRisk === 1 ? '' : 's'} with no price {derived.unpricedRisk === 1 ? 'is' : 'are'} left out of the stress test.
+              </p>
+            )}
           </>
         ) : <p className="summary-line">Schwab didn't return available funds.</p>}
       </div>

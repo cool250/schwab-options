@@ -37,6 +37,7 @@ class OptionQuote(BaseModel):
     mid: float | None = None
     theta: float | None = None  # per share, per day
     delta: float | None = None  # per share (sign as the option: puts negative)
+    iv: float | None = None  # implied volatility, a fraction (0.18 = 18%)
 
 
 class QuoteResponse(BaseModel):

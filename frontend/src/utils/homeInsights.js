@@ -1,4 +1,5 @@
 import { getMultiplier, MULTIPLIER } from './contractMultiplier.js'
+import { blackScholes } from './payoffMath.js'
 
 /*
  * The Home page's decisions, as pure functions over the rows the Positions
@@ -144,27 +145,159 @@ export function expiryCalendar(shorts, days, today = isoToday()) {
   return Object.values(by).sort((a, b) => a.date.localeCompare(b.date))
 }
 
-/** How the margin cushion responds to a market-wide move (every
- *  underlying moving together by the same percent), to first order:
- *  exposures: [{ pnl, req }] per position — pnl the dollar P&L of a +100%
- *  move (shares: quantity x price; an option: delta x quantity x multiplier
- *  x underlying price; a future: its notional), req the margin requirement,
- *  which scales with the price. -> { pnl, req, net } summed, net = pnl - req:
- *  the cushion changes by net x move (move as a fraction, e.g. -0.05). */
-export function marginSensitivity(exposures) {
-  let pnl = 0
-  let req = 0
-  for (const e of exposures) { pnl += e.pnl ?? 0; req += e.req ?? 0 }
-  return { pnl, req, net: pnl - req }
+/*
+ * Margin cushion stress test: the whole book revalued after every
+ * underlying moves together by `move` (a fraction, -0.10 = a 10% drop).
+ * Deliberately cautious — it is there to warn before a margin call:
+ *   - options are repriced in full (Black-Scholes at their implied
+ *     volatility), not by delta, so a short option's loss speeds up;
+ *   - a drop raises every option's volatility by ivRise points per 10%
+ *     (a rally leaves it unchanged — no relief for shorts);
+ *   - a short option's requirement follows the usual naked-option formula
+ *     (greater of 20% of the underlying less the out-of-the-money amount,
+ *     or 10% of the strike for a put / of the underlying for a call, plus
+ *     the premium), scaled to what the broker reports for it today;
+ *   - futures and futures options are margined per root like SPAN: the
+ *     worst loss over a +/-futuresPct move, recomputed after the move;
+ *   - no requirement is assumed to fall, so a move never frees margin.
+ *
+ * A stress position:
+ *   { kind: 'stock', qty (shares, signed), price, req }
+ *   { kind: 'future', root, qty (contracts, signed), price, mult }
+ *   { kind: 'option', root (a futures root, or null for equity), type,
+ *     strike, dte, qty (contracts, signed), mult, spot, iv, mid, delta, req }
+ * An option without iv has it implied from mid; with neither it falls back
+ * to delta; with none of them it is left out (and counted by the caller).
+ */
+
+const SCAN_STEPS = [-1, -2 / 3, -1 / 3, 1 / 3, 2 / 3, 1]
+
+/** Implied volatility from an option price (bisection), null if the price
+ *  is below intrinsic or out of reach. */
+export function impliedVol(price, spot, strike, dte, type) {
+  if (!(price > 0) || !(spot > 0) || !(strike > 0)) return null
+  const isCall = type === 'CALL'
+  const intrinsic = isCall ? Math.max(0, spot - strike) : Math.max(0, strike - spot)
+  if (price <= intrinsic) return null
+  let lo = 0.001, hi = 5
+  if (blackScholes(spot, strike, dte, hi, isCall) < price) return null
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2
+    if (blackScholes(spot, strike, dte, mid, isCall) < price) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
 }
 
-/** The cushion after `move` (a fraction): cushion + move x net. */
-export const cushionAfter = (cushion, sensitivity, move) => cushion + move * sensitivity.net
+/** Volatility after a move: up ivRise points per 10% drop, unchanged on a
+ *  rally. */
+export const ivAfter = (iv, move, ivRise) => (move < 0 ? iv + (-move / 0.10) * (ivRise / 100) : iv)
 
-/** The move (a fraction, signed: negative = a drop) at which the cushion
- *  reaches zero, or null if no move gets there (net is 0). Linear — a
- *  first-order estimate, least reliable for large moves. */
-export function moveToMarginCall(cushion, sensitivity) {
-  if (!sensitivity.net) return null
-  return -cushion / sensitivity.net
+/** The usual naked short option requirement, per share. */
+export function shortOptionRequirement(type, strike, spot, premium) {
+  const otm = type === 'PUT' ? Math.max(0, spot - strike) : Math.max(0, strike - spot)
+  return Math.max(0.2 * spot - otm, 0.1 * (type === 'PUT' ? strike : spot)) + premium
+}
+
+// An option's value per share after `move`, or null if it can't be priced.
+function optionValue(p, move, ivRise) {
+  if (!p.iv) return null
+  return blackScholes(p.spot * (1 + move), p.strike, p.dte ?? 0, ivAfter(p.iv, move, ivRise), p.type === 'CALL')
+}
+
+// An option's P&L (dollars) from today to `move`.
+function optionPnl(p, move, ivRise) {
+  const now = optionValue(p, 0, ivRise)
+  const after = optionValue(p, move, ivRise)
+  if (now != null) return (after - now) * p.qty * p.mult
+  return p.delta * p.qty * p.mult * p.spot * move
+}
+
+/** The book as the stress test uses it: options given an iv (implied from
+ *  mid where the quote had none), unpriceable positions split out. */
+export function stressBook(positions) {
+  const priced = []
+  let unpriced = 0
+  for (const p of positions) {
+    if (p.kind !== 'option') {
+      if (p.price == null) unpriced++
+      else priced.push(p)
+      continue
+    }
+    if (p.spot == null) { unpriced++; continue }
+    const iv = p.iv || impliedVol(p.mid, p.spot, p.strike, p.dte ?? 0, p.type)
+    if (!iv && p.delta == null) { unpriced++; continue }
+    priced.push({ ...p, iv })
+  }
+  return { positions: priced, unpriced }
+}
+
+// Futures and futures options on one root: the worst loss over a
+// +/-futuresPct scan starting from `move` (SPAN-like).
+function rootRequirement(group, move, futuresPct, ivRise) {
+  let worst = 0
+  for (const step of SCAN_STEPS) {
+    const scan = step * (futuresPct / 100)
+    // Moving from (1 + move) to (1 + move)(1 + scan) = 1 + total.
+    const total = (1 + move) * (1 + scan) - 1
+    let pnl = 0
+    for (const p of group) {
+      if (p.kind === 'future') pnl += p.qty * p.price * p.mult * (total - move)
+      else pnl += optionPnl(p, total, ivRise) - optionPnl(p, move, ivRise)
+    }
+    worst = Math.max(worst, -pnl)
+  }
+  return worst
+}
+
+/** The change in the cushion after `move`: P&L less any rise in margin
+ *  requirement. -> { pnl, reqRise, change }. */
+export function cushionChange(book, move, { futuresPct, ivRise }) {
+  let pnl = 0
+  let reqRise = 0
+  const roots = {}
+  for (const p of book.positions) {
+    if (p.kind === 'stock') {
+      pnl += p.qty * p.price * move
+      reqRise += Math.max(0, (p.req ?? 0) * move)
+    } else if (p.kind === 'future') {
+      pnl += p.qty * p.price * p.mult * move
+      ;(roots[p.root] ??= []).push(p)
+    } else {
+      pnl += optionPnl(p, move, ivRise)
+      if (p.root) { (roots[p.root] ??= []).push(p); continue }
+      if (!(p.qty < 0) || !p.req) continue
+      const value = (m) => (p.iv ? optionValue(p, m, ivRise) : Math.max(0, p.mid ?? 0))
+      const now = shortOptionRequirement(p.type, p.strike, p.spot, value(0))
+      const after = shortOptionRequirement(p.type, p.strike, p.spot * (1 + move), value(move))
+      if (now > 0) reqRise += Math.max(0, p.req * (after / now - 1))
+    }
+  }
+  for (const group of Object.values(roots)) {
+    reqRise += Math.max(0, rootRequirement(group, move, futuresPct, ivRise) - rootRequirement(group, 0, futuresPct, ivRise))
+  }
+  return { pnl, reqRise, change: pnl - reqRise }
+}
+
+/** The smallest move in `direction` (-1 a drop, +1 a rally) that takes the
+ *  cushion to zero, searched in 0.5% steps up to `limit` and refined; null
+ *  if the cushion holds that far. */
+export function marginCallMove(cushion, book, direction, options, limit = 0.6) {
+  const left = (m) => cushion + cushionChange(book, m, options).change
+  if (left(0) <= 0) return 0
+  let prev = 0
+  for (let m = 0.005; m <= limit + 1e-9; m += 0.005) {
+    const move = direction * m
+    if (left(move) <= 0) {
+      let lo = prev, hi = move
+      for (let i = 0; i < 30; i++) {
+        const mid = (lo + hi) / 2
+        if (left(mid) <= 0) hi = mid
+        else lo = mid
+      }
+      return hi
+    }
+    prev = move
+  }
+  return null
 }

@@ -73,13 +73,67 @@ test("expiry calendar groups shorts by date within the window", () => {
   assert.deepEqual(cal, [{ date: "2026-10-27", count: 2, credit: 150 }, { date: "2026-10-30", count: 1, credit: 10 }]);
 });
 
-test("margin cushion under a market move, and the move to a margin call", async () => {
-  const { marginSensitivity, cushionAfter, moveToMarginCall } = await import("./homeInsights.js");
-  // Long $100k of stock (25% req), short $200k (30% req): net short.
-  const s = marginSensitivity([{ pnl: 100000, req: 25000 }, { pnl: -200000, req: 60000 }]);
-  assert.equal(s.net, -100000 - 85000);
-  assert.equal(cushionAfter(500000, s, 0.05), 500000 - 0.05 * 185000);
-  // A rally hurts a net-short book: margin call at about +270%.
-  assert.ok(Math.abs(moveToMarginCall(500000, s) - 500000 / 185000) < 1e-9);
-  assert.equal(moveToMarginCall(500000, { net: 0 }), null);
+test("implied volatility round-trips through Black-Scholes", async () => {
+  const { impliedVol } = await import("./homeInsights.js");
+  const { blackScholes } = await import("./payoffMath.js");
+  const price = blackScholes(7000, 6800, 10, 0.22, false);
+  assert.ok(Math.abs(impliedVol(price, 7000, 6800, 10, "PUT") - 0.22) < 1e-4);
+  assert.equal(impliedVol(150, 7000, 7150, 10, "PUT"), null, "below intrinsic");
+});
+
+test("naked short option requirement", async () => {
+  const { shortOptionRequirement } = await import("./homeInsights.js");
+  // Put 90 on a 100 stock, premium 1: max(20 - 10, 9) + 1.
+  assert.equal(shortOptionRequirement("PUT", 90, 100, 1), 11);
+  // In the money the requirement rises: max(16 - 0, 9) + 12.
+  assert.equal(shortOptionRequirement("PUT", 90, 80, 12), 28);
+});
+
+const OPTS = { futuresPct: 10, ivRise: 20 };
+
+test("stocks: P&L moves with price and a drop frees no margin", async () => {
+  const { stressBook, cushionChange, marginCallMove } = await import("./homeInsights.js");
+  const book = stressBook([{ kind: "stock", qty: 1000, price: 1000, req: 250000 }]);
+  assert.deepEqual(cushionChange(book, -0.10, OPTS), { pnl: -100000, reqRise: 0, change: -100000 });
+  // Short shares: a rally loses and raises the requirement.
+  const short = stressBook([{ kind: "stock", qty: -1000, price: 1000, req: 300000 }]);
+  const up = cushionChange(short, 0.10, OPTS);
+  assert.ok(Math.abs(up.change - (-100000 - 30000)) < 1e-6);
+  assert.ok(Math.abs(marginCallMove(100000, book, -1, OPTS) + 0.10) < 1e-6);
+  assert.equal(marginCallMove(100000, book, 1, OPTS), null, "a rally never hurts a long book");
+});
+
+test("a short put loses more than delta says, and more again with the volatility rise", async () => {
+  const { stressBook, cushionChange } = await import("./homeInsights.js");
+  const { blackScholes } = await import("./payoffMath.js");
+  const put = { kind: "option", root: null, type: "PUT", strike: 95, dte: 30, qty: -10, mult: 100, spot: 100, mid: null, delta: -0.25, req: 20000 };
+  put.mid = blackScholes(100, 95, 30, 0.25, false);
+  const book = stressBook([put]);
+  const flatVol = cushionChange(book, -0.10, { ...OPTS, ivRise: 0 });
+  const shocked = cushionChange(book, -0.10, OPTS);
+  const linear = -0.25 * -10 * 100 * 100 * -0.10; // delta x qty x mult x spot x move
+  assert.ok(flatVol.pnl < linear, `repriced ${flatVol.pnl} vs delta ${linear}`);
+  assert.ok(shocked.pnl < flatVol.pnl);
+  assert.ok(shocked.reqRise > 0, "the put's requirement rises as it nears the money");
+});
+
+test("futures are margined per root on a scan, never freeing margin", async () => {
+  const { stressBook, cushionChange } = await import("./homeInsights.js");
+  const book = stressBook([{ kind: "future", root: "ES", qty: 1, price: 7000, mult: 50 }]);
+  const down = cushionChange(book, -0.10, OPTS);
+  assert.ok(Math.abs(down.pnl + 35000) < 1e-6);
+  assert.ok(Math.abs(down.reqRise) < 1e-6);
+  const up = cushionChange(book, 0.10, OPTS);
+  assert.ok(Math.abs(up.reqRise - 3500) < 1e-6, "10% of the larger notional");
+});
+
+test("positions with no price are left out and counted", async () => {
+  const { stressBook } = await import("./homeInsights.js");
+  const book = stressBook([
+    { kind: "stock", qty: 1, price: null },
+    { kind: "option", type: "PUT", strike: 90, dte: 5, qty: -1, mult: 100, spot: 100, iv: null, mid: null, delta: null },
+    { kind: "option", type: "PUT", strike: 90, dte: 5, qty: -1, mult: 100, spot: 100, iv: 0.3 },
+  ]);
+  assert.equal(book.unpriced, 2);
+  assert.equal(book.positions.length, 1);
 });

@@ -38,6 +38,7 @@ SETTINGS: dict[str, tuple[type, Any, Optional[tuple], Optional[int]]] = {
     "home.idea_max_dte": (int, 7, None, 0),
     "home.idea_min_delta_pct": (int, 10, None, 0),
     "home.idea_max_delta_pct": (int, 30, None, 1),
+    "home.stress_iv_rise": (int, 20, None, 0),
 }
 
 # Settings the browser needs (served by GET /api/config). Others stay
@@ -47,6 +48,7 @@ PUBLIC_SETTINGS = (
     # The Home page's rules (all applied in the browser).
     "home.futures_margin_pct", "home.available_funds", "home.take_profit_pct", "home.expiring_days", "home.at_risk_pct",
     "home.concentration_pct", "home.idea_max_dte", "home.idea_min_delta_pct", "home.idea_max_delta_pct",
+    "home.stress_iv_rise",
 )
 
 _TRUE, _FALSE = ("true", "yes", "1", "on"), ("false", "no", "0", "off")

@@ -337,7 +337,7 @@ class TastytradeClient:
             data = self.get(path + "/nested")["data"]
             return data["option-chains"]
 
-        items = self._get_cached(path)["data"]["items"]
+        items = self._get_cached_flat_future_option_chain(path)
 
         if expiration_date is not None:
             items = [i for i in items if i.get("expiration-date") == expiration_date]
@@ -351,6 +351,50 @@ class TastytradeClient:
         if max_dte is not None:
             items = [i for i in items if i.get("days-to-expiration", 0) <= max_dte]
 
+        return items
+
+    # The fields callers read from a futures-option contract.
+    _FUTURE_OPTION_FIELDS = (
+        "symbol", "streamer-symbol", "strike-price", "option-type",
+        "expiration-date", "days-to-expiration", "underlying-symbol",
+    )
+
+    def _get_cached_flat_future_option_chain(self, path: str) -> list[dict]:
+        """The futures-option chain as a flat contract list, built from the
+        '/nested' endpoint and cached. The flat endpoint returns the same
+        contracts with 35 fields each — /ES is ~19k of them, ~150 MB once
+        parsed, which (two screener calls at once) ran the 512 MB Fly
+        machine out of memory. The nested form is a few MB, and the list
+        built from it matched the flat one exactly on /ES, /NQ, /CL and /GC
+        (Oct 2026) for the fields in _FUTURE_OPTION_FIELDS."""
+        day = datetime.now(_MARKET_TZ).date().isoformat()
+        key = (path + "#flat", (), day)
+        now = time.time()
+        with self._cache_lock:
+            hit = self._cache.get(key)
+            if hit and now - hit[0] < self.METADATA_TTL:
+                self._cache.move_to_end(key)
+                return hit[1]
+        items = []
+        for chain in self.get(path + "/nested")["data"]["option-chains"]:
+            for expiration in chain.get("expirations", []):
+                for strike in expiration.get("strikes", []):
+                    for side, code in (("call", "C"), ("put", "P")):
+                        if strike.get(side):
+                            items.append({
+                                "symbol": strike[side],
+                                "streamer-symbol": strike.get(f"{side}-streamer-symbol"),
+                                "strike-price": strike.get("strike-price"),
+                                "option-type": code,
+                                "expiration-date": expiration.get("expiration-date"),
+                                "days-to-expiration": expiration.get("days-to-expiration"),
+                                "underlying-symbol": expiration.get("underlying-symbol"),
+                            })
+        with self._cache_lock:
+            self._cache[key] = (now, items)
+            self._cache.move_to_end(key)
+            while len(self._cache) > self.METADATA_CACHE_SIZE:
+                self._cache.popitem(last=False)
         return items
 
     def get_equity(self, symbol: str) -> dict:
@@ -515,8 +559,9 @@ class TastytradeClient:
         not pricing.
 
         Returns {streamer_symbol: {"bid": float, "ask": float}} — plus
-        "theta" (per share, per day) and "delta" from the Greeks event when
-        `with_theta`, collected in the same session; None if no Greeks event
+        "theta" (per share, per day), "delta" and "iv" (implied volatility, a
+        fraction) from the Greeks event when `with_theta`, collected in the
+        same session; None if no Greeks event
         arrived in time. Contracts
         that don't produce a Quote within `timeout` seconds are simply
         omitted from the result (illiquid strikes may have no live quote)
@@ -541,6 +586,7 @@ class TastytradeClient:
 
             thetas: dict[str, Optional[float]] = {}
             deltas: dict[str, Optional[float]] = {}
+            ivs: dict[str, Optional[float]] = {}
             theta_remaining = set(symbols) if with_theta else set()
 
             async def _collect() -> None:
@@ -558,6 +604,7 @@ class TastytradeClient:
                     if sym in theta_remaining:
                         thetas[sym] = _finite_float(greeks["theta"])
                         deltas[sym] = _finite_float(greeks.get("delta"))
+                        ivs[sym] = _finite_float(greeks.get("volatility"))
                         theta_remaining.discard(sym)
 
             async with DXLinkStreamer(quote_token) as streamer:
@@ -572,6 +619,7 @@ class TastytradeClient:
                 for sym, quote in results.items():
                     quote["theta"] = thetas.get(sym)
                     quote["delta"] = deltas.get(sym)
+                    quote["iv"] = ivs.get(sym)
             return results
 
         return asyncio.run(_fetch())
