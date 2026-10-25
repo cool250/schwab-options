@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  futuresMarginEstimate, contractsAffordable, futuresIdeaNumbers, takeProfitCandidates,
+  futuresMarginEstimate, takeProfitCandidates,
   equityShort, moneyness, expiringSoon, uncoveredShares, concentration, expiryCalendar,
 } from "./homeInsights.js";
 
@@ -12,20 +12,6 @@ test("futures margin is pct of notional, and an unpriced contract is counted", (
     { ES: 7700, NQ: 29000 }, 15);
   assert.equal(total, 6 * 7700 * 50 * 0.15 + 4 * 29000 * 20 * 0.15);
   assert.equal(unpriced, 1);
-});
-
-test("contracts affordable at the margin estimate", () => {
-  // One /ES at 7,000 x $50 x 15% = $52,500 margin.
-  assert.equal(contractsAffordable(200000, 7000, "/ES", 15), 3);
-  assert.equal(contractsAffordable(0, 7000, "/ES", 15), 0);
-});
-
-test("a futures put idea's credit, margin and return on margin", () => {
-  const n = futuresIdeaNumbers({ underlying: "/ES", type: "PUT", strike: 7000, spot: 7200, premium: 10, dte: 5 }, 15);
-  assert.equal(n.credit, 500);
-  assert.equal(n.margin, 7000 * 50 * 0.15);
-  assert.ok(Math.abs(n.returnOnMargin - (500 / 52500) * 100) < 1e-9);
-  assert.ok(Math.abs(n.annualized - n.returnOnMargin * 365 / 5) < 1e-9);
 });
 
 test("take profit lists shorts that kept at least the threshold", () => {
@@ -136,4 +122,43 @@ test("positions with no price are left out and counted", async () => {
   ]);
   assert.equal(book.unpriced, 2);
   assert.equal(book.positions.length, 1);
+});
+
+test("a new-income idea under a crash: loss, margin after, return on risk", async () => {
+  const { ideaStress } = await import("./homeInsights.js");
+  const { blackScholes } = await import("./payoffMath.js");
+  const opts = { crashPct: 5, futuresPct: 11, ivRise: 20 };
+  const row = (strike) => ({ underlying: "/ES", type: "PUT", strike, spot: 7000, dte: 5, iv: 0.18,
+    premium: blackScholes(7000, strike, 5, 0.18, false) });
+  const near = ideaStress(row(6900), opts);
+  const far = ideaStress(row(6500), opts);
+  // A 5% drop puts the 6900 put well in the money: a large loss.
+  assert.ok(near.crashLoss > (6900 - 6650) * 50 * 0.9, `loss ${near.crashLoss}`);
+  assert.ok(near.crashLoss > far.crashLoss);
+  assert.ok(far.crashMargin >= 6500 * 50 * 0.11, "never below the flat estimate");
+  assert.ok(Math.abs(near.atRisk - (near.crashLoss + near.crashMargin)) < 1e-6);
+  assert.ok(Math.abs(near.returnOnRisk - (near.credit / near.atRisk) * 100) < 1e-9);
+  // A call is stressed by a rally.
+  assert.equal(ideaStress({ ...row(7100), type: "CALL", premium: 10 }, opts).move, 0.05);
+  assert.equal(ideaStress({ ...row(6900), iv: null, mid: null, premium: 0 }, opts), null);
+});
+
+test("an idea is judged against the book: offsetting trades are a hedge, stacking ones use up the cushion", async () => {
+  const { stressBook, ideaStress, ideaFit, rootLean } = await import("./homeInsights.js");
+  const opts = { crashPct: 5, futuresPct: 11, ivRise: 20 };
+  // Long 4 /ES futures at 7000.
+  const book = stressBook([{ kind: "future", root: "ES", qty: 4, price: 7000, mult: 50 }]);
+  assert.deepEqual(rootLean(book.positions), { ES: 4 });
+  const idea = (type, strike) => {
+    const row = { underlying: "/ES", type, strike, spot: 7000, dte: 5, iv: 0.18, premium: 20 };
+    return { ...row, ...ideaStress(row, opts) };
+  };
+  const put = ideaFit(400000, book, idea("PUT", 6850), opts);
+  const call = ideaFit(400000, book, idea("CALL", 7150), opts);
+  assert.ok(put.riskAdded > 0 && !put.hedges, "a short put adds to a long book's drop");
+  assert.ok(call.riskAdded < put.riskAdded, "a short call offsets the long futures");
+  assert.ok(call.maxContracts > put.maxContracts, `calls ${call.maxContracts} vs puts ${put.maxContracts}`);
+  // A book already past a margin call at the move has no room.
+  assert.equal(ideaFit(10000, book, idea("PUT", 6850), opts).maxContracts, 0);
+  assert.equal(ideaFit(400000, book, idea("PUT", 6850), opts, { maxQty: 0 }).maxContracts, 0);
 });

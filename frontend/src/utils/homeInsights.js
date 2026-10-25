@@ -26,26 +26,6 @@ export function futuresMarginEstimate(futures, prices, pct) {
   return { total, unpriced }
 }
 
-/** How many new short contracts on a root fit in `funds` at the margin
- *  estimate (pct of one contract's notional at `price`). */
-export function contractsAffordable(funds, price, root, pct) {
-  const perContract = price * getMultiplier(root) * (pct / 100)
-  if (!funds || !perContract) return 0
-  return Math.max(0, Math.floor(funds / perContract))
-}
-
-/** A futures-option idea's numbers per contract, with margin at pct of
- *  notional: { credit, margin, returnOnMargin (%), annualized (%) }. */
-export function futuresIdeaNumbers(row, pct) {
-  const mult = getMultiplier(row.underlying)
-  const credit = row.premium * mult
-  const notionalPrice = row.type === 'PUT' ? row.strike : row.spot
-  const margin = notionalPrice * mult * (pct / 100)
-  const returnOnMargin = margin ? (credit / margin) * 100 : null
-  const annualized = returnOnMargin == null ? null : returnOnMargin * 365 / Math.max(row.dte ?? 1, 1)
-  return { credit, margin, returnOnMargin, annualized }
-}
-
 /** Short option rows that have kept at least `pct` of their premium.
  *  rows: [{ ...row, pl, credit }] — pl the unrealized P&L, credit the
  *  premium taken in (both dollars). Sorted by percent kept, highest first. */
@@ -277,6 +257,96 @@ export function cushionChange(book, move, { futuresPct, ivRise }) {
     reqRise += Math.max(0, rootRequirement(group, move, futuresPct, ivRise) - rootRequirement(group, 0, futuresPct, ivRise))
   }
   return { pnl, reqRise, change: pnl - reqRise }
+}
+
+/** A new-income idea (a Screener short-option row on a futures root)
+ *  under a crash: the market moving crashPct against it — down for a put,
+ *  up for a call — repriced at once (no time decay) with the volatility
+ *  rise, per contract:
+ *    crashLoss    what buying it back would cost over the credit (dollars)
+ *    crashMargin  its margin after the move (SPAN-like scan, and never
+ *                 below the plain futuresPct-of-notional estimate)
+ *    atRisk       crashLoss (if a loss) + crashMargin: the cushion the
+ *                 trade uses up in the crash
+ *    returnOnRisk credit / atRisk (%), and annualized.
+ *  null when the option can't be priced (no iv and no price to imply one). */
+export function ideaStress(row, { crashPct, futuresPct, ivRise }) {
+  const mult = getMultiplier(row.underlying)
+  const move = (row.type === 'PUT' ? -1 : 1) * (crashPct / 100)
+  const iv = row.iv || impliedVol(row.mid ?? row.premium, row.spot, row.strike, row.dte ?? 0, row.type)
+  if (!iv || !(row.premium > 0)) return null
+  const p = { kind: 'option', root: row.underlying, type: row.type, strike: row.strike, dte: row.dte, qty: -1, mult, spot: row.spot, iv }
+  const credit = row.premium * mult
+  const crashLoss = optionValue(p, move, ivRise) * mult - credit
+  const flat = (row.type === 'PUT' ? row.strike : row.spot) * mult * (futuresPct / 100)
+  const crashMargin = Math.max(rootRequirement([p], move, futuresPct, ivRise), flat)
+  const atRisk = Math.max(0, crashLoss) + crashMargin
+  const returnOnRisk = (credit / atRisk) * 100
+  return { move, iv, credit, crashLoss, crashMargin, atRisk, returnOnRisk, annualized: returnOnRisk * 365 / Math.max(row.dte ?? 1, 1) }
+}
+
+// Futures margin for every root in `positions` after `move`.
+function rootsRequirement(positions, move, futuresPct, ivRise) {
+  const roots = {}
+  for (const p of positions) if (p.root) (roots[p.root] ??= []).push(p)
+  return Object.values(roots).reduce((sum, group) => sum + rootRequirement(group, move, futuresPct, ivRise), 0)
+}
+
+/** The worst margin cushion over a crashPct drop and a crashPct rally, with
+ *  `extra` positions added to the book. Adding them first uses up their
+ *  margin today — computed with the book's positions on the same root, so
+ *  a trade that offsets them (a short call against long futures) costs
+ *  less, or frees margin. */
+export function worstCushion(cushion, book, extra, { crashPct, futuresPct, ivRise }) {
+  const all = { positions: [...book.positions, ...extra], unpriced: book.unpriced }
+  const upfront = extra.length
+    ? rootsRequirement(all.positions, 0, futuresPct, ivRise) - rootsRequirement(book.positions, 0, futuresPct, ivRise)
+    : 0
+  const at = (move) => cushion - upfront + cushionChange(all, move, { futuresPct, ivRise }).change
+  return Math.min(at(-crashPct / 100), at(crashPct / 100))
+}
+
+/** A new-income idea judged against the book it joins:
+ *    riskAdded    how much one contract lowers the worst cushion (negative:
+ *                 it raises it — the idea offsets risk the book has)
+ *    hedges       riskAdded <= 0
+ *    returnOnRisk credit / riskAdded (%), null for a hedge
+ *    maxContracts the most contracts that keep the worst cushion above
+ *                 zero (capped at maxQty; with maxQty 0 it isn't searched)
+ *  idea: an ideaStress row plus { underlying, type, strike, dte, spot, iv }.
+ *  base: worstCushion(cushion, book, [], options), when already known. */
+export function ideaFit(cushion, book, idea, options, { maxQty = 100, base } = {}) {
+  const root = idea.underlying.replace(/^\//, '')
+  const leg = (qty) => ({
+    kind: 'option', root, type: idea.type, strike: idea.strike, dte: idea.dte, qty,
+    mult: getMultiplier(idea.underlying), spot: idea.spot, iv: idea.iv,
+  })
+  base ??= worstCushion(cushion, book, [], options)
+  // The credit doesn't add to the cushion: the short is marked at about
+  // what it was sold for, so net liq is unchanged by the sale.
+  const worstWith = (n) => worstCushion(cushion, book, [leg(-n)], options)
+  const riskAdded = base - worstWith(1)
+  let maxContracts = 0
+  while (maxContracts < maxQty && worstWith(maxContracts + 1) > 0) maxContracts++
+  return {
+    riskAdded,
+    hedges: riskAdded <= 0,
+    returnOnRisk: riskAdded > 0 ? (idea.credit / riskAdded) * 100 : null,
+    maxContracts,
+  }
+}
+
+/** How the book leans on each futures root: net delta in contracts of the
+ *  future (options by their delta), from the stress positions. */
+export function rootLean(positions) {
+  const lean = {}
+  for (const p of positions) {
+    if (!p.root) continue
+    const delta = p.kind === 'future' ? 1 : p.delta
+    if (delta == null) continue
+    lean[p.root] = (lean[p.root] ?? 0) + delta * p.qty
+  }
+  return lean
 }
 
 /** The smallest move in `direction` (-1 a drop, +1 a rally) that takes the

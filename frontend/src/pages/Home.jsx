@@ -13,7 +13,7 @@ import { closedTrades } from '../utils/reportStats'
 import { futuresOptionContracts, futuresOptionRowPl } from '../utils/positionPl'
 import { getMultiplier, MULTIPLIER } from '../utils/contractMultiplier'
 import {
-  futuresMarginEstimate, contractsAffordable, futuresIdeaNumbers, takeProfitCandidates,
+  futuresMarginEstimate, ideaStress, ideaFit, worstCushion, rootLean, takeProfitCandidates,
   equityShort, expiringSoon, uncoveredShares, concentration, expiryCalendar,
   stressBook, cushionChange, marginCallMove,
 } from '../utils/homeInsights'
@@ -30,8 +30,8 @@ import {
 const ROOTS = ['ES', 'NQ']
 const DEFAULT_RULES = {
   'home.futures_margin_pct': 11, 'home.available_funds': 0, 'home.take_profit_pct': 75, 'home.expiring_days': 7, 'home.at_risk_pct': 2,
-  'home.concentration_pct': 25, 'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 10, 'home.idea_max_delta_pct': 30,
-  'home.stress_iv_rise': 20,
+  'home.concentration_pct': 25, 'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 5, 'home.idea_max_delta_pct': 20,
+  'home.stress_iv_rise': 20, 'home.idea_crash_pct': 5,
 }
 const CALENDAR_DAYS = 14
 const IDEAS_SHOWN = 8
@@ -243,6 +243,10 @@ export default function Home() {
       fundsFromSettings,
       unpricedRisk: stress.unpriced,
       stress: cushion == null ? [] : STRESS_MOVES.map((move) => ({ move, after: cushion + cushionChange(stress, move, stressOptions).change })),
+      // For the new-income ideas, judged against this book.
+      stressBook: stress,
+      stressOptions,
+      lean: rootLean(stress.positions),
       callDrop: cushion == null ? null : marginCallMove(cushion, stress, -1, stressOptions),
       callRally: cushion == null ? null : marginCallMove(cushion, stress, 1, stressOptions),
     }
@@ -250,19 +254,41 @@ export default function Home() {
 
   const marginPct = rules['home.futures_margin_pct']
   const funds = derived?.cushion ?? null
+  const crashPct = rules['home.idea_crash_pct']
+  const ideaOptions = derived && { ...derived.stressOptions, crashPct }
+  // The book's worst cushion after a crashPct move either way, before any
+  // new trade.
+  const worstNow = useMemo(
+    () => (derived?.cushion == null ? null : worstCushion(derived.cushion, derived.stressBook, [], ideaOptions)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [derived, crashPct],
+  )
   // The best strike per root and expiration — neighbouring strikes of one
   // expiry would otherwise fill the list — then the best of those first.
+  // Each idea is judged against the current book (its /ES and /NQ
+  // positions above all): how much one contract lowers the worst cushion
+  // after a crashPct move either way. One that offsets what the book holds
+  // is a hedge and ranks first; one that stacks on it ranks by credit over
+  // the risk it adds — not annualized, which makes a 1-day put look best
+  // though a crash costs it the most premiums' worth.
   const ideaRows = useMemo(() => {
+    const fitted = (r, maxQty) => (worstNow == null ? {} : ideaFit(derived.cushion, derived.stressBook, r, ideaOptions, { maxQty, base: worstNow }))
+    const rank = (a, b) => (b.hedges - a.hedges) || (a.hedges ? b.credit - a.credit : (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0))
     const best = {}
     for (const r of ideas[ideaSide] ?? []) {
-      const row = { ...r, ...futuresIdeaNumbers(r, marginPct) }
+      const stressed = ideaStress(r, { crashPct, futuresPct: marginPct, ivRise: rules['home.stress_iv_rise'] })
+      if (!stressed) continue
+      const row = { ...r, ...stressed }
+      Object.assign(row, fitted(row, 0))
       const key = `${r.underlying}|${r.expirationDate}`
-      if (!best[key] || (row.annualized ?? 0) > (best[key].annualized ?? 0)) best[key] = row
+      if (!best[key] || rank(row, best[key]) < 0) best[key] = row
     }
     return Object.values(best)
-      .sort((a, b) => (b.annualized ?? 0) - (a.annualized ?? 0))
+      .sort(rank)
       .slice(0, IDEAS_SHOWN)
-  }, [ideas, ideaSide, marginPct])
+      .map((row) => ({ ...row, maxContracts: worstNow == null ? null : fitted(row, 100).maxContracts }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ideas, ideaSide, marginPct, crashPct, worstNow, rules])
 
   const calendarCredit = (derived?.calendar ?? []).reduce((s, d) => s + d.credit, 0)
 
@@ -368,22 +394,26 @@ export default function Home() {
         <div className="home-roots">
           {ROOTS.map((root) => {
             const price = derived?.prices[root]
+            const lean = derived?.lean[root] ?? 0
             return (
               <div key={root} className="home-root">
                 <span className="home-root-name">/{root}</span>
                 <span className="home-root-price">{price == null ? '—' : price.toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>
-                <span className="summary-line">
-                  {price != null && funds != null
-                    ? `Room for ≈ ${contractsAffordable(funds, price, root, marginPct)} short options`
-                    : ''}
-                </span>
+                {derived && (
+                  <span className="summary-line">
+                    {Math.abs(lean) < 0.05 ? 'book flat' : `book net ${lean > 0 ? 'long' : 'short'} ${Math.abs(lean).toFixed(1)} /${root}`}
+                  </span>
+                )}
               </div>
             )
           })}
         </div>
         <p className="summary-line">
           Expiring within {rules['home.idea_max_dte']} days, delta {(rules['home.idea_min_delta_pct'] / 100).toFixed(2)}–{(rules['home.idea_max_delta_pct'] / 100).toFixed(2)},
-          best strike per expiration, ranked by annualized return on margin (margin estimated at {marginPct}% of notional; room uses {derived?.fundsFromSettings ? "thinkorswim's available funds from app.properties" : 'securities available funds, so it can run high'}).
+          judged against your positions as if the market moves {crashPct}% either way at once — trades that offset them first.
+          {worstNow != null && (worstNow > 0
+            ? ` Worst cushion after that move today: ${money(worstNow, 0)}.`
+            : ` That move would already leave no cushion (${money(worstNow, 0)}) — only trades that offset your risk fit.`)}
         </p>
         {ideas.loading && <Spinner />}
         {ideas.error && <div className="alert error">{ideas.error}</div>}
@@ -392,17 +422,24 @@ export default function Home() {
             <DataTable
               data={ideaRows}
               paginate={false}
-              defaultSortKey="annualized"
-              defaultSortDir="desc"
               columns={[
                 { key: 'symbol', label: 'Contract', render: (r) => formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol },
                 { key: 'dte', label: 'DTE', align: 'right' },
                 { key: 'otmPct', label: 'OTM', align: 'right', render: (r) => pct(r.otmPct) },
                 { key: 'delta', label: 'Delta', align: 'right', render: (r) => (r.delta == null ? '—' : Math.abs(r.delta).toFixed(2)) },
                 { key: 'credit', label: 'Credit', align: 'right', render: (r) => money(r.credit) },
-                { key: 'margin', label: 'Est. margin', align: 'right', render: (r) => money(r.margin, 0) },
-                { key: 'returnOnMargin', label: 'Return', align: 'right', render: (r) => pct(r.returnOnMargin, 2) },
-                { key: 'annualized', label: 'Annualized', align: 'right', render: (r) => pct(r.annualized, 0) },
+                {
+                  key: 'crashLoss', label: `Loss at ${ideaSide === 'PUT' ? '−' : '+'}${crashPct}%`, align: 'right',
+                  render: (r) => <span className={r.crashLoss > 0 ? 'cell-negative' : ''}>{money(Math.max(0, r.crashLoss), 0)}</span>,
+                },
+                {
+                  key: 'riskAdded', label: 'Risk to book', align: 'right',
+                  render: (r) => (r.riskAdded == null ? '—' : r.hedges
+                    ? <span className="home-chip home-chip--ok">Offsets</span>
+                    : money(r.riskAdded, 0)),
+                },
+                { key: 'returnOnRisk', label: 'Return on risk', align: 'right', render: (r) => (r.hedges ? '—' : pct(r.returnOnRisk, 2)) },
+                { key: 'maxContracts', label: 'Max qty', align: 'right', render: (r) => (r.maxContracts == null ? '—' : count(r.maxContracts)) },
                 {
                   key: 'analyze', label: '',
                   render: (r) => (
