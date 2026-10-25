@@ -58,6 +58,8 @@ class PositionProvider(Protocol):
               "mutual_fund_value": float | None,
               "liquidation_value": float | None,
               "maintenance_requirement": float | None,   # whole account
+              "buying_power": float | None,
+              "available_funds": float | None,
           } | None,   # None only if the account has no balances section at all
           "positions": [
               {

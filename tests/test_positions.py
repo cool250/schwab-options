@@ -126,3 +126,9 @@ def test_maintenance_requirement_is_passed_through():
     [stock] = svc.get_stock_position()
     assert (put.maintenance_requirement, stock.maintenance_requirement) == (4612.0, 300.0)
     assert svc.get_balances().maintenance_requirement == 5000.0
+
+
+def test_option_rows_carry_the_underlyings_price():
+    svc = PositionService(provider=FakePositions({"SPY   261023P00700000": 1.5, "SPY": 712.3}))
+    [put], _ = svc.get_option_position()
+    assert put.underlying_price == 712.3

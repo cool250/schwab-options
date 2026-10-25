@@ -20,6 +20,9 @@ class Balances(BaseModel):
     # Schwab's margin requirement for the whole account (stocks, options
     # and money funds; futures are in a sub-account Schwab doesn't report).
     maintenance_requirement: Optional[float] = None
+    # Schwab's buying power, and the funds available to open new positions.
+    buying_power: Optional[float] = None
+    available_funds: Optional[float] = None
 
 
 class StockPosition(BaseModel):
@@ -51,6 +54,8 @@ class OptionPosition(BaseModel):
     # Schwab's margin requirement for this position, in dollars (0 when
     # another position covers it).
     maintenance_requirement: Optional[float] = None
+    # The underlying's live price (None without a quote) — for moneyness.
+    underlying_price: Optional[float] = None
 
 
 class FuturesPosition(BaseModel):

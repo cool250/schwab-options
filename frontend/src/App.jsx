@@ -8,6 +8,7 @@ import CopilotWidget, { CopilotDisabledLauncher } from './components/CopilotWidg
 import RequireSchwab from './components/RequireSchwab'
 import Login from './pages/Login'
 import Landing from './pages/Landing'
+import Home from './pages/Home'
 import Positions from './pages/Positions'
 import Transactions from './pages/Transactions'
 import Reports from './pages/Reports'
@@ -50,6 +51,7 @@ export default function App() {
                         {/* Portfolio pages read the user's own Schwab account —
                             RequireSchwab shows a "connect Schwab" notice first
                             if it isn't connected or has expired. */}
+                        <Route path="/home" element={<RequireSchwab><Home /></RequireSchwab>} />
                         <Route path="/positions" element={<RequireSchwab><Positions /></RequireSchwab>} />
                         <Route path="/transactions" element={<RequireSchwab><Transactions /></RequireSchwab>} />
                         <Route path="/allocation" element={<RequireSchwab><Reports /></RequireSchwab>} />

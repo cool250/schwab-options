@@ -1,0 +1,45 @@
+/* ─── Home page (pages/Home.jsx) ─── */
+
+.home-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.home-title { margin: 0; font-size: 1.35rem; }
+.home-card-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
+.home-side-tabs { flex: none; }
+.home-metrics { flex-wrap: wrap; row-gap: 14px; }
+
+/* /ES and /NQ price, with how many new shorts fit. */
+.home-roots { display: flex; flex-wrap: wrap; gap: 12px 32px; }
+.home-root { display: flex; align-items: baseline; gap: 10px; }
+.home-root-name { font-weight: 700; color: var(--text-muted); }
+.home-root-price { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Two cards side by side, one column when narrow. */
+.home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 960px) { .home-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.home-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.home-list li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
+.home-list li:first-child { border-top: none; }
+.home-list-main { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .home-list li { grid-template-columns: minmax(0, 1fr); } }
+
+.home-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+.home-chip--error   { color: var(--error); background: var(--error-bg); }
+.home-chip--warning { color: var(--warning); background: var(--warning-bg); }
+.home-chip--ok      { color: var(--success); background: var(--success-bg); }
+
+/* Expiry calendar: one tile per date with shorts expiring. */
+.home-calendar { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.home-day { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.home-day-date { font-weight: 700; font-variant-numeric: tabular-nums; }
+.home-day-count { font-size: 0.8rem; color: var(--text-muted); }
+.home-day-credit { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Compact button for table rows (Analyze). */
+.home-row-btn { padding: 4px 12px; font-size: 0.82rem; }
+
+/* Margin cushion: today's figure beside the stress test. */
+.home-cushion { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px; }
+.home-cushion-now { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.home-cushion-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.home-stress { flex: 1 1 360px; min-width: 0; overflow-x: auto; }
+.home-stress th.num, .home-stress td.num { text-align: right; font-variant-numeric: tabular-nums; }

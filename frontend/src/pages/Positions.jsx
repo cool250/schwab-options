@@ -636,8 +636,8 @@ export default function Positions() {
                     </div>
                   )}
                   {balances.account_value != null && (
-                    <div className="metric">
-                      <span className="metric-label">Account Value</span>
+                    <div className="metric" title="Schwab's net liquidation value for the securities account only — the futures account isn't in Schwab's API, so thinkorswim's Net Liq is higher.">
+                      <span className="metric-label">Securities Net Liq</span>
                       <span className="metric-value highlight">
                         ${balances.account_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>

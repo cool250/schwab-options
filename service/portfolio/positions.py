@@ -71,6 +71,8 @@ class PositionService:
             mutual_fund_value=current["mutual_fund_value"],
             account_value=current["liquidation_value"],
             maintenance_requirement=current.get("maintenance_requirement"),
+            buying_power=current.get("buying_power"),
+            available_funds=current.get("available_funds"),
         )
 
     def get_stock_position(self) -> list[StockPosition]:
@@ -359,12 +361,14 @@ class PositionService:
         report a short option's whole premium as profit (a long's as a loss).
         """
         ticker_list = [ticker.get("symbol") for ticker in tickers if ticker.get("symbol")]
+        # Option rows also get their underlying's price (one request for both).
+        underlyings = sorted({t["ticker"] for t in tickers if "total_value" in t and t.get("ticker")})
 
         if not ticker_list:
             return tickers
 
         try:
-            quote_data = self.provider.get_quotes(ticker_list)
+            quote_data = self.provider.get_quotes(sorted(set(ticker_list) | set(underlyings)))
         except BrokerError as e:
             logger.error("Failed to fetch current prices: %s", e)
             quote_data = {}
@@ -373,6 +377,7 @@ class PositionService:
             current_price = quote_data.get(ticker.get("symbol"))
             ticker["current_price"] = current_price
             if "total_value" in ticker:
+                ticker["underlying_price"] = quote_data.get(ticker.get("ticker"))
                 if current_price is None:
                     ticker["total_value"] = None
                     continue

@@ -36,6 +36,7 @@ class OptionQuote(BaseModel):
     ask: float | None = None
     mid: float | None = None
     theta: float | None = None  # per share, per day
+    delta: float | None = None  # per share (sign as the option: puts negative)
 
 
 class QuoteResponse(BaseModel):

@@ -29,11 +29,25 @@ SETTINGS: dict[str, tuple[type, Any, Optional[tuple], Optional[int]]] = {
     "transactions.option_lookforward_days": (int, 5, None, 0),
     "transactions.equity_lookback_days": (int, 365, None, 1),
     "copilot.history_days": (int, 90, None, 1),
+    "home.futures_margin_pct": (int, 11, None, 1),
+    "home.available_funds": (int, 0, None, 0),
+    "home.take_profit_pct": (int, 75, None, 1),
+    "home.expiring_days": (int, 7, None, 1),
+    "home.at_risk_pct": (int, 2, None, 0),
+    "home.concentration_pct": (int, 25, None, 1),
+    "home.idea_max_dte": (int, 7, None, 0),
+    "home.idea_min_delta_pct": (int, 10, None, 0),
+    "home.idea_max_delta_pct": (int, 30, None, 1),
 }
 
 # Settings the browser needs (served by GET /api/config). Others stay
 # server-side.
-PUBLIC_SETTINGS = ("trades.group_ratio_spreads", "transactions.default_view")
+PUBLIC_SETTINGS = (
+    "trades.group_ratio_spreads", "transactions.default_view",
+    # The Home page's rules (all applied in the browser).
+    "home.futures_margin_pct", "home.available_funds", "home.take_profit_pct", "home.expiring_days", "home.at_risk_pct",
+    "home.concentration_pct", "home.idea_max_dte", "home.idea_min_delta_pct", "home.idea_max_delta_pct",
+)
 
 _TRUE, _FALSE = ("true", "yes", "1", "on"), ("false", "no", "0", "off")
 

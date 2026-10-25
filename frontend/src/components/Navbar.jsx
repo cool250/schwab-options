@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
-  PortfolioIcon, MarketIcon, PositionsIcon, ReportsIcon, TransactionsIcon,
+  PortfolioIcon, MarketIcon, HomeIcon, PositionsIcon, ReportsIcon, TransactionsIcon,
   AnalyzeIcon, ChartsIcon, ScreenerIcon, SettingsIcon, SignOutIcon, CollapseIcon,
 } from './NavIcons'
 
@@ -13,6 +13,7 @@ const NAV_GROUPS = [
     label: 'Portfolio',
     Icon: PortfolioIcon,
     links: [
+      { to: '/home', label: 'Home', Icon: HomeIcon },
       { to: '/positions', label: 'Positions', Icon: PositionsIcon },
       { to: '/allocation', label: 'Reports', Icon: ReportsIcon },
       { to: '/transactions', label: 'Transactions', Icon: TransactionsIcon },

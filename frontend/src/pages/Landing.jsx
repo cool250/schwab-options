@@ -18,7 +18,7 @@ import { CopilotIcon } from '../components/CopilotWidget'
 // Positions/Transactions/Reports on real account data.
 
 // Where login (and "Open dashboard") lands: Market → Analyze.
-const DEFAULT_PAGE = '/analyze'
+const DEFAULT_PAGE = '/home'
 
 const FEATURES = [
   {

@@ -42,6 +42,8 @@ class SchwabPositionProvider:
             "mutual_fund_value": current.mutualFundValue,
             "liquidation_value": current.liquidationValue,
             "maintenance_requirement": current.maintenanceRequirement,
+            "buying_power": current.buyingPower,
+            "available_funds": current.availableFunds,
         }
 
     def _normalize_positions(self, account: SecuritiesAccount) -> list[dict]:

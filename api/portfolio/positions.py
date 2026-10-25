@@ -142,3 +142,4 @@ def set_broker(choice: BrokerChoice, user: User = Depends(require_auth)):
     if choice.name != get_broker(user.broker).name:
         users.set_broker(user.id, choice.name)  # also clears the chosen account
     return _brokers_for(users.get_user(user.id))
+

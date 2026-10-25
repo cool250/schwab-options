@@ -36,6 +36,14 @@ export const MarketIcon = () => (
   </Icon>
 )
 
+export const HomeIcon = () => (
+  <Icon>
+    <path d="M3 10.5 12 3l9 7.5" />
+    <path d="M5 9.5V21h14V9.5" />
+    <path d="M10 21v-6h4v6" />
+  </Icon>
+)
+
 export const PositionsIcon = () => (
   <Icon>
     <polygon points="12 2 2 7 12 12 22 7 12 2" />

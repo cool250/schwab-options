@@ -24,12 +24,12 @@ class FakeTastytrade:
 
     def get_chain_quotes(self, contracts, with_theta=False):
         quotes = {
-            ".QQQ261023P700": {"bid": 2.0, "ask": 2.2, "theta": -0.05},
+            ".QQQ261023P700": {"bid": 2.0, "ask": 2.2, "theta": -0.05, "delta": -0.3},
             ".QQQ261030P700": {"bid": 4.0, "ask": None, "theta": None},
             "./E3DV26P7650": {"bid": 18.5, "ask": 19.0, "theta": -1.25},
         }
         return {
-            c["streamer-symbol"]: {k: v for k, v in quotes[c["streamer-symbol"]].items() if with_theta or k != "theta"}
+            c["streamer-symbol"]: {k: v for k, v in quotes[c["streamer-symbol"]].items() if with_theta or k not in ("theta", "delta")}
             for c in contracts if c["streamer-symbol"] in quotes
         }
 
@@ -49,8 +49,8 @@ def test_equity_matches_on_expiration_too():
         contract("a", "QQQ", date(2026, 10, 23), 700),
         contract("b", "qqq", "2026-10-30", 700),
     ])
-    assert result["a"] == {"bid": 2.0, "ask": 2.2, "mid": 2.1, "theta": -0.05}
-    assert result["b"] == {"bid": 4.0, "ask": None, "mid": None, "theta": None}
+    assert result["a"] == {"bid": 2.0, "ask": 2.2, "mid": 2.1, "theta": -0.05, "delta": -0.3}
+    assert result["b"] == {"bid": 4.0, "ask": None, "mid": None, "theta": None, "delta": None}
 
 
 def test_futures_root_accepted_with_or_without_slash():
@@ -59,7 +59,7 @@ def test_futures_root_accepted_with_or_without_slash():
         contract("x", "/ES", "2026-10-20", 7650),
         contract("y", "ES", "2026-10-20", 7650),
     ])
-    assert result["x"] == result["y"] == {"bid": 18.5, "ask": 19.0, "mid": 18.75, "theta": -1.25}
+    assert result["x"] == result["y"] == {"bid": 18.5, "ask": 19.0, "mid": 18.75, "theta": -1.25, "delta": None}
     # one chain fetch per (root, expiration)
     assert client.calls == [("futures", "/ES", "2026-10-20")]
 

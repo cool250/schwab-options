@@ -76,3 +76,4 @@ def test_brokers_route_marks_the_choice_and_put_saves_it(client, other_broker, d
 def test_put_rejects_a_broker_that_isnt_registered(client):
     http, _ = client
     assert http.put("/api/portfolio/positions/broker", json={"name": "tastytrade"}).status_code == 404
+

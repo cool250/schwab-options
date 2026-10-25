@@ -515,9 +515,9 @@ class TastytradeClient:
         not pricing.
 
         Returns {streamer_symbol: {"bid": float, "ask": float}} — plus
-        "theta" (per share, per day, from the Greeks event) when `with_theta`,
-        collected in the same session; None if no Greeks event arrived in
-        time. Contracts
+        "theta" (per share, per day) and "delta" from the Greeks event when
+        `with_theta`, collected in the same session; None if no Greeks event
+        arrived in time. Contracts
         that don't produce a Quote within `timeout` seconds are simply
         omitted from the result (illiquid strikes may have no live quote)
         rather than raising — check the chain length against the result
@@ -540,6 +540,7 @@ class TastytradeClient:
             remaining = set(symbols)
 
             thetas: dict[str, Optional[float]] = {}
+            deltas: dict[str, Optional[float]] = {}
             theta_remaining = set(symbols) if with_theta else set()
 
             async def _collect() -> None:
@@ -556,6 +557,7 @@ class TastytradeClient:
                     sym = greeks["eventSymbol"]
                     if sym in theta_remaining:
                         thetas[sym] = _finite_float(greeks["theta"])
+                        deltas[sym] = _finite_float(greeks.get("delta"))
                         theta_remaining.discard(sym)
 
             async with DXLinkStreamer(quote_token) as streamer:
@@ -569,6 +571,7 @@ class TastytradeClient:
             if with_theta:
                 for sym, quote in results.items():
                     quote["theta"] = thetas.get(sym)
+                    quote["delta"] = deltas.get(sym)
             return results
 
         return asyncio.run(_fetch())
