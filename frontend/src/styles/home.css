@@ -4,7 +4,27 @@
 .home-title { margin: 0; font-size: 1.35rem; }
 .home-card-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
 .home-side-tabs { flex: none; }
-.home-metrics { flex-wrap: wrap; row-gap: 14px; }
+/* Top summary row: equal-width columns (however many tiles), each with a
+   divider before it; three across, then two, on narrower screens. */
+.home-metrics {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 14px 0;
+  margin-bottom: 0;
+}
+.home-metrics .metric { min-width: 0; margin-right: 0; padding: 0 16px; border-right: none; border-left: 1px solid var(--border); }
+.home-metrics .metric:first-child { padding-left: 0; border-left: none; }
+.home-metrics .metric-subtext { overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  .home-metrics { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .home-metrics .metric:nth-child(3n + 1) { padding-left: 0; border-left: none; }
+}
+@media (max-width: 640px) {
+  .home-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-metrics .metric:nth-child(3n + 1) { padding-left: 16px; border-left: 1px solid var(--border); }
+  .home-metrics .metric:nth-child(2n + 1) { padding-left: 0; border-left: none; }
+}
 
 /* /ES and /NQ price, with how many new shorts fit. */
 .home-roots { display: flex; flex-wrap: wrap; gap: 12px 32px; }
