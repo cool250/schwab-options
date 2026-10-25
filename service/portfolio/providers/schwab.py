@@ -41,6 +41,7 @@ class SchwabPositionProvider:
             "cash_balance": current.cashBalance,
             "mutual_fund_value": current.mutualFundValue,
             "liquidation_value": current.liquidationValue,
+            "maintenance_requirement": current.maintenanceRequirement,
         }
 
     def _normalize_positions(self, account: SecuritiesAccount) -> list[dict]:
@@ -91,6 +92,9 @@ class SchwabPositionProvider:
             "tax_lot_short_price": position.taxLotAverageShortPrice,
             "long_open_pl": position.longOpenProfitLoss,
             "short_open_pl": position.shortOpenProfitLoss,
+            # Schwab's margin requirement for this position (0 for one fully
+            # covered by another, e.g. a short put against short shares).
+            "maintenance_requirement": position.maintenanceRequirement,
             "underlying_symbol": None,
             "strike_price": None,
             "expiration_date": None,

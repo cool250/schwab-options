@@ -57,6 +57,7 @@ class PositionProvider(Protocol):
               "cash_balance": float | None,
               "mutual_fund_value": float | None,
               "liquidation_value": float | None,
+              "maintenance_requirement": float | None,   # whole account
           } | None,   # None only if the account has no balances section at all
           "positions": [
               {
@@ -69,6 +70,7 @@ class PositionProvider(Protocol):
                   "tax_lot_short_price": float | None,
                   "long_open_pl": float | None,
                   "short_open_pl": float | None,
+                  "maintenance_requirement": float | None,   # this position's margin
                   # Option-only (parsed from the option symbol); None for equities:
                   "underlying_symbol": str | None,
                   "strike_price": float | None,

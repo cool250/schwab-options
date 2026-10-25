@@ -110,3 +110,19 @@ def test_ratio_spread_grouping_can_be_turned_off_in_app_properties(monkeypatch, 
     puts, _ = PositionService(provider=FakePositions({})).get_futures_option_position()
     assert sorted(p.strike_price for p in puts) == [7600.0, 7700.0]
     assert all(p.ratio is None for p in puts)
+
+
+def test_maintenance_requirement_is_passed_through():
+    class WithMargin(FakePositions):
+        def get_account_snapshot(self):
+            snap = super().get_account_snapshot()
+            snap["balances"]["maintenance_requirement"] = 5000.0
+            snap["positions"][0]["maintenance_requirement"] = 4612.0
+            snap["positions"][1]["maintenance_requirement"] = 300.0
+            return snap
+
+    svc = PositionService(provider=WithMargin({}))
+    [put], _ = svc.get_option_position()
+    [stock] = svc.get_stock_position()
+    assert (put.maintenance_requirement, stock.maintenance_requirement) == (4612.0, 300.0)
+    assert svc.get_balances().maintenance_requirement == 5000.0

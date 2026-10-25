@@ -17,6 +17,9 @@ class Balances(BaseModel):
     mutual_fund_value: Optional[float] = None
     # Liquidation value of the whole account.
     account_value: Optional[float] = None
+    # Schwab's margin requirement for the whole account (stocks, options
+    # and money funds; futures are in a sub-account Schwab doesn't report).
+    maintenance_requirement: Optional[float] = None
 
 
 class StockPosition(BaseModel):
@@ -28,6 +31,8 @@ class StockPosition(BaseModel):
     broker_cost_basis: Optional[float] = None
     broker_pl: Optional[float] = None
     current_price: Optional[float] = None
+    # Schwab's margin requirement for this position, in dollars.
+    maintenance_requirement: Optional[float] = None
 
 
 class OptionPosition(BaseModel):
@@ -43,6 +48,9 @@ class OptionPosition(BaseModel):
     # Unrealized P&L in dollars (short/credit positive); None when there's
     # no live quote — never priced at $0.
     total_value: Optional[float] = None
+    # Schwab's margin requirement for this position, in dollars (0 when
+    # another position covers it).
+    maintenance_requirement: Optional[float] = None
 
 
 class FuturesPosition(BaseModel):

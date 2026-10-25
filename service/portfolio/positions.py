@@ -70,6 +70,7 @@ class PositionService:
             cash_balance=cash if (margin is None or margin >= 0) else margin,
             mutual_fund_value=current["mutual_fund_value"],
             account_value=current["liquidation_value"],
+            maintenance_requirement=current.get("maintenance_requirement"),
         )
 
     def get_stock_position(self) -> list[StockPosition]:
@@ -96,6 +97,7 @@ class PositionService:
                 "trade_price": position["average_price"],
                 "broker_cost_basis": broker_cost_basis,
                 "broker_pl": broker_pl,
+                "maintenance_requirement": position.get("maintenance_requirement"),
             })
         return [StockPosition(**s) for s in self.get_current_price(stocks)]
 
@@ -338,6 +340,7 @@ class PositionService:
                 # every caller of this method) turns this into
                 # unrealized P&L once the live quote is known.
                 "total_value": (position["average_price"] or 0) * -quantity * get_contract_multiplier(ticker),
+                "maintenance_requirement": position.get("maintenance_requirement"),
             }
             option_positions_details.append(option_details)
         return option_positions_details

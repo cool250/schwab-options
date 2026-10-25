@@ -40,12 +40,18 @@ const quantityColumn = { key: 'quantity', label: 'Quantity', align: 'right', ren
 const tradePriceColumn = { key: 'trade_price', label: 'Trade Price', align: 'right', render: (row) => money(row.trade_price) }
 const currentPriceColumn = { key: 'current_price', label: 'Current Price', align: 'right', render: (row) => money(row.current_price, 3) }
 
+// Schwab's margin requirement per position (stocks and equity options only —
+// Schwab doesn't report futures margin).
+const maintReqColumn = { key: 'maintenance_requirement', label: 'Maint. Req', align: 'right', render: (row) => money(row.maintenance_requirement) }
+const sumMaintReq = (rows) => rows.reduce((s, r) => s + (r.maintenance_requirement ?? 0), 0)
+
 const STOCK_COLUMNS = [
   { key: 'symbol',              label: 'Symbol' },
   quantityColumn,
   stockTradePriceColumn(),
   currentPriceColumn,
   { key: 'broker_pl',           label: 'P&L',                align: 'right' },
+  maintReqColumn,
 ]
 
 // PUT/CALL has to come from the caller (which table this column set is
@@ -132,6 +138,7 @@ function optionColumns(optionType, theta) {
     { key: 'total_value',     label: 'P&L',          align: 'right' },
     theta,
     { key: 'exposure',        label: 'Exposure',     align: 'right' },
+    maintReqColumn,
     { key: 'symbol',          label: 'Symbol', render: (row) => positionOptionSymbol(row, optionType) },
   ]
 }
@@ -636,6 +643,12 @@ export default function Positions() {
                       </span>
                     </div>
                   )}
+                  {balances.maintenance_requirement != null && (
+                    <div className="metric" title="Schwab's margin requirement for stocks, options and money funds — futures are held in a sub-account Schwab doesn't report">
+                      <span className="metric-label">Maintenance Req</span>
+                      <span className="metric-value">{money(balances.maintenance_requirement)}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -645,7 +658,8 @@ export default function Positions() {
                   <h3 className="section-title">Stocks</h3>
                   <p className="summary-line">
                     Total: {stocks.length}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    P&amp;L: ${totalStockPL.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    P&amp;L: ${totalStockPL.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
+                    Maint. Req: {money(sumMaintReq(stocks))}
                   </p>
                   <DataTable data={stocks} columns={STOCK_COLUMNS} defaultSortKey="symbol" />
                 </div>
@@ -661,7 +675,8 @@ export default function Positions() {
                     Total: {puts.length}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
                     P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(puts)}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Theta: {equityThetaTotal(puts)}
+                    Theta: {equityThetaTotal(puts)}&nbsp;&nbsp;|&nbsp;&nbsp;
+                    Maint. Req: {money(sumMaintReq(puts))}
                   </p>
                   <DataTable data={puts} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} defaultSortKey="days_to_expiry" />
                 </div>
@@ -676,7 +691,8 @@ export default function Positions() {
                   <p className="summary-line">
                     Total: {calls.length}&nbsp;&nbsp;|&nbsp;&nbsp;
                     P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(calls)}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Theta: {equityThetaTotal(calls)}
+                    Theta: {equityThetaTotal(calls)}&nbsp;&nbsp;|&nbsp;&nbsp;
+                    Maint. Req: {money(sumMaintReq(calls))}
                   </p>
                   <DataTable data={calls} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} defaultSortKey="days_to_expiry" />
                 </div>
