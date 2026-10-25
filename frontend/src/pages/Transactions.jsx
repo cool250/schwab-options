@@ -204,9 +204,17 @@ export default function Transactions() {
 
   // Defaults for Ignore Grouping and the realized/unrealized boxes come from
   // config/app.properties (trades.group_ratio_spreads,
-  // transactions.default_view) via GET /api/config. A box the user already
-  // changed, or one a link set through the URL, is left alone.
-  const touched = useRef({ grouping: false, view: Boolean(searchParams.get('realized') || searchParams.get('unrealized')) })
+  // transactions.default_view) via GET /api/config — on both tabs; on
+  // Equity & futures, "realized" ticks Realized Gains Only and "both" or
+  // "unrealized" leaves it unticked (that tab has no unrealized-only view).
+  // A box the user already changed, or one a link set through the URL, is
+  // left alone.
+  const linkSetView = Boolean(searchParams.get('realized') || searchParams.get('unrealized'))
+  const touched = useRef({
+    grouping: false,
+    view: initialTab === 'options' && linkSetView,
+    equityView: initialTab === 'equity' && linkSetView,
+  })
 
   // Arriving from a chart click (e.g. Reports) pre-fills the filters via the
   // URL — run the search immediately instead of waiting for another click,
@@ -228,8 +236,16 @@ export default function Transactions() {
           ;[realized, unrealized] = [view !== 'unrealized', view !== 'realized']
           setShown([realized, unrealized])
         }
+        let equityRealized = equityRealizedOnly
+        if (view && !touched.current.equityView) {
+          equityRealized = view === 'realized'
+          setEquityRealizedOnly(equityRealized)
+        }
         if (initialTab === 'options' && fromLink) {
           runSearch(ticker, startDate, endDate, contractType, ignoreFutures, grouping, realized, unrealized)
+        }
+        if (initialTab === 'equity' && fromLink) {
+          runEquitySearch(ticker, equityStartDate, equityEndDate, assetType, equityRealized)
         }
       })
     return () => { cancelled = true }
@@ -354,14 +370,6 @@ export default function Transactions() {
     e.preventDefault()
     runEquitySearch(ticker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
   }
-
-  // Mirrors the options-tab bootstrap above, for links that arrive with ?tab=equity.
-  useEffect(() => {
-    if (initialTab === 'equity' && fromLink) {
-      runEquitySearch(ticker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // This account never opens an outright equity/futures short — a negative
   // signed quantity on an otherwise-"OPEN" row means the matcher found a
@@ -555,7 +563,7 @@ export default function Transactions() {
                   <input
                     type="checkbox"
                     checked={equityRealizedOnly}
-                    onChange={(e) => setEquityRealizedOnly(e.target.checked)}
+                    onChange={(e) => { touched.current.equityView = true; setEquityRealizedOnly(e.target.checked) }}
                     className="toggle-checkbox"
                   />
                   <span>Realized Gains Only</span>

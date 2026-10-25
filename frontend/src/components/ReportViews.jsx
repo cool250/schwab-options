@@ -497,10 +497,13 @@ export function MonthCalendar({ year, month, trades, today, onDay, onWeek, openL
 
 // ---------------------------------------------------------------- month running total
 
-/** Daily P&L as gain/loss bars with the running total as a line — one y-axis. */
+/** Daily P&L as gain/loss bars with the running total as a line — one y-axis.
+ *  `trades` may include rows marked `cash` (income, fees): in the P&L, not
+ *  in the trade count. */
 export function DailyRunChart({ trades, onDay }) {
   const data = useMemo(() => {
-    const counts = countBy(trades, (t) => t.close_date)
+    // Rows marked `cash` (income, fees) add to the P&L but aren't trades.
+    const counts = countBy(trades.filter((t) => !t.cash), (t) => t.close_date)
     return runningTotal(trades).map((p) => ({ ...p, count: counts.get(p.date) ?? 0 }))
   }, [trades])
   if (data.length === 0) return null
@@ -715,13 +718,14 @@ export function MonthGrid({ trades, lastMonth, partialNote, onMonth, onQuarter }
 
 /** Monthly P&L as gain/loss bars with the running total (at each month's
  *  end) as a line — the YTD counterpart of DailyRunChart. Months after
- *  lastMonth (0-based) haven't happened and are left out. */
+ *  lastMonth (0-based) haven't happened and are left out. Rows marked
+ *  `cash` (income, fees) count in the P&L, not in the trade count. */
 export function MonthlyRunChart({ trades, lastMonth, onMonth }) {
   const data = useMemo(() => {
     const months = MONTH_NAMES.slice(0, lastMonth + 1).map((label, m) => ({ m, label, month: 0, total: 0, count: 0 }))
     for (const t of trades) {
       const row = months[utcDate(t.close_date).getUTCMonth()]
-      if (row) { row.month += t.total_amount ?? 0; row.count++ }
+      if (row) { row.month += t.total_amount ?? 0; if (!t.cash) row.count++ }
     }
     let run = 0
     for (const row of months) { run += row.month; row.total = run }

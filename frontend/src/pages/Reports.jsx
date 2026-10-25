@@ -305,6 +305,13 @@ export default function Reports() {
     [...derived.optionTrades, ...derived.equityTrades], [derived, source])
   // The running total always covers every trade, whatever the switch says.
   const allTrades = useMemo(() => !derived ? [] : [...derived.optionTrades, ...derived.equityTrades], [derived])
+  // The running total also adds dividends, interest and fees on the day they
+  // were booked (marked `cash`, so they don't count as trades), so it ends at
+  // Total P&L's realized figure.
+  const runningRows = useMemo(() => [
+    ...allTrades,
+    ...(report?.incomeFees ?? []).map((r) => ({ close_date: r.date, total_amount: r.amount, cash: true })),
+  ], [allTrades, report])
   const sourceSymbols = useMemo(() => symbolBreakdown(sourceTrades), [sourceTrades])
   const sourceLabel = { options: 'Options', equity: 'Equity & futures', all: 'All trades' }[source]
   // "7 of 10 months positive": for the shown source on the month grid, for
@@ -315,8 +322,11 @@ export default function Reports() {
 
   // ---- Click-through to the matching transactions ----
   // open: the range has still-open trades (Month calendar) — show those too.
+  // Which rows Transactions shows (realized / unrealized) is left to its own
+  // default (transactions.default_view) — only a day with open trades asks
+  // for the unrealized ones as well.
   function openTransactions({ ticker, start, end, tab, open = false }) {
-    const params = new URLSearchParams({ start, end, realized: String(REALIZED_ONLY) })
+    const params = new URLSearchParams({ start, end })
     if (open) params.set('unrealized', 'true')
     if (ticker) params.set('ticker', ticker)
     if (tab) params.set('tab', tab)
@@ -467,7 +477,7 @@ export default function Reports() {
             <div className="card">
               <div className="report-card-head">
                 <h3 className="section-title">Running total</h3>
-                <span className="report-card-note">All trades · click a {isMonth ? 'day' : 'month'} to open it</span>
+                <span className="report-card-note">All trades, income &amp; fees · click a {isMonth ? 'day' : 'month'} to open it</span>
               </div>
               <div className="report-legend">
                 <span><i className="report-key-bar" style={{ background: 'var(--success)' }} /><i className="report-key-bar" style={{ background: 'var(--error)' }} />{isMonth ? 'Daily' : 'Monthly'} P&amp;L</span>
@@ -475,8 +485,8 @@ export default function Reports() {
               </div>
               <div className="report-chart-fill">
                 {isMonth
-                  ? <DailyRunChart trades={allTrades} onDay={openAllDay} />
-                  : <MonthlyRunChart trades={allTrades} lastMonth={derived.lastMonth} onMonth={openAllMonth} />}
+                  ? <DailyRunChart trades={runningRows} onDay={openAllDay} />
+                  : <MonthlyRunChart trades={runningRows} lastMonth={derived.lastMonth} onMonth={openAllMonth} />}
               </div>
             </div>
           </div>
