@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   futuresMarginEstimate, takeProfitCandidates,
-  equityShort, moneyness, expiringSoon, uncoveredShares, concentration, expiryCalendar,
+  equityShort, moneyness, expiringSoon, uncoveredShares, expiryCalendar,
 } from "./homeInsights.js";
 
 test("futures margin is pct of notional, and an unpriced contract is counted", () => {
@@ -44,11 +44,6 @@ test("uncovered shares: long shares beyond short calls, short shares beyond shor
   const calls = [{ ticker: "GOOG", quantity: -1 }];
   const puts = [{ ticker: "QQQ", quantity: -11 }];
   assert.deepEqual(uncoveredShares(stocks, puts, calls).map((u) => [u.ticker, u.side, u.contracts]), [["GOOG", "CALL", 1]]);
-});
-
-test("concentration flags tickers above the share of net liq", () => {
-  const rows = concentration([{ symbol: "SPY", quantity: -1300, current_price: 760 }], [{ ticker: "IWM", quantity: -5, strike_price: 280 }], 2000000, 25);
-  assert.deepEqual(rows.map((r) => r.ticker), ["SPY"]);
 });
 
 test("expiry calendar groups shorts by date within the window", () => {
@@ -170,4 +165,31 @@ test("new short calls are capped at the long futures left uncovered", async () =
     { kind: "future", root: "NQ", qty: 4 }, { kind: "option", root: "NQ", type: "CALL", qty: -6 },
     { kind: "option", root: "NQ", type: "PUT", qty: -2 }, { kind: "stock", qty: 100 },
   ]), { ES: 2, NQ: 0 });
+});
+
+test("with relief a long book's requirement falls in a drop; by default it holds", async () => {
+  const { stressBook, cushionChange } = await import("./homeInsights.js");
+  const book = stressBook([{ kind: "stock", qty: 1000, price: 1000, req: 250000 }, { kind: "future", root: "ES", qty: 1, price: 7000, mult: 50 }]);
+  const opts = { futuresPct: 10, ivRise: 20 };
+  assert.ok(Math.abs(cushionChange(book, -0.10, opts).reqRise) < 1e-6);
+  const relief = cushionChange(book, -0.10, { ...opts, relief: true });
+  assert.ok(Math.abs(relief.reqRise - (-25000 - 3500)) < 1e-6, `${relief.reqRise}`);
+});
+
+
+test("events a position lives through: major macro for all, the ticker's own earnings, ex-dividend for calls", async () => {
+  const { eventsBefore } = await import("./homeInsights.js");
+  const events = [
+    { date: "2026-10-24", kind: "FOMC", major: true, name: "past" },
+    { date: "2026-10-28", kind: "FOMC", major: true, name: "FOMC decision" },
+    { date: "2026-10-29", kind: "ECONOMIC", major: false, name: "GDP" },
+    { date: "2026-10-28", kind: "EARNINGS", symbol: "GOOG", name: "GOOG earnings" },
+    { date: "2026-10-27", kind: "EX_DIVIDEND", symbol: "GOOG", name: "GOOG ex-dividend" },
+    { date: "2026-11-10", kind: "ECONOMIC", major: true, name: "CPI" },
+  ];
+  const names = (pos) => eventsBefore(events, pos, "2026-10-25").map((e) => e.name);
+  assert.deepEqual(names({ ticker: "/ES", type: "PUT", expiration: "2026-10-30" }), ["FOMC decision"]);
+  assert.deepEqual(names({ ticker: "GOOG", type: "PUT", expiration: "2026-10-30" }), ["FOMC decision", "GOOG earnings"]);
+  assert.deepEqual(names({ ticker: "GOOG", type: "CALL", expiration: "2026-10-28" }), ["FOMC decision", "GOOG earnings", "GOOG ex-dividend"]);
+  assert.deepEqual(names({ ticker: "QQQ", type: "PUT", expiration: "2026-10-26" }), []);
 });

@@ -1,7 +1,6 @@
 /* ─── Home page (pages/Home.jsx) ─── */
 
-.home-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.home-title { margin: 0; font-size: 1.35rem; }
+.home-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .home-card-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
 .home-side-tabs { flex: none; }
 /* Top summary row: equal-width columns (however many tiles), each with a
@@ -34,7 +33,10 @@
 
 /* Two cards side by side, one column when narrow. */
 .home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-@media (max-width: 960px) { .home-grid { grid-template-columns: minmax(0, 1fr); } }
+/* A wide card with a narrow one beside it (margin cushion + events,
+   expiring shorts + expiry calendar). */
+.home-grid--wide { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 960px) { .home-grid, .home-grid--wide { grid-template-columns: minmax(0, 1fr); } }
 
 .home-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .home-list li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
@@ -63,3 +65,19 @@
 .home-cushion-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .home-stress { flex: 1 1 360px; min-width: 0; overflow-x: auto; }
 .home-stress th.num, .home-stress td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Margin chart: equity vs requirement as the market falls. */
+.home-chart { margin-top: 16px; }
+.home-chart-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
+.home-chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.home-chart-legend i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; }
+.home-chart-legend i.home-chart-legend-call { height: 0; border-top: 2px dashed var(--error); }
+.home-chart-legend i.home-chart-legend-relief { height: 0; border-top: 2px dotted var(--chart-req); }
+.home-chart-label { font-size: 11px; fill: var(--text-muted); }
+.home-chart-axis { text-align: center; font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+
+/* Upcoming events: when (date over time), name, detail; and the
+   per-position chips. */
+.home-events li { grid-template-columns: 5.5rem minmax(0, 1fr) minmax(0, 1fr); }
+.home-event-when { display: flex; flex-direction: column; font-weight: 600; font-variant-numeric: tabular-nums; }
+.home-event-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }

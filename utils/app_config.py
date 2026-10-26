@@ -34,12 +34,14 @@ SETTINGS: dict[str, tuple[type, Any, Optional[tuple], Optional[int]]] = {
     "home.take_profit_pct": (int, 75, None, 1),
     "home.expiring_days": (int, 7, None, 1),
     "home.at_risk_pct": (int, 2, None, 0),
-    "home.concentration_pct": (int, 25, None, 1),
     "home.idea_max_dte": (int, 7, None, 0),
     "home.idea_min_delta_pct": (int, 5, None, 0),
     "home.idea_max_delta_pct": (int, 20, None, 1),
     "home.stress_iv_rise": (int, 20, None, 0),
     "home.idea_crash_pct": (int, 5, None, 1),
+    "home.event_crash_pct": (int, 8, None, 1),
+    # FOMC decision days (the meeting's second day), comma-separated.
+    "events.fomc_dates": (str, "2026-10-28,2026-12-09,2027-01-27,2027-03-17,2027-04-28,2027-06-09,2027-07-28,2027-09-15,2027-10-27,2027-12-08", None, None),
 }
 
 # Settings the browser needs (served by GET /api/config). Others stay
@@ -48,8 +50,8 @@ PUBLIC_SETTINGS = (
     "trades.group_ratio_spreads", "transactions.default_view",
     # The Home page's rules (all applied in the browser).
     "home.futures_margin_pct", "home.available_funds", "home.take_profit_pct", "home.expiring_days", "home.at_risk_pct",
-    "home.concentration_pct", "home.idea_max_dte", "home.idea_min_delta_pct", "home.idea_max_delta_pct",
-    "home.stress_iv_rise", "home.idea_crash_pct",
+    "home.idea_max_dte", "home.idea_min_delta_pct", "home.idea_max_delta_pct",
+    "home.stress_iv_rise", "home.idea_crash_pct", "home.event_crash_pct",
 )
 
 _TRUE, _FALSE = ("true", "yes", "1", "on"), ("false", "no", "0", "off")

@@ -26,6 +26,21 @@ export function futuresMarginEstimate(futures, prices, pct) {
   return { total, unpriced }
 }
 
+/** Upcoming events (GET /api/market/events) that a position expiring on
+ *  `expiration` lives through, today included: every major release and
+ *  FOMC decision, the ticker's own earnings, and — for a short call, whose
+ *  early-assignment risk rises before it — its ex-dividend date. One on
+ *  the expiration day itself counts, even after the close (cautious). */
+export function eventsBefore(events, { ticker, type, expiration }, today = isoToday()) {
+  if (!expiration) return []
+  return (events ?? []).filter((e) => {
+    if (e.date < today || e.date > expiration) return false
+    if (e.kind === 'ECONOMIC' || e.kind === 'FOMC') return e.major
+    if (e.symbol !== ticker) return false
+    return e.kind === 'EARNINGS' || (e.kind === 'EX_DIVIDEND' && type === 'CALL')
+  })
+}
+
 /** Short option rows that have kept at least `pct` of their premium.
  *  rows: [{ ...row, pl, credit }] — pl the unrealized P&L, credit the
  *  premium taken in (both dollars). Sorted by percent kept, highest first. */
@@ -94,20 +109,6 @@ export function uncoveredShares(stocks, puts, calls) {
     if (contracts > 0) out.push({ ticker: s.symbol, side: long ? 'CALL' : 'PUT', shares: free, contracts, price: s.current_price ?? null })
   }
   return out.sort((a, b) => b.contracts * (b.price ?? 0) - a.contracts * (a.price ?? 0))
-}
-
-/** Tickers whose exposure is above pct of net liquidation value. Exposure:
- *  the shares' market value plus short puts' strike value (what assignment
- *  would cost). -> [{ ticker, exposure, share }], largest first. */
-export function concentration(stocks, puts, netLiq, pct) {
-  if (!netLiq) return []
-  const by = {}
-  for (const s of stocks ?? []) by[s.symbol] = (by[s.symbol] ?? 0) + Math.abs(s.quantity * (s.current_price ?? 0))
-  for (const p of puts ?? []) if (p.quantity < 0) by[p.ticker] = (by[p.ticker] ?? 0) + p.strike_price * MULTIPLIER * -p.quantity
-  return Object.entries(by)
-    .map(([ticker, exposure]) => ({ ticker, exposure, share: (exposure / netLiq) * 100 }))
-    .filter((r) => r.share > pct)
-    .sort((a, b) => b.exposure - a.exposure)
 }
 
 /** Open shorts by expiration date over the next `days` calendar days:
@@ -231,15 +232,18 @@ function rootRequirement(group, move, futuresPct, ivRise) {
 }
 
 /** The change in the cushion after `move`: P&L less any rise in margin
- *  requirement. -> { pnl, reqRise, change }. */
-export function cushionChange(book, move, { futuresPct, ivRise }) {
+ *  requirement. -> { pnl, reqRise, change }. With `relief`, requirements
+ *  may also fall (long stock and futures as prices drop) — the less
+ *  cautious case, shown beside the default for comparison only. */
+export function cushionChange(book, move, { futuresPct, ivRise, relief = false }) {
+  const floor = relief ? (x) => x : (x) => Math.max(0, x)
   let pnl = 0
   let reqRise = 0
   const roots = {}
   for (const p of book.positions) {
     if (p.kind === 'stock') {
       pnl += p.qty * p.price * move
-      reqRise += Math.max(0, (p.req ?? 0) * move)
+      reqRise += floor((p.req ?? 0) * move)
     } else if (p.kind === 'future') {
       pnl += p.qty * p.price * p.mult * move
       ;(roots[p.root] ??= []).push(p)
@@ -250,11 +254,11 @@ export function cushionChange(book, move, { futuresPct, ivRise }) {
       const value = (m) => (p.iv ? optionValue(p, m, ivRise) : Math.max(0, p.mid ?? 0))
       const now = shortOptionRequirement(p.type, p.strike, p.spot, value(0))
       const after = shortOptionRequirement(p.type, p.strike, p.spot * (1 + move), value(move))
-      if (now > 0) reqRise += Math.max(0, p.req * (after / now - 1))
+      if (now > 0) reqRise += floor(p.req * (after / now - 1))
     }
   }
   for (const group of Object.values(roots)) {
-    reqRise += Math.max(0, rootRequirement(group, move, futuresPct, ivRise) - rootRequirement(group, 0, futuresPct, ivRise))
+    reqRise += floor(rootRequirement(group, move, futuresPct, ivRise) - rootRequirement(group, 0, futuresPct, ivRise))
   }
   return { pnl, reqRise, change: pnl - reqRise }
 }
@@ -295,17 +299,18 @@ function rootsRequirement(positions, move, futuresPct, ivRise) {
 /** The worst margin cushion over drops and rallies of crashPct and twice
  *  that ("5% or more": a trade that only looks safe at exactly crashPct —
  *  more uncovered calls on a book whose drop is the worse case — fails at
- *  2x), with `extra` positions added to the book. Adding them first uses up their
+ *  2x), with `extra` positions added to the book. `multiples` overrides
+ *  the 1x and 2x steps. Adding them first uses up their
  *  margin today — computed with the book's positions on the same root, so
  *  a trade that offsets them (a short call against long futures) costs
  *  less, or frees margin. */
-export function worstCushion(cushion, book, extra, { crashPct, futuresPct, ivRise }) {
+export function worstCushion(cushion, book, extra, { crashPct, futuresPct, ivRise, multiples = [-2, -1, 1, 2] }) {
   const all = { positions: [...book.positions, ...extra], unpriced: book.unpriced }
   const upfront = extra.length
     ? rootsRequirement(all.positions, 0, futuresPct, ivRise) - rootsRequirement(book.positions, 0, futuresPct, ivRise)
     : 0
   const at = (move) => cushion - upfront + cushionChange(all, move, { futuresPct, ivRise }).change
-  return Math.min(...[-2, -1, 1, 2].map((k) => at((k * crashPct) / 100)))
+  return Math.min(...multiples.map((k) => at((k * crashPct) / 100)))
 }
 
 /** A new-income idea judged against the book it joins:

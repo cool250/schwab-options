@@ -397,6 +397,19 @@ class TastytradeClient:
                 self._cache.popitem(last=False)
         return items
 
+    def get_market_metrics(self, symbols: list[str]) -> list[dict]:
+        """Tastytrade's per-symbol market metrics (/market-metrics): IV rank,
+        liquidity, the next earnings report ("earnings": {"expected-report-date",
+        "time-of-day", ...}) and dividend dates ("dividend-ex-date", ...).
+        Equities and ETFs; asked 50 symbols at a time, cached like other
+        metadata."""
+        items: list[dict] = []
+        unique = list(dict.fromkeys(symbols))
+        for i in range(0, len(unique), 50):
+            chunk = ",".join(unique[i:i + 50])
+            items += self._get_cached("/market-metrics", {"symbols": chunk})["data"]["items"]
+        return items
+
     def get_equity(self, symbol: str) -> dict:
         return self._get_cached(f"/instruments/equities/{symbol}")["data"]
 

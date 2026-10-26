@@ -2,19 +2,22 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getAppConfig, getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionQuotes,
-  getAllocations, getEquityTransactions, getIncomeAndFees, screenOptions, friendlyErrorMessage,
+  getAllocations, getEquityTransactions, getIncomeAndFees, screenOptions, getMarketEvents, friendlyErrorMessage,
 } from '../api/client'
+import {
+  ResponsiveContainer, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, LabelList,
+} from 'recharts'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 import { money, count } from '../utils/numberFormat'
 import { formatDate } from '../utils/dateFormat'
 import { formatOptionSymbol } from '../utils/optionSymbol'
-import { closedTrades } from '../utils/reportStats'
+import { closedTrades, compactUsd } from '../utils/reportStats'
 import { futuresOptionContracts, futuresOptionRowPl } from '../utils/positionPl'
 import { getMultiplier, MULTIPLIER } from '../utils/contractMultiplier'
 import {
   futuresMarginEstimate, ideaStress, ideaFit, worstCushion, rootLean, callsCoverLeft, takeProfitCandidates,
-  equityShort, expiringSoon, uncoveredShares, concentration, expiryCalendar,
+  equityShort, eventsBefore, expiringSoon, uncoveredShares, expiryCalendar,
   stressBook, cushionChange, marginCallMove,
 } from '../utils/homeInsights'
 
@@ -30,11 +33,12 @@ import {
 const ROOTS = ['ES', 'NQ']
 const DEFAULT_RULES = {
   'home.futures_margin_pct': 11, 'home.available_funds': 0, 'home.take_profit_pct': 75, 'home.expiring_days': 7, 'home.at_risk_pct': 2,
-  'home.concentration_pct': 25, 'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 5, 'home.idea_max_delta_pct': 20,
-  'home.stress_iv_rise': 20, 'home.idea_crash_pct': 5,
+  'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 5, 'home.idea_max_delta_pct': 20,
+  'home.stress_iv_rise': 20, 'home.idea_crash_pct': 5, 'home.event_crash_pct': 8,
 }
 const CALENDAR_DAYS = 14
 const IDEAS_SHOWN = 8
+const EVENTS_DAYS = 14
 const STRESS_MOVES = [-0.20, -0.10, -0.05, 0.05, 0.10]
 
 const iso = (d) => d.toISOString().slice(0, 10)
@@ -66,6 +70,126 @@ function futuresShort(row, type, bids, prices) {
   }
 }
 
+// Margin cushion chart: account equity and margin requirement as the whole
+// market falls, from the stress test — the gap is the cushion, and the
+// lines cross at the margin call. Out to 30% down, or past the margin call
+// if that's further (up to 60%).
+function MarginChart({ points, callDrop, callDropRelief }) {
+  const last = points.length - 1
+  const endLabel = (name) => function EndLabel({ x, y, index }) {
+    if (index !== last) return null
+    return <text x={x + 8} y={y + 4} className="home-chart-label">{name}</text>
+  }
+  const depth = points[last].down
+  // Whole-number steps on both axes: every 5% down (10% past 30%), and a
+  // dollar scale from 0 (or the lowest value, if below 0) to a round top.
+  const xTicks = []
+  for (let d = 0; d <= depth; d += depth > 30 ? 10 : 5) xTicks.push(d)
+  const values = points.flatMap((p) => [p.equity, p.req, p.reqRelief])
+  const step = niceStep(Math.max(...values) - Math.min(0, ...values))
+  const yMin = Math.min(0, Math.floor(Math.min(...values) / step) * step)
+  const yMax = Math.ceil(Math.max(...values) / step) * step
+  const yTicks = []
+  for (let v = yMin; v <= yMax + 1e-6; v += step) yTicks.push(v)
+  const EquityLabel = endLabel('Equity')
+  const ReqLabel = endLabel('Margin req')
+  const ReliefLabel = endLabel('with relief')
+  return (
+    <div className="home-chart">
+      <div className="home-chart-legend" aria-hidden="true">
+        <span><i style={{ background: 'var(--chart-equity)' }} />Equity</span>
+        <span><i style={{ background: 'var(--chart-req)' }} />Margin requirement</span>
+        <span><i className="home-chart-legend-relief" />Requirement if it eases with prices</span>
+        {callDrop != null && (
+          <span>
+            <i className="home-chart-legend-call" />
+            Margin call{callDropRelief != null && callDropRelief !== callDrop ? ` (−${callDropRelief.toFixed(1)}% if it eases)` : ''}
+          </span>
+        )}
+      </div>
+      <ResponsiveContainer width="100%" height={260}>
+        <ComposedChart data={points} margin={{ top: 16, right: 84, left: 4, bottom: 4 }}>
+          <CartesianGrid vertical={false} stroke="var(--border)" />
+          <XAxis
+            dataKey="down" type="number" domain={[0, depth]} ticks={xTicks} interval={0}
+            tick={{ fontSize: 11, fill: 'var(--text-muted)' }} tickLine={false} axisLine={{ stroke: 'var(--border-strong)' }}
+            tickFormatter={(d) => (d === 0 ? '0%' : `−${d}%`)} height={24}
+          />
+          <YAxis
+            type="number" domain={[yMin, yMax]} ticks={yTicks} interval={0} allowDataOverflow={false}
+            tick={{ fontSize: 11, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} width={64} tickFormatter={compactUsd}
+          />
+          {callDrop != null && (
+            <ReferenceLine x={callDrop} stroke="var(--error)" strokeDasharray="4 4"
+              label={{ value: `Margin call −${callDrop.toFixed(1)}%`, position: 'insideTopLeft', fontSize: 11, fill: 'var(--text)' }} />
+          )}
+          <Tooltip
+            cursor={{ stroke: 'var(--border-strong)', strokeWidth: 1 }}
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return null
+              const p = payload[0].payload
+              return (
+                <div className="chart-tooltip report-tooltip">
+                  <div className="report-tooltip-title">Market {p.down === 0 ? 'today' : `down ${p.down}%`}</div>
+                  <div className="report-tooltip-row"><span>Equity</span><span>{money(p.equity, 0)}</span></div>
+                  <div className="report-tooltip-row"><span>Margin requirement</span><span>{money(p.req, 0)}</span></div>
+                  <div className="report-tooltip-row"><span>Cushion</span><span className={p.cushion < 0 ? 'cell-negative' : ''}>{money(p.cushion, 0)}</span></div>
+                  <div className="report-tooltip-row"><span>Requirement if it eases</span><span>{money(p.reqRelief, 0)}</span></div>
+                  <div className="report-tooltip-row"><span>Cushion if it eases</span><span className={p.cushionRelief < 0 ? 'cell-negative' : ''}>{money(p.cushionRelief, 0)}</span></div>
+                </div>
+              )
+            }}
+          />
+          <Line dataKey="equity" name="Equity" type="monotone" stroke="var(--chart-equity)" strokeWidth={2} dot={false}
+            activeDot={{ r: 4.5, fill: 'var(--chart-equity)', stroke: 'var(--card-bg)', strokeWidth: 2 }} isAnimationActive={false}>
+            <LabelList dataKey="equity" content={<EquityLabel />} />
+          </Line>
+          <Line dataKey="req" name="Margin requirement" type="monotone" stroke="var(--chart-req)" strokeWidth={2} dot={false}
+            activeDot={{ r: 4.5, fill: 'var(--chart-req)', stroke: 'var(--card-bg)', strokeWidth: 2 }} isAnimationActive={false}>
+            <LabelList dataKey="req" content={<ReqLabel />} />
+          </Line>
+          <Line dataKey="reqRelief" name="Requirement if it eases" type="monotone" stroke="var(--chart-req)" strokeWidth={2}
+            strokeDasharray="2 4" strokeLinecap="round" dot={false}
+            activeDot={{ r: 4, fill: 'var(--card-bg)', stroke: 'var(--chart-req)', strokeWidth: 2 }} isAnimationActive={false}>
+            <LabelList dataKey="reqRelief" content={<ReliefLabel />} />
+          </Line>
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div className="home-chart-axis">Market down</div>
+    </div>
+  )
+}
+
+// A round step (1, 2 or 5 x a power of ten) giving about five ticks over `span`.
+function niceStep(span) {
+  if (!(span > 0)) return 1
+  const raw = span / 5
+  const pow = 10 ** Math.floor(Math.log10(raw))
+  const f = raw / pow
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * pow
+}
+
+// "Wed 10/28" and "8:30 AM" for an event's ET date and time.
+const eventDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', timeZone: 'UTC' })
+function eventTime(t) {
+  const [h, m] = t.split(':').map(Number)
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
+}
+// Short names for a position's upcoming events, major ones as warnings.
+const EVENT_SHORT = { FOMC: 'FOMC', EARNINGS: 'Earnings', EX_DIVIDEND: 'Ex-div' }
+function EventChips({ events }) {
+  if (!events?.length) return '—'
+  return (
+    <span className="home-event-chips">
+      {events.map((e) => (
+        <span key={`${e.date}|${e.name}`} className={`home-chip home-chip--${e.major ? 'warning' : 'ok'}`} title={`${e.name} · ${eventDay(e.date)}`}>
+          {EVENT_SHORT[e.kind] ?? e.name} {e.date.slice(5).replace('-', '/')}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 const contractLabel = (s) => s.label ?? formatOptionSymbol(s.ticker, s.expiration, s.strike, s.type) ?? s.key
 
 // Router-state handoff to Analyze, as Positions and the Screener use.
@@ -82,6 +206,7 @@ export default function Home() {
   const [month, setMonth] = useState({ loading: true }) // month-to-date realized
   const [ideas, setIdeas] = useState({ loading: true })
   const [ideaSide, setIdeaSide] = useState('PUT')
+  const [events, setEvents] = useState({ loading: true }) // upcoming releases, FOMC, earnings
 
   useEffect(() => {
     getAppConfig().then((c) => setRules((r) => ({ ...r, ...c }))).catch(() => {}).finally(() => setRulesLoaded(true))
@@ -143,6 +268,24 @@ export default function Home() {
       .catch((err) => !cancelled && setMonth({ loading: false, error: friendlyErrorMessage(err, 'Could not load this month.') }))
     return () => { cancelled = true }
   }, [refreshKey])
+
+  // Upcoming events — once positions are in, for their tickers' earnings
+  // and ex-dividend dates.
+  useEffect(() => {
+    if (book.loading) return
+    let cancelled = false
+    const p = book.positions ?? {}
+    const symbols = [...new Set([
+      ...(p.stocks ?? []).map((s) => s.symbol),
+      ...[...(p.puts ?? []), ...(p.calls ?? [])].map((r) => r.ticker),
+    ].filter(Boolean))].slice(0, 100)
+    const days = Math.max(EVENTS_DAYS, rules['home.idea_max_dte'], rules['home.expiring_days']) + 1
+    setEvents({ loading: true })
+    getMarketEvents(symbols, days)
+      .then((r) => !cancelled && setEvents({ loading: false, list: r.events ?? [], notes: r.notes ?? [] }))
+      .catch(() => !cancelled && setEvents({ loading: false, list: [], notes: ['Events are unavailable right now.'] }))
+    return () => { cancelled = true }
+  }, [book, rules])
 
   // New-income ideas: /ES and /NQ short puts and calls under the idea rules
   // — once the rules have loaded, so the screener (the heaviest request)
@@ -226,6 +369,7 @@ export default function Home() {
     // (futures included), else Schwab's (securities only).
     const fundsFromSettings = rules['home.available_funds'] > 0
     const cushion = fundsFromSettings ? rules['home.available_funds'] : balances.available_funds ?? null
+    const callDrop = cushion == null ? null : marginCallMove(cushion, stress, -1, stressOptions)
     return {
       balances,
       netLiq,
@@ -237,7 +381,6 @@ export default function Home() {
       expiring: expiringSoon(shorts, rules['home.expiring_days'], rules['home.at_risk_pct']),
       takeProfit: takeProfitCandidates(shorts, rules['home.take_profit_pct']),
       uncovered: uncoveredShares(stocks, puts, calls),
-      concentrated: concentration(stocks, puts, netLiq, rules['home.concentration_pct']),
       calendar: expiryCalendar(shorts, CALENDAR_DAYS),
       cushion,
       fundsFromSettings,
@@ -248,7 +391,27 @@ export default function Home() {
       stressOptions,
       lean: rootLean(stress.positions),
       coverLeft: callsCoverLeft(stress.positions),
-      callDrop: cushion == null ? null : marginCallMove(cushion, stress, -1, stressOptions),
+      // Equity and requirement as the market falls, for the chart: today's
+      // requirement is the margin used (Schwab's + the futures estimate),
+      // equity is that plus the cushion.
+      chart: cushion == null ? [] : (() => {
+        const callPct = callDrop == null ? null : -callDrop * 100
+        const depth = Math.min(60, Math.max(30, callPct == null ? 0 : Math.ceil(callPct / 5) * 5 + 5))
+        const req0 = maint + futMargin.total
+        const points = []
+        for (let down = 0; down <= depth; down++) {
+          const c = cushionChange(stress, -down / 100, stressOptions)
+          const r = cushionChange(stress, -down / 100, { ...stressOptions, relief: true })
+          points.push({
+            down, equity: cushion + req0 + c.pnl, req: req0 + c.reqRise, cushion: cushion + c.change,
+            reqRelief: req0 + r.reqRise, cushionRelief: cushion + r.change,
+          })
+        }
+        return points
+      })(),
+      callDrop,
+      // The same with requirements allowed to fall — the chart's dotted line.
+      callDropRelief: cushion == null ? null : marginCallMove(cushion, stress, -1, { ...stressOptions, relief: true }),
       callRally: cushion == null ? null : marginCallMove(cushion, stress, 1, stressOptions),
     }
   }, [book, rules])
@@ -257,6 +420,11 @@ export default function Home() {
   const funds = derived?.cushion ?? null
   const crashPct = rules['home.idea_crash_pct']
   const ideaOptions = derived && { ...derived.stressOptions, crashPct }
+  // An idea that lives through a major event (CPI, jobs, PCE, FOMC) is
+  // judged against the larger home.event_crash_pct move.
+  const eventCrashPct = Math.max(crashPct, rules['home.event_crash_pct'])
+  const eventOptions = derived && { ...derived.stressOptions, crashPct: eventCrashPct }
+  const eventList = events.list ?? []
   // The book's worst cushion after a crashPct move either way, before any
   // new trade.
   const worstNow = useMemo(
@@ -272,14 +440,23 @@ export default function Home() {
   // is a hedge and ranks first; one that stacks on it ranks by credit over
   // the risk it adds — not annualized, which makes a 1-day put look best
   // though a crash costs it the most premiums' worth.
+  const worstEvent = useMemo(
+    () => (derived?.cushion == null ? null : worstCushion(derived.cushion, derived.stressBook, [], eventOptions)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [derived, eventCrashPct],
+  )
   const ideaRows = useMemo(() => {
-    const fitted = (r, maxQty) => (worstNow == null ? {} : ideaFit(derived.cushion, derived.stressBook, r, ideaOptions, { maxQty, base: worstNow }))
+    const fitted = (r, maxQty) => (worstNow == null ? {} : r.eventCrash
+      ? ideaFit(derived.cushion, derived.stressBook, r, eventOptions, { maxQty, base: worstEvent })
+      : ideaFit(derived.cushion, derived.stressBook, r, ideaOptions, { maxQty, base: worstNow }))
     const rank = (a, b) => (b.hedges - a.hedges) || (a.hedges ? b.credit - a.credit : (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0))
     const best = {}
     for (const r of ideas[ideaSide] ?? []) {
-      const stressed = ideaStress(r, { crashPct, futuresPct: marginPct, ivRise: rules['home.stress_iv_rise'] })
+      const crossed = eventsBefore(eventList, { ticker: r.underlying, type: r.type, expiration: r.expirationDate })
+      const eventCrash = crossed.some((e) => e.major)
+      const stressed = ideaStress(r, { crashPct: eventCrash ? eventCrashPct : crashPct, futuresPct: marginPct, ivRise: rules['home.stress_iv_rise'] })
       if (!stressed) continue
-      const row = { ...r, ...stressed }
+      const row = { ...r, ...stressed, events: crossed, eventCrash }
       Object.assign(row, fitted(row, 0))
       const key = `${r.underlying}|${r.expirationDate}`
       if (!best[key] || rank(row, best[key]) < 0) best[key] = row
@@ -296,14 +473,13 @@ export default function Home() {
         return { ...row, maxContracts: cover == null ? byCushion : Math.min(byCushion, cover), capped: cover != null && cover < byCushion }
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ideas, ideaSide, marginPct, crashPct, worstNow, rules])
+  }, [ideas, ideaSide, marginPct, crashPct, worstNow, worstEvent, eventCrashPct, eventList, rules])
 
   const calendarCredit = (derived?.calendar ?? []).reduce((s, d) => s + d.credit, 0)
 
   return (
     <div className="page home">
       <div className="home-head">
-        <h2 className="home-title">Today</h2>
         <button type="button" className="btn btn-secondary" onClick={() => setRefreshKey((k) => k + 1)}>Refresh</button>
       </div>
 
@@ -344,6 +520,8 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Margin cushion and upcoming events, side by side */}
+      <div className="home-grid home-grid--wide">
       {/* Margin cushion: how much can be lost before a margin call */}
       <div className="card">
         <div className="home-card-head">
@@ -377,6 +555,13 @@ export default function Home() {
                 </table>
               </div>
             </div>
+            {derived.chart.length > 0 && (
+              <MarginChart
+                points={derived.chart}
+                callDrop={derived.callDrop == null ? null : -derived.callDrop * 100}
+                callDropRelief={derived.callDropRelief == null ? null : -derived.callDropRelief * 100}
+              />
+            )}
             {derived.unpricedRisk > 0 && (
               <p className="summary-line">
                 {derived.unpricedRisk} position{derived.unpricedRisk === 1 ? '' : 's'} with no price {derived.unpricedRisk === 1 ? 'is' : 'are'} left out of the stress test.
@@ -384,6 +569,42 @@ export default function Home() {
             )}
           </>
         ) : <p className="summary-line">Schwab didn't return available funds.</p>}
+      </div>
+
+      {/* Upcoming events: what could move the market before shorts expire */}
+      <div className="card">
+        <div className="home-card-head">
+          <h3 className="section-title">Upcoming events · next {EVENTS_DAYS} days</h3>
+          <span className="summary-line">Times are US Eastern</span>
+        </div>
+        {events.loading ? <Spinner /> : (() => {
+          const shown = eventList
+            .filter((e) => e.date <= iso(new Date(Date.now() + EVENTS_DAYS * 86400000)))
+            .sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '99:99').localeCompare(b.time ?? '99:99'))
+          return (
+            <>
+              {shown.length ? (
+                <ul className="home-list home-events">
+                  {shown.map((e) => (
+                    <li key={`${e.date}|${e.name}`}>
+                      <span className="home-event-when">
+                        {eventDay(e.date)}
+                        {e.time && <span className="summary-line">{eventTime(e.time)}</span>}
+                      </span>
+                      <span className="home-list-main">
+                        {e.name}
+                        {e.major && <> <span className="home-chip home-chip--warning">Major</span></>}
+                      </span>
+                      <span className="summary-line">{e.detail ?? ''}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="summary-line">Nothing scheduled.</p>}
+              {events.notes?.map((n) => <p key={n} className="summary-line">{n}</p>)}
+            </>
+          )
+        })()}
+      </div>
       </div>
 
       {/* 2. New income: /ES and /NQ */}
@@ -419,7 +640,7 @@ export default function Home() {
         </div>
         <p className="summary-line">
           Expiring within {rules['home.idea_max_dte']} days, delta {(rules['home.idea_min_delta_pct'] / 100).toFixed(2)}–{(rules['home.idea_max_delta_pct'] / 100).toFixed(2)},
-          judged against your positions as if the market moves {crashPct}% or {2 * crashPct}% either way at once — trades that offset them first.
+          judged against your positions as if the market moves {crashPct}% or {2 * crashPct}% either way at once ({eventCrashPct}% or {2 * eventCrashPct}% for one that lives through CPI, jobs, PCE or an FOMC decision) — trades that offset them first.
           {worstNow != null && (worstNow > 0
             ? ` Worst cushion after those moves today: ${money(worstNow, 0)}.`
             : ` Those moves would already leave no cushion (${money(worstNow, 0)}) — only trades that offset your risk fit.`)}
@@ -434,12 +655,17 @@ export default function Home() {
               columns={[
                 { key: 'symbol', label: 'Contract', render: (r) => formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol },
                 { key: 'dte', label: 'DTE', align: 'right' },
+                { key: 'events', label: 'Before expiry', render: (r) => <EventChips events={r.events} /> },
                 { key: 'otmPct', label: 'OTM', align: 'right', render: (r) => pct(r.otmPct) },
                 { key: 'delta', label: 'Delta', align: 'right', render: (r) => (r.delta == null ? '—' : Math.abs(r.delta).toFixed(2)) },
                 { key: 'credit', label: 'Credit', align: 'right', render: (r) => money(r.credit) },
                 {
                   key: 'crashLoss', label: `Loss at ${ideaSide === 'PUT' ? '−' : '+'}${crashPct}%`, align: 'right',
-                  render: (r) => <span className={r.crashLoss > 0 ? 'cell-negative' : ''}>{money(Math.max(0, r.crashLoss), 0)}</span>,
+                  render: (r) => (
+                    <span className={r.crashLoss > 0 ? 'cell-negative' : ''} title={r.eventCrash ? `At ${eventCrashPct}%: it lives through a major event` : undefined}>
+                      {money(Math.max(0, r.crashLoss), 0)}{r.eventCrash ? ` (${eventCrashPct}%)` : ''}
+                    </span>
+                  ),
                 },
                 {
                   key: 'riskAdded', label: 'Risk to book', align: 'right',
@@ -504,7 +730,8 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 4. Risk: what expires soon, and where the account is concentrated */}
+      {/* 4. Risk: what expires soon, with the calendar beside it */}
+      <div className="home-grid home-grid--wide">
       <div className="card">
         <h3 className="section-title">Expiring within {rules['home.expiring_days']} days</h3>
         {book.loading ? <Spinner /> : derived?.expiring.length ? (
@@ -514,6 +741,10 @@ export default function Home() {
             columns={[
               { key: 'key', label: 'Contract', render: contractLabel },
               { key: 'dte', label: 'DTE', align: 'right' },
+              {
+                key: 'events', label: 'Before expiry',
+                render: (s) => <EventChips events={eventsBefore(eventList, { ticker: s.ticker, type: s.type, expiration: s.expiration })} />,
+              },
               {
                 key: 'status', label: 'Status',
                 render: (s) => (s.status ? <span className={`home-chip home-chip--${STATUS[s.status].tone}`}>{STATUS[s.status].label}</span> : '—'),
@@ -527,37 +758,20 @@ export default function Home() {
         {derived?.futuresMissing && <p className="summary-line">Futures options couldn't be loaded, so they're left out.</p>}
       </div>
 
-      <div className="home-grid">
-        <div className="card">
-          <h3 className="section-title">Expiry calendar · next {CALENDAR_DAYS} days</h3>
-          {book.loading ? <Spinner /> : derived?.calendar.length ? (
-            <div className="home-calendar">
-              {derived.calendar.map((d) => (
-                <div key={d.date} className="home-day">
-                  <span className="home-day-date">{formatDate(d.date).slice(0, 5)}</span>
-                  <span className="home-day-count">{d.count} short{d.count === 1 ? '' : 's'}</span>
-                  <span className="home-day-credit">{money(d.credit, 0)}</span>
-                </div>
-              ))}
-            </div>
-          ) : <p className="summary-line">Nothing expires in the next {CALENDAR_DAYS} days.</p>}
-        </div>
-
-        <div className="card">
-          <h3 className="section-title">Concentration</h3>
-          <p className="summary-line">Tickers above {rules['home.concentration_pct']}% of securities net liq (shares plus short puts' strike value).</p>
-          {book.loading ? <Spinner /> : derived?.concentrated.length ? (
-            <ul className="home-list">
-              {derived.concentrated.map((c) => (
-                <li key={c.ticker}>
-                  <span className="home-list-main">{c.ticker}</span>
-                  <span>{pct(c.share, 0)} of securities net liq</span>
-                  <span className="summary-line">{money(c.exposure, 0)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : <p className="summary-line">No ticker above the limit.</p>}
-        </div>
+      <div className="card">
+        <h3 className="section-title">Expiry calendar · next {CALENDAR_DAYS} days</h3>
+        {book.loading ? <Spinner /> : derived?.calendar.length ? (
+          <div className="home-calendar">
+            {derived.calendar.map((d) => (
+              <div key={d.date} className="home-day">
+                <span className="home-day-date">{formatDate(d.date).slice(0, 5)}</span>
+                <span className="home-day-count">{d.count} short{d.count === 1 ? '' : 's'}</span>
+                <span className="home-day-credit">{money(d.credit, 0)}</span>
+              </div>
+            ))}
+          </div>
+        ) : <p className="summary-line">Nothing expires in the next {CALENDAR_DAYS} days.</p>}
+      </div>
       </div>
     </div>
   )

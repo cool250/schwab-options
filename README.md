@@ -105,6 +105,7 @@ ADMIN_PASSWORD=pick-a-password
 # --- Optional ---
 OPENAI_API_KEY=sk-...           # only needed for the Copilot chat feature
 OPENAI_MODEL=gpt-4o             # defaults to gpt-4o if unset
+FRED_API_KEY=...                # Home's Upcoming events: CPI / jobs / PCE dates (free key from fred.stlouisfed.org)
 ```
 
 A quick way to generate `SECRET_KEY`:
@@ -273,11 +274,11 @@ fly volumes create data --size 1 --region iad
 
 # 4. Set secrets from your local .env (see the note below)
 {
-  grep -E '^(SCHWAB_APP_KEY|SCHWAB_APP_SECRET|TASTY_CLIENT_ID|TASTY_CLIENT_SECRET|TASTY_REFRESH_TOKEN|OPENAI_API_KEY|OPENAI_MODEL|ADMIN_USERNAME|ADMIN_PASSWORD|SECRET_KEY)=' .env \
+  grep -E '^(SCHWAB_APP_KEY|SCHWAB_APP_SECRET|TASTY_CLIENT_ID|TASTY_CLIENT_SECRET|TASTY_REFRESH_TOKEN|OPENAI_API_KEY|OPENAI_MODEL|FRED_API_KEY|ADMIN_USERNAME|ADMIN_PASSWORD|SECRET_KEY)=' .env \
     | sed -E "s/^([A-Z_]+)=[\"'](.*)[\"']$/\1=\2/"
   echo "SCHWAB_APP_CALLBACK_URL=https://your-app-name.fly.dev/api/auth/schwab/callback"
 } | fly secrets import
-fly secrets list    # should list all 11 names
+fly secrets list    # should list all 11 names (12 with FRED_API_KEY)
 
 # 5. Deploy as a single machine (a volume attaches to exactly one machine)
 fly deploy --ha=false

@@ -257,6 +257,14 @@ export function getOptionTransactions(stockTicker, startDate, endDate, contractT
 //   futures: ['ES', 'NQ']
 //   options: [{ key, underlying, expiration: 'YYYY-MM-DD', strike, type: 'PUT'|'CALL' }]
 // -> { futures: { ES: 7712.25 }, options: { [key]: { bid, ask, mid } } }
+// Upcoming economic releases, FOMC decisions, and earnings / ex-dividend
+// dates for `symbols`, today through `days` ahead.
+// -> { events: [{ date, time, name, kind, symbol, major, detail }], notes: [] }
+export function getMarketEvents(symbols, days) {
+  const p = new URLSearchParams({ symbols: symbols.join(','), days })
+  return request(`/market/events?${p}`)
+}
+
 export function getMarketQuotes({ futures = [], options = [] }) {
   return request('/market/quotes', {
     method: 'POST',
