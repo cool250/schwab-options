@@ -257,6 +257,13 @@ export function getOptionTransactions(stockTicker, startDate, endDate, contractT
 //   futures: ['ES', 'NQ']
 //   options: [{ key, underlying, expiration: 'YYYY-MM-DD', strike, type: 'PUT'|'CALL' }]
 // -> { futures: { ES: 7712.25 }, options: { [key]: { bid, ask, mid } } }
+// Home's watchlist: last price, change on the day, day range and IV per
+// ticker. -> [{ symbol, price, change, change_pct, prev_close, day_high,
+// day_low, iv, iv_rank }], in the order sent.
+export function getWatchlist(symbols) {
+  return request(`/market/watchlist?${new URLSearchParams({ symbols: symbols.join(',') })}`)
+}
+
 // Upcoming economic releases, FOMC decisions, and earnings / ex-dividend
 // dates for `symbols`, today through `days` ahead.
 // -> { events: [{ date, time, name, kind, symbol, major, detail }], notes: [] }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getAppConfig, getPositions, getFuturesPosition, getFuturesOptionPosition, getMarketQuotes, getOptionQuotes,
-  getAllocations, getEquityTransactions, getIncomeAndFees, screenOptions, getMarketEvents, friendlyErrorMessage,
+  getAllocations, getEquityTransactions, getIncomeAndFees, screenOptions, getMarketEvents, getWatchlist, friendlyErrorMessage,
 } from '../api/client'
 import {
   ResponsiveContainer, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, LabelList,
@@ -212,6 +212,7 @@ export default function Home() {
   const [ideas, setIdeas] = useState({ loading: true })
   const [ideaSide, setIdeaSide] = useState('PUT')
   const [events, setEvents] = useState({ loading: true }) // upcoming releases, FOMC, earnings
+  const [watch, setWatch] = useState({ loading: true }) // prices for the positions' tickers
 
   useEffect(() => {
     getAppConfig().then((c) => setRules((r) => ({ ...r, ...c }))).catch(() => {}).finally(() => setRulesLoaded(true))
@@ -291,6 +292,24 @@ export default function Home() {
       .catch(() => !cancelled && setEvents({ loading: false, list: [], notes: ['Events are unavailable right now.'] }))
     return () => { cancelled = true }
   }, [book, rules])
+
+  // Watchlist: /ES and /NQ, then every ticker held (shares or options),
+  // alphabetical — loaded once positions are in.
+  useEffect(() => {
+    if (book.loading) return
+    let cancelled = false
+    const p = book.positions ?? {}
+    const held = [...new Set([
+      ...(p.stocks ?? []).map((s) => s.symbol),
+      ...[...(p.puts ?? []), ...(p.calls ?? [])].map((r) => r.ticker),
+    ].filter(Boolean))].sort()
+    const symbols = [...ROOTS.map((r) => `/${r}`), ...held].slice(0, 60)
+    setWatch({ loading: true })
+    getWatchlist(symbols)
+      .then((rows) => !cancelled && setWatch({ loading: false, rows: rows ?? [] }))
+      .catch(() => !cancelled && setWatch({ loading: false, rows: [], error: true }))
+    return () => { cancelled = true }
+  }, [book])
 
   // New-income ideas: /ES and /NQ short puts and calls under the idea rules
   // — once the rules have loaded, so the screener (the heaviest request)
@@ -602,7 +621,95 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Margin cushion and upcoming events, side by side */}
+      {/* 2. New income, with the watchlist beside it */}
+      <div className="home-grid home-grid--wide">
+        <div className="card" id="home-ideas">
+          <CardHead
+            title="New income · /ES & /NQ"
+            sub={`Ranked by return on risk to your book${worstNow != null ? ` · worst cushion after a ±${crashPct}% / ±${2 * crashPct}% move: ${money(worstNow, 0)}` : ''}`}
+            help={<>
+              Short options expiring within {rules['home.idea_max_dte']} days, delta {(rules['home.idea_min_delta_pct'] / 100).toFixed(2)}–{(rules['home.idea_max_delta_pct'] / 100).toFixed(2)},
+              best strike per expiration. Each is judged against your positions as if the market moves {crashPct}% or {2 * crashPct}% either
+              way at once ({eventCrashPct}% or {2 * eventCrashPct}% if it lives through CPI, jobs, PCE or an FOMC decision): Risk to book is
+              how much one contract lowers the worst cushion, and Max qty the most that keep it above zero. Trades that offset your positions
+              rank first; new calls are capped at the long futures not yet covered. Hover a contract for its own stress numbers.
+            </>}
+            right={(
+              <div className="tab-row home-side-tabs" role="tablist" aria-label="Puts or calls">
+                {['PUT', 'CALL'].map((side) => (
+                  <button key={side} type="button" role="tab" aria-selected={ideaSide === side}
+                    className={`tab-item ${ideaSide === side ? 'active' : ''}`} onClick={() => setIdeaSide(side)}>
+                    {side === 'PUT' ? 'Short puts' : 'Short calls'}
+                  </button>
+                ))}
+              </div>
+            )}
+          />
+          <div className="home-roots">
+            {ROOTS.map((root) => {
+              const price = derived?.prices[root]
+              const lean = derived?.lean[root] ?? 0
+              return (
+                <div key={root} className="home-root">
+                  <span className="home-root-name">/{root}</span>
+                  <span className="home-root-price">{price == null ? '—' : price.toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>
+                  {derived && (
+                    <span className="summary-line">
+                      {Math.abs(lean) < 0.05 ? 'book flat' : `book net ${lean > 0 ? 'long' : 'short'} ${Math.abs(lean).toFixed(1)} /${root}`}
+                      {ideaSide === 'CALL' && ` · ${derived.coverLeft[root] ?? 0} uncovered for calls`}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {worstNow != null && worstNow <= 0 && (
+            <p className="summary-line">Those moves would already leave no cushion — only trades that offset your risk fit.</p>
+          )}
+          {ideas.loading && <Placeholder rows={5} />}
+          {ideas.error && <div className="alert error">{ideas.error}</div>}
+          {!ideas.loading && !ideas.error && (
+            ideaRows.length
+              ? <DataTable data={ideaRows} paginate={false} columns={ideaCols} />
+              : <p className="summary-line">No /ES or /NQ {ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.</p>
+          )}
+        </div>
+
+        <div className="card" id="home-watchlist">
+          <CardHead title="Watchlist" sub="/ES, /NQ and the tickers you hold" />
+          {watch.loading ? <Placeholder rows={6} /> : watch.rows.length ? (
+            <div className="home-compact-table">
+              <DataTable
+                data={watch.rows}
+                paginate={false}
+                columns={[
+                  {
+                    key: 'symbol', label: 'Symbol',
+                    render: (w) => (
+                      <span className="home-contract-name" title={w.day_low != null && w.day_high != null ? `Day range ${money(w.day_low)}–${money(w.day_high)}` : undefined}>
+                        {w.symbol}
+                      </span>
+                    ),
+                  },
+                  { key: 'price', label: 'Last', align: 'right', render: (w) => (w.price == null ? '—' : money(w.price)) },
+                  {
+                    key: 'change_pct', label: 'Chg', align: 'right',
+                    render: (w) => (w.change == null ? '—' : (
+                      <span className={signClass(w.change)} title={`${w.change > 0 ? '+' : w.change < 0 ? '−' : ''}${money(Math.abs(w.change))} vs the previous close`}>
+                        {w.change > 0 ? '+' : ''}{w.change_pct.toFixed(2)}%
+                      </span>
+                    )),
+                  },
+                  { key: 'iv', label: 'IV', align: 'right', render: (w) => (w.iv == null ? '—' : `${w.iv.toFixed(0)}%`) },
+                  { key: 'iv_rank', label: 'Rank', align: 'right', render: (w) => (w.iv_rank == null ? '—' : w.iv_rank.toFixed(0)) },
+                ]}
+              />
+            </div>
+          ) : <p className="summary-line">{watch.error ? 'Prices are unavailable right now.' : 'No tickers to watch.'}</p>}
+        </div>
+      </div>
+
+      {/* 3. Margin cushion and upcoming events */}
       <div className="home-grid home-grid--wide">
         <div className="card" id="home-cushion">
           <CardHead
@@ -654,116 +761,38 @@ export default function Home() {
           {events.loading ? <Placeholder rows={4} /> : (
             <>
               {eventsShown.length ? (
-                <ul className="home-list home-events">
-                  {eventsShown.map((e) => (
-                    <li key={`${e.date}|${e.name}`}>
-                      <span className="home-event-when">
-                        {eventDay(e.date)}
-                        {e.time && <span className="summary-line">{eventTime(e.time)}</span>}
-                      </span>
-                      <span className="home-list-main">
-                        {e.name}
-                        {e.major && <> <span className="home-chip home-chip--warning">Major</span></>}
-                      </span>
-                      <span className="summary-line">{e.detail ?? ''}</span>
-                    </li>
-                  ))}
-                </ul>
+                <DataTable
+                  data={eventsShown}
+                  paginate={false}
+                  columns={[
+                    {
+                      key: 'date', label: 'Date',
+                      render: (e) => (
+                        <span className="home-event-when">
+                          {eventDay(e.date)}
+                          {e.time && <span className="summary-line">{eventTime(e.time)}</span>}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: 'name', label: 'Event',
+                      render: (e) => (
+                        <span className="home-contract">
+                          <span className="home-contract-name">
+                            {e.name}
+                            {e.major && <> <span className="home-chip home-chip--warning">Major</span></>}
+                          </span>
+                          {e.detail && <span className="home-contract-meta">{e.detail}</span>}
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
               ) : <p className="summary-line">Nothing scheduled.</p>}
               {events.notes?.map((n) => <p key={n} className="summary-line">{n}</p>)}
             </>
           )}
         </div>
-      </div>
-
-      {/* 2. New income (left, both rows), with shares to sell against and
-          take profit stacked on the right */}
-      <div className="home-grid home-grid--income">
-      <div className="card home-ideas" id="home-ideas">
-        <CardHead
-          title="New income · /ES & /NQ"
-          sub={`Ranked by return on risk to your book${worstNow != null ? ` · worst cushion after a ±${crashPct}% / ±${2 * crashPct}% move: ${money(worstNow, 0)}` : ''}`}
-          help={<>
-            Short options expiring within {rules['home.idea_max_dte']} days, delta {(rules['home.idea_min_delta_pct'] / 100).toFixed(2)}–{(rules['home.idea_max_delta_pct'] / 100).toFixed(2)},
-            best strike per expiration. Each is judged against your positions as if the market moves {crashPct}% or {2 * crashPct}% either
-            way at once ({eventCrashPct}% or {2 * eventCrashPct}% if it lives through CPI, jobs, PCE or an FOMC decision): Risk to book is
-            how much one contract lowers the worst cushion, and Max qty the most that keep it above zero. Trades that offset your positions
-            rank first; new calls are capped at the long futures not yet covered. Hover a contract for its own stress numbers.
-          </>}
-          right={(
-            <div className="tab-row home-side-tabs" role="tablist" aria-label="Puts or calls">
-              {['PUT', 'CALL'].map((side) => (
-                <button key={side} type="button" role="tab" aria-selected={ideaSide === side}
-                  className={`tab-item ${ideaSide === side ? 'active' : ''}`} onClick={() => setIdeaSide(side)}>
-                  {side === 'PUT' ? 'Short puts' : 'Short calls'}
-                </button>
-              ))}
-            </div>
-          )}
-        />
-        <div className="home-roots">
-          {ROOTS.map((root) => {
-            const price = derived?.prices[root]
-            const lean = derived?.lean[root] ?? 0
-            return (
-              <div key={root} className="home-root">
-                <span className="home-root-name">/{root}</span>
-                <span className="home-root-price">{price == null ? '—' : price.toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>
-                {derived && (
-                  <span className="summary-line">
-                    {Math.abs(lean) < 0.05 ? 'book flat' : `book net ${lean > 0 ? 'long' : 'short'} ${Math.abs(lean).toFixed(1)} /${root}`}
-                    {ideaSide === 'CALL' && ` · ${derived.coverLeft[root] ?? 0} uncovered for calls`}
-                  </span>
-                )}
-              </div>
-            )
-          })}
-        </div>
-        {worstNow != null && worstNow <= 0 && (
-          <p className="summary-line">Those moves would already leave no cushion — only trades that offset your risk fit.</p>
-        )}
-        {ideas.loading && <Placeholder rows={5} />}
-        {ideas.error && <div className="alert error">{ideas.error}</div>}
-        {!ideas.loading && !ideas.error && (
-          ideaRows.length
-            ? <DataTable data={ideaRows} paginate={false} columns={ideaCols} />
-            : <p className="summary-line">No /ES or /NQ {ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.</p>
-        )}
-      </div>
-
-        {sharesEmpty ? <EmptyCard title="Shares to sell against" message="Every share is covered." /> : (
-          <div className="card">
-            <CardHead title="Shares to sell against" sub="Shares not yet covered by a short call (long) or short put (short)" />
-            {book.loading ? <Placeholder /> : (
-              <ul className="home-list">
-                {derived.uncovered.map((u) => (
-                  <li key={u.ticker}>
-                    <span className="home-list-main">{u.ticker}</span>
-                    <span>Sell up to {u.contracts} covered {u.side === 'CALL' ? 'call' : 'put'}{u.contracts === 1 ? '' : 's'}</span>
-                    <span className="summary-line">{count(u.shares)} shares{u.price != null ? ` at ${money(u.price)}` : ''}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {profitEmpty ? <EmptyCard id="home-take-profit" title="Take profit" message={`No short has kept ${rules['home.take_profit_pct']}% of its premium yet.`} /> : (
-          <div className="card" id="home-take-profit">
-            <CardHead title="Take profit" sub={`Shorts that have kept ${rules['home.take_profit_pct']}% or more of their premium: close and redeploy`} />
-            {book.loading ? <Placeholder /> : (
-              <ul className="home-list">
-                {derived.takeProfit.map((s) => (
-                  <li key={s.key}>
-                    <span className="home-list-main">{contractLabel(s)}</span>
-                    <span className="cell-positive">{pct(s.kept, 0)} kept</span>
-                    <span className="summary-line">{money(s.pl, 0)} of {money(s.credit, 0)} · {s.dte} DTE</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
       </div>
 
       {/* 4. Risk: what expires soon, with the calendar beside it */}
@@ -812,6 +841,53 @@ export default function Home() {
                   { key: 'date', label: 'Date', render: (d) => eventDay(d.date) },
                   { key: 'count', label: 'Shorts', align: 'right' },
                   { key: 'credit', label: 'Premium', align: 'right', render: (d) => money(d.credit, 0) },
+                ]}
+              />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 5. Income from what you hold, and profit to take */}
+      <div className="home-grid">
+
+        {sharesEmpty ? <EmptyCard title="Shares to sell against" message="Every share is covered." /> : (
+          <div className="card">
+            <CardHead title="Shares to sell against" sub="Shares not yet covered by a short call (long) or short put (short)" />
+            {book.loading ? <Placeholder /> : (
+              <ul className="home-list">
+                {derived.uncovered.map((u) => (
+                  <li key={u.ticker}>
+                    <span className="home-list-main">{u.ticker}</span>
+                    <span>Sell up to {u.contracts} covered {u.side === 'CALL' ? 'call' : 'put'}{u.contracts === 1 ? '' : 's'}</span>
+                    <span className="summary-line">{count(u.shares)} shares{u.price != null ? ` at ${money(u.price)}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {profitEmpty ? <EmptyCard id="home-take-profit" title="Take profit" message={`No short has kept ${rules['home.take_profit_pct']}% of its premium yet.`} /> : (
+          <div className="card" id="home-take-profit">
+            <CardHead title="Take profit" sub={`Shorts that have kept ${rules['home.take_profit_pct']}% or more of their premium: close and redeploy`} />
+            {book.loading ? <Placeholder /> : (
+              <DataTable
+                data={derived.takeProfit}
+                paginate={false}
+                columns={[
+                  {
+                    key: 'key', label: 'Contract',
+                    render: (s) => (
+                      <span className="home-contract">
+                        <span className="home-contract-name">{contractLabel(s)}</span>
+                        <span className="home-contract-meta">{s.dte} DTE</span>
+                      </span>
+                    ),
+                  },
+                  { key: 'kept', label: 'Kept', align: 'right', render: (s) => <span className="cell-positive">{pct(s.kept, 0)}</span> },
+                  { key: 'pl', label: 'P&L', align: 'right', render: (s) => money(s.pl, 0) },
+                  { key: 'credit', label: 'Credit', align: 'right', render: (s) => money(s.credit, 0) },
                 ]}
               />
             )}

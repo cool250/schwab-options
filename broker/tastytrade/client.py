@@ -476,6 +476,72 @@ class TastytradeClient:
 
         return asyncio.run(_fetch())
 
+    def get_price_snapshots(self, tickers: list[str], timeout: float = 5.0) -> dict[str, dict]:
+        """Last price and the day's summary for several tickers (equities,
+        ETFs, or futures roots like '/ES') in one DXLink session:
+
+            {ticker: {"price", "prev_close", "day_open", "day_high", "day_low",
+                      "volume"}}   (floats; None when the feed didn't say)
+
+        price is the last trade, else the bid/ask midpoint. A ticker that
+        can't be resolved or sends nothing within `timeout` is left out.
+        """
+        from .dxlink_streamer import DXLinkStreamer  # lazy: only needed here
+
+        by_streamer: dict[str, str] = {}
+        for ticker in dict.fromkeys(tickers):
+            try:
+                by_streamer[self.resolve_underlying_streamer_symbol(ticker)] = ticker
+            except (TastytradeAPIError, ValueError, KeyError) as e:
+                logger.warning("No streamer symbol for %s: %s", ticker, e)
+        if not by_streamer:
+            return {}
+        quote_token = self.get_quote_token()
+        symbols = list(by_streamer)
+
+        async def _fetch() -> dict[str, dict]:
+            trades: dict[str, dict] = {}
+            quotes: dict[str, dict] = {}
+            summaries: dict[str, dict] = {}
+
+            async def collect(kind: str, into: dict) -> None:
+                while len(into) < len(symbols):
+                    event = await streamer.get_event(kind)
+                    if event["eventSymbol"] in by_streamer:
+                        into[event["eventSymbol"]] = event
+
+            async with DXLinkStreamer(quote_token) as streamer:
+                for kind in ("Trade", "Quote", "Summary"):
+                    await streamer.subscribe(kind, symbols)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(collect("Trade", trades), collect("Quote", quotes), collect("Summary", summaries)),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+
+            result = {}
+            for sym, ticker in by_streamer.items():
+                trade, quote, summary = trades.get(sym, {}), quotes.get(sym, {}), summaries.get(sym, {})
+                price = _finite_float(trade.get("price"))
+                if not price:
+                    bid, ask = _finite_float(quote.get("bidPrice")), _finite_float(quote.get("askPrice"))
+                    price = (bid + ask) / 2 if bid and ask else None
+                if price is None and not summary:
+                    continue
+                result[ticker] = {
+                    "price": price,
+                    "prev_close": _finite_float(summary.get("prevDayClosePrice")),
+                    "day_open": _finite_float(summary.get("dayOpenPrice")),
+                    "day_high": _finite_float(summary.get("dayHighPrice")),
+                    "day_low": _finite_float(summary.get("dayLowPrice")),
+                    "volume": _finite_float(trade.get("dayVolume")),
+                }
+            return result
+
+        return asyncio.run(_fetch())
+
     def get_candles(
         self,
         ticker: str,
