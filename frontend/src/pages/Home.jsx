@@ -738,6 +738,7 @@ export default function Home() {
           <DataTable
             data={derived.expiring}
             paginate={false}
+            defaultSortKey="dte"
             columns={[
               { key: 'key', label: 'Contract', render: contractLabel },
               { key: 'dte', label: 'DTE', align: 'right' },
@@ -761,15 +762,15 @@ export default function Home() {
       <div className="card">
         <h3 className="section-title">Expiry calendar · next {CALENDAR_DAYS} days</h3>
         {book.loading ? <Spinner /> : derived?.calendar.length ? (
-          <div className="home-calendar">
-            {derived.calendar.map((d) => (
-              <div key={d.date} className="home-day">
-                <span className="home-day-date">{formatDate(d.date).slice(0, 5)}</span>
-                <span className="home-day-count">{d.count} short{d.count === 1 ? '' : 's'}</span>
-                <span className="home-day-credit">{money(d.credit, 0)}</span>
-              </div>
-            ))}
-          </div>
+          <DataTable
+            data={derived.calendar}
+            paginate={false}
+            columns={[
+              { key: 'date', label: 'Date', render: (d) => eventDay(d.date) },
+              { key: 'count', label: 'Shorts', align: 'right' },
+              { key: 'credit', label: 'Premium', align: 'right', render: (d) => money(d.credit, 0) },
+            ]}
+          />
         ) : <p className="summary-line">Nothing expires in the next {CALENDAR_DAYS} days.</p>}
       </div>
       </div>
