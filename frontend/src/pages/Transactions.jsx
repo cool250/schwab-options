@@ -69,14 +69,11 @@ const INCOME_LABEL = {
   SHORT_DIVIDEND: 'Dividend on a short', MONEY_FUND_DIVIDEND: 'Money fund dividend',
 }
 
-// An equity/futures row as the Equity & futures tab shows it: a negative
-// quantity on an "OPEN" row is a close whose opening fill is outside the
-// lookback, so its date and price are the close's; without both legs the
-// total is 0 (see the longer note at equityRows).
+// An equity/futures row as the Equity & futures tab shows it. A still-open
+// lot (long, or short: negative quantity) has no gain/loss yet, so its
+// total shows 0. A close whose opening fill is outside the lookback comes
+// with open_unknown, no open date or price, and a total of 0.
 function normalizeEquityRow(t) {
-  if (t.quantity < 0) {
-    return { ...t, close_date: t.date, close_price: t.open_price, date: null, open_price: null, status: 'CLOSED', total_amount: 0 }
-  }
   return t.close_price == null ? { ...t, total_amount: 0 } : t
 }
 
@@ -411,17 +408,9 @@ export default function Transactions() {
     runEquitySearch(ticker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
   }
 
-  // This account never opens an outright equity/futures short — a negative
-  // signed quantity on an otherwise-"OPEN" row means the matcher found a
-  // closing trade but never saw its opening fill (outside the lookback
-  // window), not that a new short was opened. The date/price we do have
-  // belong to that closing trade, not an opening leg, so show them as
-  // Closed/Close Price instead of Opened/Open Price — the true open leg is
-  // simply unknown, not present.
-  //
-  // Either way — an unmatched open (no close yet) or an unmatched close (no
-  // open on record) — there's no way to compute a real gain/loss without
-  // both legs, so Total shows 0 until a full round-trip is on record.
+  // Either way — an open lot (no close yet) or a close with no open on
+  // record — there's no way to compute a real gain/loss without both legs,
+  // so Total shows 0 until a full round-trip is on record.
   const equityRows = (equityTransactions ?? []).map(normalizeEquityRow)
   const equityTotalAmount = equityRows.reduce((s, t) => s + (t.total_amount ?? 0), 0)
 

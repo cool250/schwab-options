@@ -219,14 +219,16 @@ class TransactionService:
         for trade in matched:
             if realized_gains_only and not trade["closed"]:
                 continue
-            # A negative-quantity unmatched leg is a closing trade whose opening
-            # fill fell outside the lookback window above (see
-            # _match_equity_open_close) — it has no close_date of its own, but
-            # its own date IS the actual close date, so fall back to that for
-            # range filtering too. Otherwise a stale close from well before the
-            # search window (e.g. last year) leaks through unfiltered, since
-            # close_date_str would otherwise be empty and skip this check.
-            close_date_str = trade.get("close_date") or (trade["date"] if trade.get("quantity", 0) < 0 else "")
+            # A negative-quantity unmatched *futures* leg is most likely a
+            # closing trade whose opening fill fell outside the lookback window
+            # above (futures tags are unreliable, so the matcher queues it by
+            # sign) — its own date is the close date, so use that for range
+            # filtering; otherwise a stale close from last year leaks through.
+            # Stock fills follow their reliable OPENING/CLOSING tags: a
+            # negative open stock lot is a real short (open, no close date),
+            # and a close with no open comes back with its own close_date.
+            is_futures_orphan = trade.get("quantity", 0) < 0 and trade["asset_type"] != "EQUITY"
+            close_date_str = trade.get("close_date") or (trade["date"] if is_futures_orphan else "")
             if close_date_str:
                 close_date = get_date_object(close_date_str)
                 if not (get_date_object(start_date) <= close_date <= get_date_object(end_date)):

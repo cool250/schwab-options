@@ -118,3 +118,48 @@ def test_stock_fill_costs_per_symbol(make_service):
         equity_leg("2026-10-01", "/ESZ26:XCME", 1, 7700.0, asset_type="FUTURE", multiplier=50),
     ])
     assert svc.get_stock_fill_costs({"IWM": 300, "GOOG": 200}) == {"IWM": pytest.approx(290.0), "GOOG": None}
+
+
+def test_same_day_cover_and_new_long_stay_separate_lots(make_service):
+    # A short is covered (CLOSING) and a new long opened (OPENING) the same
+    # day: two lots, so the cover isn't mistaken for an opening buy.
+    svc = make_service(equity_legs=[
+        {**equity_leg("2026-01-07", "SPY", -500, 690.0), "position_effect": "OPENING"},
+        {**equity_leg("2026-01-21", "SPY", 500, 690.0), "position_effect": "CLOSING"},
+        {**equity_leg("2026-01-21", "SPY", 1000, 690.0), "position_effect": "OPENING"},
+    ])
+    rows = svc.get_equity_transactions("", "2026-01-01", "2026-01-31", "ALL", realized_gains_only=False)
+    assert [(r["status"], r["quantity"]) for r in rows if r["status"] == "CLOSED"] == [("CLOSED", 500)]
+    assert [r["quantity"] for r in rows if r["status"] == "OPEN"] == [1000]
+
+
+def test_short_sale_opening_while_long_is_a_new_short(make_service):
+    # An assigned call sells short (OPENING) while long shares are on the
+    # books: a new short, not a sale of the long shares.
+    svc = make_service(equity_legs=[
+        {**equity_leg("2026-03-02", "SPY", 400, 680.0), "position_effect": "OPENING"},
+        {**equity_leg("2026-04-16", "SPY", -500, 683.0), "position_effect": "OPENING"},
+    ])
+    rows = svc.get_equity_transactions("", "2026-10-01", "2026-10-31", "ALL", realized_gains_only=False)
+    assert sorted(r["quantity"] for r in rows if r["status"] == "OPEN") == [-500, 400]
+    assert not [r for r in rows if r["status"] == "CLOSED"]
+
+
+def test_cover_of_a_short_from_before_the_history_is_a_close_with_no_open(make_service):
+    svc = make_service(equity_legs=[{**equity_leg("2026-10-05", "SPY", 400, 672.0), "position_effect": "CLOSING"}])
+    [row] = svc.get_equity_transactions("", "2026-10-01", "2026-10-31", "ALL", realized_gains_only=False)
+    assert (row["date"], row["close_date"], row["status"], row["open_unknown"]) == (None, "2026-10-05", "CLOSED", True)
+    assert row["total_amount"] == 0
+    assert svc.get_equity_transactions("", "2026-10-01", "2026-10-31", "ALL", realized_gains_only=True) == []
+    # Outside the range, it's left out like any other close.
+    assert svc.get_equity_transactions("", "2026-11-01", "2026-11-30", "ALL", realized_gains_only=False) == []
+
+
+def test_shares_assigned_and_sold_the_same_day_close_each_other(make_service):
+    svc = make_service(equity_legs=[
+        {**equity_leg("2025-01-21", "ADBE", -200, 432.01), "position_effect": "CLOSING"},
+        {**equity_leg("2025-01-21", "ADBE", 200, 430.0), "position_effect": "OPENING"},
+    ])
+    rows = svc.get_equity_transactions("", "2025-01-01", "2025-01-31", "ALL", realized_gains_only=False)
+    assert [(r["status"], r["quantity"]) for r in rows] == [("CLOSED", 200)]
+    assert rows[0]["total_amount"] == pytest.approx(402.0)
