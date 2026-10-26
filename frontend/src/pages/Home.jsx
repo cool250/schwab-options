@@ -7,7 +7,7 @@ import {
 import {
   ResponsiveContainer, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, LabelList,
 } from 'recharts'
-import Spinner from '../components/Spinner'
+import HelpTip from '../components/HelpTip'
 import DataTable from '../components/DataTable'
 import { money, count } from '../utils/numberFormat'
 import { formatDate } from '../utils/dateFormat'
@@ -18,7 +18,7 @@ import { getMultiplier, MULTIPLIER } from '../utils/contractMultiplier'
 import {
   futuresMarginEstimate, ideaStress, ideaFit, worstCushion, rootLean, callsCoverLeft, takeProfitCandidates,
   equityShort, eventsBefore, expiringSoon, uncoveredShares, expiryCalendar,
-  stressBook, cushionChange, marginCallMove,
+  stressBook, cushionChange, marginCallMove, cushionStatus,
 } from '../utils/homeInsights'
 
 /*
@@ -44,6 +44,11 @@ const STRESS_MOVES = [-0.20, -0.10, -0.05, 0.05, 0.10]
 const iso = (d) => d.toISOString().slice(0, 10)
 const signClass = (v) => (v > 0 ? 'cell-positive' : v < 0 ? 'cell-negative' : '')
 const pct = (v, digits = 1) => (v == null ? '—' : `${v.toFixed(digits)}%`)
+const CUSHION_STATUS = {
+  healthy: { label: 'Healthy', tone: 'ok' },
+  watch: { label: 'Watch', tone: 'warning' },
+  at_risk: { label: 'At risk', tone: 'error' },
+}
 const STATUS = {
   itm: { label: 'In the money', tone: 'error' },
   at_risk: { label: 'Near strike', tone: 'warning' },
@@ -237,7 +242,7 @@ export default function Home() {
         ])
         const bids = {}
         for (const [key, q] of Object.entries(futuresQuotes)) if (q.bid != null) bids[key] = q.bid
-        if (!cancelled) setBook({ loading: false, positions, futures, futuresOptions, prices, bids, futuresQuotes, equityQuotes })
+        if (!cancelled) setBook({ loading: false, loadedAt: new Date(), positions, futures, futuresOptions, prices, bids, futuresQuotes, equityQuotes })
       } catch (err) {
         if (!cancelled) setBook({ loading: false, error: friendlyErrorMessage(err, 'Could not load your positions.') })
       }
@@ -476,45 +481,122 @@ export default function Home() {
   }, [ideas, ideaSide, marginPct, crashPct, worstNow, worstEvent, eventCrashPct, eventList, rules])
 
   const calendarCredit = (derived?.calendar ?? []).reduce((s, d) => s + d.credit, 0)
+  const cushionState = derived?.cushion == null ? null : cushionStatus(derived.callDrop, derived.callRally)
+  const eventsShown = eventList
+    .filter((e) => e.date <= iso(new Date(Date.now() + EVENTS_DAYS * 86400000)))
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '99:99').localeCompare(b.time ?? '99:99'))
+
+  // The alert line: what needs attention today, each linking to its card.
+  const alerts = []
+  if (derived) {
+    if (cushionState && cushionState.status !== 'healthy') {
+      alerts.push({
+        tone: CUSHION_STATUS[cushionState.status].tone, href: '#home-cushion',
+        text: `Margin call at a ${pct(cushionState.nearest * 100, 1)} move · cushion ${money(derived.cushion, 0)}`,
+      })
+    }
+    const itm = derived.expiring.filter((s) => s.status === 'itm').length
+    const near = derived.expiring.filter((s) => s.status === 'at_risk').length
+    if (itm) alerts.push({ tone: 'error', href: '#home-expiring', text: `${itm} expiring short${itm === 1 ? '' : 's'} in the money` })
+    if (near) alerts.push({ tone: 'warning', href: '#home-expiring', text: `${near} near the strike` })
+    if (derived.takeProfit.length) {
+      alerts.push({ tone: 'ok', href: '#home-take-profit', text: `${derived.takeProfit.length} short${derived.takeProfit.length === 1 ? '' : 's'} to take profit on` })
+    }
+  }
+  const soon = iso(new Date(Date.now() + 3 * 86400000))
+  for (const e of eventsShown.filter((e) => e.major && e.date <= soon)) {
+    alerts.push({ tone: 'warning', href: '#home-events', text: `${e.name} ${eventDay(e.date)}${e.time ? ` ${eventTime(e.time)}` : ''}` })
+  }
+
+  const ideaCols = [
+    {
+      key: 'symbol', label: 'Contract',
+      render: (r) => (
+        <span className="home-contract" title={ideaDetail(r, crashPct, eventCrashPct)}>
+          <span className="home-contract-name">{formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol}</span>
+          <span className="home-contract-meta">
+            {r.dte} DTE · {pct(r.otmPct)} OTM{r.delta != null ? ` · Δ ${Math.abs(r.delta).toFixed(2)}` : ''}
+            {r.events?.length > 0 && <> <EventChips events={r.events} /></>}
+          </span>
+        </span>
+      ),
+    },
+    { key: 'credit', label: 'Credit', align: 'right', render: (r) => money(r.credit, 0) },
+    {
+      key: 'riskAdded', label: 'Risk to book', align: 'right',
+      render: (r) => (r.riskAdded == null ? '—' : r.hedges
+        ? <span className="home-chip home-chip--ok">Offsets</span>
+        : money(r.riskAdded, 0)),
+    },
+    { key: 'returnOnRisk', label: 'Return on risk', align: 'right', render: (r) => (r.hedges ? '—' : pct(r.returnOnRisk, 2)) },
+    {
+      key: 'maxContracts', label: 'Max qty', align: 'right',
+      render: (r) => (r.maxContracts == null ? '—' : r.capped
+        ? <span title="Capped at the long futures not yet covered by a short call">{count(r.maxContracts)} · covered</span>
+        : count(r.maxContracts)),
+    },
+    {
+      key: 'analyze', label: '',
+      render: (r) => (
+        <button type="button" className="btn btn-secondary home-row-btn" onClick={() => navigate('/analyze', analyzeState([{
+          symbol: r.underlying, ticker: r.underlying, dte: r.dte, expirationDate: r.expirationDate,
+          strike: r.strike, optionType: r.type, quantity: -1, premium: r.bid,
+        }]))}>Analyze</button>
+      ),
+    },
+  ]
+
+  const sharesEmpty = !book.loading && !derived?.uncovered.length
+  const profitEmpty = !book.loading && !derived?.takeProfit.length
 
   return (
     <div className="page home">
       <div className="home-head">
+        {book.loadedAt && <span className="summary-line home-updated">Updated {book.loadedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
         <button type="button" className="btn btn-secondary" onClick={() => setRefreshKey((k) => k + 1)}>Refresh</button>
       </div>
 
       {book.error && <div className="alert error">{book.error}</div>}
+
+      {/* What needs attention today */}
+      {!book.loading && !book.error && (
+        <nav className="home-alerts" aria-label="Needs attention">
+          {alerts.length
+            ? alerts.map((a) => <a key={a.text} href={a.href} className={`home-alert home-chip--${a.tone}`}>{a.text}</a>)
+            : <span className="summary-line">Nothing needs attention today.</span>}
+        </nav>
+      )}
 
       {/* 1. Capacity and results */}
       <div className="card">
         <div className="metrics-row home-metrics">
           <Metric
             label="Securities net liq"
-            value={derived ? money(derived.netLiq) : '…'}
+            value={derived ? money(derived.netLiq, 0) : '…'}
             title="Schwab's net liquidation value for the securities account only — the futures account isn't in Schwab's API, so thinkorswim's Net Liq is higher."
           />
           <Metric
             label="Securities available funds"
             title="Schwab's available funds for the securities account only — thinkorswim's Available Funds For Trading is lower, since it also sets aside futures margin the futures account doesn't cover."
-            value={derived ? money(funds) : '…'}
-            sub={derived?.balances.buying_power != null ? `${money(derived.balances.buying_power)} buying power` : null}
+            value={derived ? money(funds, 0) : '…'}
+            sub={derived?.balances.buying_power != null ? `${money(derived.balances.buying_power, 0)} buying power` : null}
           />
           <Metric
             label="Margin used"
-            value={derived ? money(derived.marginUsed) : '…'}
+            value={derived ? money(derived.marginUsed, 0) : '…'}
             sub={derived && derived.netLiq
-              ? `${pct((derived.marginUsed / derived.netLiq) * 100)} of securities net liq · futures est. ${money(derived.futMargin.total)} (${marginPct}%)`
+              ? `${pct((derived.marginUsed / derived.netLiq) * 100)} of securities net liq · futures est. ${money(derived.futMargin.total, 0)} (${marginPct}%)`
               : null}
             title={`Schwab's maintenance requirement for stocks and options, plus futures margin estimated at ${marginPct}% of the futures' notional (home.futures_margin_pct in app.properties — Schwab doesn't report futures margin).`}
           />
           <Metric
             label="This month"
-            value={month.loading ? '…' : month.error ? '—' : <span className={signClass(month.total)}>{money(month.total)}</span>}
-            sub={month.loading || month.error ? month.error : `Options ${money(month.options)} · Equity & futures ${money(month.equity)} · Income & fees ${money(month.cash)}`}
+            value={month.loading ? '…' : month.error ? '—' : <span className={signClass(month.total)}>{money(month.total, 0)}</span>}
+            sub={month.loading || month.error ? month.error : `Options ${money(month.options, 0)} · Equity & futures ${money(month.equity, 0)} · Income & fees ${money(month.cash, 0)}`}
           />
           <Metric
             label="Premium expiring"
-            value={derived ? money(calendarCredit) : '…'}
+            value={derived ? money(calendarCredit, 0) : '…'}
             sub={derived ? `next ${CALENDAR_DAYS} days · ${count(derived.calendar.reduce((s, d) => s + d.count, 0))} positions` : null}
           />
         </div>
@@ -522,70 +604,58 @@ export default function Home() {
 
       {/* Margin cushion and upcoming events, side by side */}
       <div className="home-grid home-grid--wide">
-      {/* Margin cushion: how much can be lost before a margin call */}
-      <div className="card">
-        <div className="home-card-head">
-          <h3 className="section-title">Margin cushion</h3>
-          <span className="summary-line">Loss the account can take before a margin call</span>
-        </div>
-        {book.loading ? <Spinner /> : derived && derived.cushion != null ? (
-          <>
-            <div className="home-cushion">
-              <div className="home-cushion-now">
-                <span className="metric-label">{derived.fundsFromSettings ? 'Now (from thinkorswim)' : 'Now (securities only)'}</span>
-                <span className={`home-cushion-value ${derived.cushion < 0 ? 'cell-negative' : ''}`}>{money(derived.cushion)}</span>
+        <div className="card" id="home-cushion">
+          <CardHead
+            title="Margin cushion"
+            sub="Loss the account can take before a margin call"
+            right={cushionState && <span className={`home-chip home-chip--${CUSHION_STATUS[cushionState.status].tone}`}>{CUSHION_STATUS[cushionState.status].label}</span>}
+            help={<>
+              The stress test moves every stock, ETF and future together, reprices each option at its implied volatility
+              plus {rules['home.stress_iv_rise']} points per 10% drop, and never lets a requirement fall. Watch: a margin
+              call within a 10–20% move; at risk: within 10%.
+            </>}
+          />
+          {book.loading ? <Placeholder rows={5} /> : derived && derived.cushion != null ? (
+            <>
+              <div className="home-cushion-head">
+                <span className={`home-cushion-value ${derived.cushion < 0 ? 'cell-negative' : ''}`}>{money(derived.cushion, 0)}</span>
                 <span className="summary-line">
-                  Margin call at {derived.callDrop == null ? 'no drop up to 60%' : `about a ${pct(-derived.callDrop * 100, 1)} drop`}
-                  {' · '}{derived.callRally == null ? 'no rally up to 60%' : `about a ${pct(derived.callRally * 100, 1)} rally`}
+                  {derived.fundsFromSettings ? 'Now, from thinkorswim' : 'Now, securities only'}
+                  {' · '}margin call at {derived.callDrop == null ? 'no drop up to 60%' : `a ${pct(-derived.callDrop * 100, 1)} drop`}
+                  {' · '}{derived.callRally == null ? 'no rally up to 60%' : `a ${pct(derived.callRally * 100, 1)} rally`}
                 </span>
               </div>
-              <div className="home-stress">
-                <table className="data-table">
-                  <thead>
-                    <tr><th>Market move</th>{derived.stress.map((s) => <th key={s.move} className="num">{s.move > 0 ? '+' : ''}{(s.move * 100).toFixed(0)}%</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>Cushion after</td>
-                      {derived.stress.map((s) => (
-                        <td key={s.move} className={`num ${s.after < 0 ? 'cell-negative' : ''}`}>{money(s.after, 0)}</td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
+              {derived.chart.length > 0 && (
+                <MarginChart
+                  points={derived.chart}
+                  callDrop={derived.callDrop == null ? null : -derived.callDrop * 100}
+                  callDropRelief={derived.callDropRelief == null ? null : -derived.callDropRelief * 100}
+                />
+              )}
+              <div className="home-stress-chips" aria-label="Cushion after a market move">
+                {derived.stress.map((st) => (
+                  <span key={st.move} className="home-stress-chip">
+                    <span className="summary-line">{st.move > 0 ? '+' : '−'}{Math.abs(st.move * 100).toFixed(0)}%</span>
+                    <strong className={st.after < 0 ? 'cell-negative' : ''}>{compactUsd(st.after)}</strong>
+                  </span>
+                ))}
               </div>
-            </div>
-            {derived.chart.length > 0 && (
-              <MarginChart
-                points={derived.chart}
-                callDrop={derived.callDrop == null ? null : -derived.callDrop * 100}
-                callDropRelief={derived.callDropRelief == null ? null : -derived.callDropRelief * 100}
-              />
-            )}
-            {derived.unpricedRisk > 0 && (
-              <p className="summary-line">
-                {derived.unpricedRisk} position{derived.unpricedRisk === 1 ? '' : 's'} with no price {derived.unpricedRisk === 1 ? 'is' : 'are'} left out of the stress test.
-              </p>
-            )}
-          </>
-        ) : <p className="summary-line">Schwab didn't return available funds.</p>}
-      </div>
-
-      {/* Upcoming events: what could move the market before shorts expire */}
-      <div className="card">
-        <div className="home-card-head">
-          <h3 className="section-title">Upcoming events · next {EVENTS_DAYS} days</h3>
-          <span className="summary-line">Times are US Eastern</span>
+              {derived.unpricedRisk > 0 && (
+                <p className="summary-line">
+                  {derived.unpricedRisk} position{derived.unpricedRisk === 1 ? '' : 's'} with no price {derived.unpricedRisk === 1 ? 'is' : 'are'} left out of the stress test.
+                </p>
+              )}
+            </>
+          ) : <p className="summary-line">Schwab didn't return available funds.</p>}
         </div>
-        {events.loading ? <Spinner /> : (() => {
-          const shown = eventList
-            .filter((e) => e.date <= iso(new Date(Date.now() + EVENTS_DAYS * 86400000)))
-            .sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '99:99').localeCompare(b.time ?? '99:99'))
-          return (
+
+        <div className="card" id="home-events">
+          <CardHead title="Upcoming events" sub={`Next ${EVENTS_DAYS} days · US Eastern`} />
+          {events.loading ? <Placeholder rows={4} /> : (
             <>
-              {shown.length ? (
+              {eventsShown.length ? (
                 <ul className="home-list home-events">
-                  {shown.map((e) => (
+                  {eventsShown.map((e) => (
                     <li key={`${e.date}|${e.name}`}>
                       <span className="home-event-when">
                         {eventDay(e.date)}
@@ -602,24 +672,35 @@ export default function Home() {
               ) : <p className="summary-line">Nothing scheduled.</p>}
               {events.notes?.map((n) => <p key={n} className="summary-line">{n}</p>)}
             </>
-          )
-        })()}
-      </div>
+          )}
+        </div>
       </div>
 
-      {/* 2. New income: /ES and /NQ */}
-      <div className="card">
-        <div className="home-card-head">
-          <h3 className="section-title">New income · /ES &amp; /NQ</h3>
-          <div className="tab-row home-side-tabs" role="tablist" aria-label="Puts or calls">
-            {['PUT', 'CALL'].map((side) => (
-              <button key={side} type="button" role="tab" aria-selected={ideaSide === side}
-                className={`tab-item ${ideaSide === side ? 'active' : ''}`} onClick={() => setIdeaSide(side)}>
-                {side === 'PUT' ? 'Short puts' : 'Short calls'}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* 2. New income (left, both rows), with shares to sell against and
+          take profit stacked on the right */}
+      <div className="home-grid home-grid--income">
+      <div className="card home-ideas" id="home-ideas">
+        <CardHead
+          title="New income · /ES & /NQ"
+          sub={`Ranked by return on risk to your book${worstNow != null ? ` · worst cushion after a ±${crashPct}% / ±${2 * crashPct}% move: ${money(worstNow, 0)}` : ''}`}
+          help={<>
+            Short options expiring within {rules['home.idea_max_dte']} days, delta {(rules['home.idea_min_delta_pct'] / 100).toFixed(2)}–{(rules['home.idea_max_delta_pct'] / 100).toFixed(2)},
+            best strike per expiration. Each is judged against your positions as if the market moves {crashPct}% or {2 * crashPct}% either
+            way at once ({eventCrashPct}% or {2 * eventCrashPct}% if it lives through CPI, jobs, PCE or an FOMC decision): Risk to book is
+            how much one contract lowers the worst cushion, and Max qty the most that keep it above zero. Trades that offset your positions
+            rank first; new calls are capped at the long futures not yet covered. Hover a contract for its own stress numbers.
+          </>}
+          right={(
+            <div className="tab-row home-side-tabs" role="tablist" aria-label="Puts or calls">
+              {['PUT', 'CALL'].map((side) => (
+                <button key={side} type="button" role="tab" aria-selected={ideaSide === side}
+                  className={`tab-item ${ideaSide === side ? 'active' : ''}`} onClick={() => setIdeaSide(side)}>
+                  {side === 'PUT' ? 'Short puts' : 'Short calls'}
+                </button>
+              ))}
+            </div>
+          )}
+        />
         <div className="home-roots">
           {ROOTS.map((root) => {
             const price = derived?.prices[root]
@@ -638,144 +719,155 @@ export default function Home() {
             )
           })}
         </div>
-        <p className="summary-line">
-          Expiring within {rules['home.idea_max_dte']} days, delta {(rules['home.idea_min_delta_pct'] / 100).toFixed(2)}–{(rules['home.idea_max_delta_pct'] / 100).toFixed(2)},
-          judged against your positions as if the market moves {crashPct}% or {2 * crashPct}% either way at once ({eventCrashPct}% or {2 * eventCrashPct}% for one that lives through CPI, jobs, PCE or an FOMC decision) — trades that offset them first.
-          {worstNow != null && (worstNow > 0
-            ? ` Worst cushion after those moves today: ${money(worstNow, 0)}.`
-            : ` Those moves would already leave no cushion (${money(worstNow, 0)}) — only trades that offset your risk fit.`)}
-        </p>
-        {ideas.loading && <Spinner />}
+        {worstNow != null && worstNow <= 0 && (
+          <p className="summary-line">Those moves would already leave no cushion — only trades that offset your risk fit.</p>
+        )}
+        {ideas.loading && <Placeholder rows={5} />}
         {ideas.error && <div className="alert error">{ideas.error}</div>}
         {!ideas.loading && !ideas.error && (
-          ideaRows.length ? (
-            <DataTable
-              data={ideaRows}
-              paginate={false}
-              columns={[
-                { key: 'symbol', label: 'Contract', render: (r) => formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol },
-                { key: 'dte', label: 'DTE', align: 'right' },
-                { key: 'events', label: 'Before expiry', render: (r) => <EventChips events={r.events} /> },
-                { key: 'otmPct', label: 'OTM', align: 'right', render: (r) => pct(r.otmPct) },
-                { key: 'delta', label: 'Delta', align: 'right', render: (r) => (r.delta == null ? '—' : Math.abs(r.delta).toFixed(2)) },
-                { key: 'credit', label: 'Credit', align: 'right', render: (r) => money(r.credit) },
-                {
-                  key: 'crashLoss', label: `Loss at ${ideaSide === 'PUT' ? '−' : '+'}${crashPct}%`, align: 'right',
-                  render: (r) => (
-                    <span className={r.crashLoss > 0 ? 'cell-negative' : ''} title={r.eventCrash ? `At ${eventCrashPct}%: it lives through a major event` : undefined}>
-                      {money(Math.max(0, r.crashLoss), 0)}{r.eventCrash ? ` (${eventCrashPct}%)` : ''}
-                    </span>
-                  ),
-                },
-                {
-                  key: 'riskAdded', label: 'Risk to book', align: 'right',
-                  render: (r) => (r.riskAdded == null ? '—' : r.hedges
-                    ? <span className="home-chip home-chip--ok">Offsets</span>
-                    : money(r.riskAdded, 0)),
-                },
-                { key: 'returnOnRisk', label: 'Return on risk', align: 'right', render: (r) => (r.hedges ? '—' : pct(r.returnOnRisk, 2)) },
-                {
-                  key: 'maxContracts', label: 'Max qty', align: 'right',
-                  render: (r) => (r.maxContracts == null ? '—' : r.capped
-                    ? <span title="Capped at the long futures not yet covered by a short call">{count(r.maxContracts)} · covered</span>
-                    : count(r.maxContracts)),
-                },
-                {
-                  key: 'analyze', label: '',
-                  render: (r) => (
-                    <button type="button" className="btn btn-secondary home-row-btn" onClick={() => navigate('/analyze', analyzeState([{
-                      symbol: r.underlying, ticker: r.underlying, dte: r.dte, expirationDate: r.expirationDate,
-                      strike: r.strike, optionType: r.type, quantity: -1, premium: r.bid,
-                    }]))}>Analyze</button>
-                  ),
-                },
-              ]}
-            />
-          ) : <p className="summary-line">No /ES or /NQ {ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.</p>
+          ideaRows.length
+            ? <DataTable data={ideaRows} paginate={false} columns={ideaCols} />
+            : <p className="summary-line">No /ES or /NQ {ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.</p>
         )}
       </div>
 
-      {/* 3. Income from what you hold, and capital to free up */}
-      <div className="home-grid">
-        <div className="card">
-          <h3 className="section-title">Shares to sell against</h3>
-          <p className="summary-line">Shares not yet covered by a short call (long) or short put (short).</p>
-          {book.loading ? <Spinner /> : derived?.uncovered.length ? (
-            <ul className="home-list">
-              {derived.uncovered.map((u) => (
-                <li key={u.ticker}>
-                  <span className="home-list-main">{u.ticker}</span>
-                  <span>Sell up to {u.contracts} covered {u.side === 'CALL' ? 'call' : 'put'}{u.contracts === 1 ? '' : 's'}</span>
-                  <span className="summary-line">{count(u.shares)} shares{u.price != null ? ` at ${money(u.price)}` : ''}</span>
-                </li>
-              ))}
-            </ul>
-          ) : <p className="summary-line">Every share is covered.</p>}
-        </div>
+        {sharesEmpty ? <EmptyCard title="Shares to sell against" message="Every share is covered." /> : (
+          <div className="card">
+            <CardHead title="Shares to sell against" sub="Shares not yet covered by a short call (long) or short put (short)" />
+            {book.loading ? <Placeholder /> : (
+              <ul className="home-list">
+                {derived.uncovered.map((u) => (
+                  <li key={u.ticker}>
+                    <span className="home-list-main">{u.ticker}</span>
+                    <span>Sell up to {u.contracts} covered {u.side === 'CALL' ? 'call' : 'put'}{u.contracts === 1 ? '' : 's'}</span>
+                    <span className="summary-line">{count(u.shares)} shares{u.price != null ? ` at ${money(u.price)}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
-        <div className="card">
-          <h3 className="section-title">Take profit</h3>
-          <p className="summary-line">Shorts that have kept {rules['home.take_profit_pct']}% or more of their premium: close and redeploy.</p>
-          {book.loading ? <Spinner /> : derived?.takeProfit.length ? (
-            <ul className="home-list">
-              {derived.takeProfit.map((s) => (
-                <li key={s.key}>
-                  <span className="home-list-main">{contractLabel(s)}</span>
-                  <span className="cell-positive">{pct(s.kept, 0)} kept</span>
-                  <span className="summary-line">{money(s.pl)} of {money(s.credit)} · {s.dte} DTE</span>
-                </li>
-              ))}
-            </ul>
-          ) : <p className="summary-line">Nothing at the threshold yet.</p>}
-        </div>
+        {profitEmpty ? <EmptyCard id="home-take-profit" title="Take profit" message={`No short has kept ${rules['home.take_profit_pct']}% of its premium yet.`} /> : (
+          <div className="card" id="home-take-profit">
+            <CardHead title="Take profit" sub={`Shorts that have kept ${rules['home.take_profit_pct']}% or more of their premium: close and redeploy`} />
+            {book.loading ? <Placeholder /> : (
+              <ul className="home-list">
+                {derived.takeProfit.map((s) => (
+                  <li key={s.key}>
+                    <span className="home-list-main">{contractLabel(s)}</span>
+                    <span className="cell-positive">{pct(s.kept, 0)} kept</span>
+                    <span className="summary-line">{money(s.pl, 0)} of {money(s.credit, 0)} · {s.dte} DTE</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 4. Risk: what expires soon, with the calendar beside it */}
       <div className="home-grid home-grid--wide">
-      <div className="card">
-        <h3 className="section-title">Expiring within {rules['home.expiring_days']} days</h3>
-        {book.loading ? <Spinner /> : derived?.expiring.length ? (
-          <DataTable
-            data={derived.expiring}
-            paginate={false}
-            defaultSortKey="dte"
-            columns={[
-              { key: 'key', label: 'Contract', render: contractLabel },
-              { key: 'dte', label: 'DTE', align: 'right' },
-              {
-                key: 'events', label: 'Before expiry',
-                render: (s) => <EventChips events={eventsBefore(eventList, { ticker: s.ticker, type: s.type, expiration: s.expiration })} />,
-              },
-              {
-                key: 'status', label: 'Status',
-                render: (s) => (s.status ? <span className={`home-chip home-chip--${STATUS[s.status].tone}`}>{STATUS[s.status].label}</span> : '—'),
-              },
-              { key: 'distance', label: 'Cushion', align: 'right', render: (s) => (s.distance == null ? '—' : pct(s.distance)) },
-              { key: 'underlyingPrice', label: 'Underlying', align: 'right', render: (s) => money(s.underlyingPrice) },
-              { key: 'pl', label: 'P&L', align: 'right', render: (s) => <span className={signClass(s.pl)}>{money(s.pl)}</span> },
-            ]}
-          />
-        ) : <p className="summary-line">No short options expire in that window.</p>}
-        {derived?.futuresMissing && <p className="summary-line">Futures options couldn't be loaded, so they're left out.</p>}
-      </div>
+        {!book.loading && !derived?.expiring.length ? (
+          <EmptyCard id="home-expiring" title={`Expiring within ${rules['home.expiring_days']} days`} message="No short options expire in that window." />
+        ) : (
+          <div className="card" id="home-expiring">
+            <CardHead title={`Expiring within ${rules['home.expiring_days']} days`} sub="Soonest first" />
+            {book.loading ? <Placeholder rows={4} /> : (
+              <DataTable
+                data={derived.expiring}
+                paginate={false}
+                defaultSortKey="dte"
+                columns={[
+                  { key: 'key', label: 'Contract', render: contractLabel },
+                  { key: 'dte', label: 'DTE', align: 'right' },
+                  {
+                    key: 'events', label: 'Before expiry',
+                    render: (s) => <EventChips events={eventsBefore(eventList, { ticker: s.ticker, type: s.type, expiration: s.expiration })} />,
+                  },
+                  {
+                    key: 'status', label: 'Status',
+                    render: (s) => (s.status ? <span className={`home-chip home-chip--${STATUS[s.status].tone}`}>{STATUS[s.status].label}</span> : '—'),
+                  },
+                  { key: 'distance', label: 'Cushion', align: 'right', render: (s) => (s.distance == null ? '—' : pct(s.distance)) },
+                  { key: 'underlyingPrice', label: 'Underlying', align: 'right', render: (s) => money(s.underlyingPrice) },
+                  { key: 'pl', label: 'P&L', align: 'right', render: (s) => <span className={signClass(s.pl)}>{money(s.pl, 0)}</span> },
+                ]}
+              />
+            )}
+            {derived?.futuresMissing && <p className="summary-line">Futures options couldn't be loaded, so they're left out.</p>}
+          </div>
+        )}
 
-      <div className="card">
-        <h3 className="section-title">Expiry calendar · next {CALENDAR_DAYS} days</h3>
-        {book.loading ? <Spinner /> : derived?.calendar.length ? (
-          <DataTable
-            data={derived.calendar}
-            paginate={false}
-            columns={[
-              { key: 'date', label: 'Date', render: (d) => eventDay(d.date) },
-              { key: 'count', label: 'Shorts', align: 'right' },
-              { key: 'credit', label: 'Premium', align: 'right', render: (d) => money(d.credit, 0) },
-            ]}
-          />
-        ) : <p className="summary-line">Nothing expires in the next {CALENDAR_DAYS} days.</p>}
-      </div>
+        {!book.loading && !derived?.calendar.length ? (
+          <EmptyCard title="Expiry calendar" message={`Nothing expires in the next ${CALENDAR_DAYS} days.`} />
+        ) : (
+          <div className="card">
+            <CardHead title="Expiry calendar" sub={`Next ${CALENDAR_DAYS} days`} />
+            {book.loading ? <Placeholder rows={4} /> : (
+              <DataTable
+                data={derived.calendar}
+                paginate={false}
+                columns={[
+                  { key: 'date', label: 'Date', render: (d) => eventDay(d.date) },
+                  { key: 'count', label: 'Shorts', align: 'right' },
+                  { key: 'credit', label: 'Premium', align: 'right', render: (d) => money(d.credit, 0) },
+                ]}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
+}
+
+// A card's header: title (with an optional "?" pop-up), a one-line
+// subtitle, and an optional control on the right.
+function CardHead({ title, sub, help, right }) {
+  return (
+    <div className="home-card-head">
+      <div className="home-card-title">
+        <h3 className="section-title">
+          {title}
+          {help && <HelpTip label={`About ${title}`}>{help}</HelpTip>}
+        </h3>
+        {sub && <span className="summary-line">{sub}</span>}
+      </div>
+      {right}
+    </div>
+  )
+}
+
+// A card with nothing to show, as one line.
+function EmptyCard({ id, title, message }) {
+  return (
+    <div className="card home-card--empty" id={id}>
+      <h3 className="section-title">{title}</h3>
+      <span className="summary-line">{message}</span>
+    </div>
+  )
+}
+
+// Placeholder bars in the shape of a loading list, so the page doesn't
+// jump as sections arrive.
+function Placeholder({ rows = 3 }) {
+  return (
+    <div className="home-placeholder" role="status" aria-label="Loading">
+      {Array.from({ length: rows }, (_, i) => <span key={i} />)}
+    </div>
+  )
+}
+
+// An idea's own stress numbers, for its hover tooltip.
+function ideaDetail(r, crashPct, eventCrashPct) {
+  const move = `${r.type === 'PUT' ? '−' : '+'}${r.eventCrash ? eventCrashPct : crashPct}%`
+  return [
+    `Loss if the market moves ${move} at once: ${money(Math.max(0, r.crashLoss), 0)}`,
+    `Its margin after that move: ${money(r.crashMargin, 0)}`,
+    r.iv ? `Implied volatility ${(r.iv * 100).toFixed(1)}%` : null,
+    r.eventCrash ? 'Lives through a major event, so stressed at the larger move' : null,
+  ].filter(Boolean).join('\n')
 }
 
 function Metric({ label, value, sub, title }) {

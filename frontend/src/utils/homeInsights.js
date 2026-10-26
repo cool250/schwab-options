@@ -370,6 +370,18 @@ export function callsCoverLeft(positions) {
   return left
 }
 
+/** How close the account is to a margin call, from the market-wide move
+ *  that triggers one either way (fractions from marginCallMove; null: none
+ *  within its search): 'healthy' beyond 20%, 'watch' from 10% to 20%,
+ *  'at_risk' inside 10%. -> { status, nearest } (nearest: the smaller
+ *  move, as a positive fraction, or null). */
+export function cushionStatus(callDrop, callRally) {
+  const moves = [callDrop, callRally].filter((m) => m != null).map(Math.abs)
+  const nearest = moves.length ? Math.min(...moves) : null
+  const status = nearest == null || nearest > 0.20 ? 'healthy' : nearest >= 0.10 ? 'watch' : 'at_risk'
+  return { status, nearest }
+}
+
 /** The smallest move in `direction` (-1 a drop, +1 a rally) that takes the
  *  cushion to zero, searched in 0.5% steps up to `limit` and refined; null
  *  if the cushion holds that far. */

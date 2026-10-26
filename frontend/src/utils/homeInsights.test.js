@@ -193,3 +193,11 @@ test("events a position lives through: major macro for all, the ticker's own ear
   assert.deepEqual(names({ ticker: "GOOG", type: "CALL", expiration: "2026-10-28" }), ["FOMC decision", "GOOG earnings", "GOOG ex-dividend"]);
   assert.deepEqual(names({ ticker: "QQQ", type: "PUT", expiration: "2026-10-26" }), []);
 });
+
+test("cushion status from the nearer margin-call move", async () => {
+  const { cushionStatus } = await import("./homeInsights.js");
+  assert.deepEqual(cushionStatus(null, null), { status: "healthy", nearest: null });
+  assert.equal(cushionStatus(-0.25, 0.4).status, "healthy");
+  assert.deepEqual(cushionStatus(-0.136, 0.389), { status: "watch", nearest: 0.136 });
+  assert.equal(cushionStatus(-0.3, 0.08).status, "at_risk", "a near rally counts too");
+});

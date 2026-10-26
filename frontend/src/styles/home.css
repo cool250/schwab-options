@@ -1,6 +1,42 @@
 /* ─── Home page (pages/Home.jsx) ─── */
 
 .home-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.home-updated { white-space: nowrap; }
+
+/* The alert line: what needs attention, each a link to its card. */
+.home-alerts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.home-alert {
+  display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px;
+  font-size: 0.85rem; font-weight: 600; text-decoration: none; white-space: nowrap;
+}
+.home-alert:hover { text-decoration: underline; }
+.home-alert:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* Cards an alert links to stop below the page top, not under it. */
+.home [id^="home-"] { scroll-margin-top: 16px; }
+
+/* Card header: title (+ "?"), subtitle, control on the right. */
+.home-card-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.home-card-title .section-title { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+
+/* A card with nothing to show: one line. */
+.card.home-card--empty { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 14px 24px; }
+.home-card--empty .section-title { margin: 0; font-size: 0.95rem; }
+
+/* Loading placeholder bars. */
+.home-placeholder { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.home-placeholder span { display: block; height: 14px; border-radius: 4px; background: var(--border); animation: home-pulse 1.4s ease-in-out infinite; }
+.home-placeholder span:nth-child(3n + 2) { width: 85%; }
+.home-placeholder span:nth-child(3n) { width: 60%; }
+@keyframes home-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .home-placeholder span { animation: none; } }
+
+/* Wide tables scroll sideways on a phone instead of squeezing. */
+@media (max-width: 640px) { .home .data-table th, .home .data-table td { white-space: nowrap; } }
+
+/* New income: contract with its DTE / OTM / delta / events beneath. */
+.home-contract { display: flex; flex-direction: column; gap: 2px; }
+.home-contract-name { font-weight: 600; }
+.home-contract-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 0.78rem; color: var(--text-muted); }
 .home-card-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
 .home-side-tabs { flex: none; }
 /* Top summary row: equal-width columns (however many tiles), each with a
@@ -36,7 +72,12 @@
 /* A wide card with a narrow one beside it (margin cushion + events,
    expiring shorts + expiry calendar). */
 .home-grid--wide { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
-@media (max-width: 960px) { .home-grid, .home-grid--wide { grid-template-columns: minmax(0, 1fr); } }
+/* New income on the left across both rows; shares to sell against (row
+   1) and take profit (row 2) on the right. */
+.home-grid--income { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-rows: auto 1fr; align-items: start; }
+.home-grid--income .home-ideas { grid-row: span 2; }
+@media (max-width: 960px) { .home-grid--income .home-ideas { grid-row: auto; } }
+@media (max-width: 960px) { .home-grid, .home-grid--wide, .home-grid--income { grid-template-columns: minmax(0, 1fr); } }
 
 .home-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .home-list li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
@@ -52,12 +93,15 @@
 /* Compact button for table rows (Analyze). */
 .home-row-btn { padding: 4px 12px; font-size: 0.82rem; }
 
-/* Margin cushion: today's figure beside the stress test. */
-.home-cushion { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px; }
-.home-cushion-now { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.home-cushion-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.home-stress { flex: 1 1 360px; min-width: 0; overflow-x: auto; }
-.home-stress th.num, .home-stress td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Margin cushion: the headline figure, the chart, and the stress chips. */
+.home-cushion-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+.home-cushion-value { font-size: 1.9rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.home-stress-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.home-stress-chip {
+  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 76px;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg);
+  font-variant-numeric: tabular-nums;
+}
 
 /* Margin chart: equity vs requirement as the market falls. */
 .home-chart { margin-top: 16px; }
