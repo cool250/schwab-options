@@ -8,7 +8,7 @@ import {
   KpiStrip, MonthCalendar, DailyRunChart, SymbolTable,
   MonthGrid, MonthlyRunChart, SymbolMonthHeat, YearCalendar, SourceTabs,
 } from '../components/ReportViews'
-import { closedTrades, tradeStats, openTradeStats, symbolBreakdown, symbolOf, todayIso, utcDate, addDays, MONTH_NAMES } from '../utils/reportStats'
+import { closedTrades, tradeStats, openTradeStats, symbolBreakdown, todayIso, utcDate, addDays, MONTH_NAMES } from '../utils/reportStats'
 
 function monthName(m) {
   return new Date(2000, m - 1, 1).toLocaleString('en-US', { month: 'long' })
@@ -325,9 +325,12 @@ export default function Reports() {
   // Which rows Transactions shows (realized / unrealized) is left to its own
   // default (transactions.default_view) — only a day with open trades asks
   // for the unrealized ones as well.
-  function openTransactions({ ticker, start, end, tab, open = false }) {
+  // income: the clicked view counts dividends, interest and fees (the
+  // running total) — the All tab includes them then.
+  function openTransactions({ ticker, start, end, tab, open = false, income = false }) {
     const params = new URLSearchParams({ start, end })
     if (open) params.set('unrealized', 'true')
+    if (income) params.set('income', 'true')
     if (ticker) params.set('ticker', ticker)
     if (tab) params.set('tab', tab)
     navigate(`/transactions?${params}`)
@@ -335,26 +338,20 @@ export default function Reports() {
   const monthBounds = (m) => monthRange(report.year, m + 1)
   // src: the trades the clicked view shows — the source switch's, or 'all'
   // for the running total (which always covers every trade).
-  const openRange = (start, end, open, src = source) =>
-    openTransactions({ start, end, open, tab: tabFor(null, (t) => t.close_date >= start && t.close_date <= end, src) })
+  const openRange = (start, end, open, src = source, income = false) =>
+    openTransactions({ start, end, open, income, tab: tabFor(src) })
   const openDay = (date, open) => openRange(date, date, open)
   const openWeek = (start, end, open) => openRange(start, end, open)
   const openMonth = (m) => openRange(monthBounds(m).start, monthBounds(m).end)
-  const openAllDay = (date) => openRange(date, date, false, 'all')
-  const openAllMonth = (m) => openRange(monthBounds(m).start, monthBounds(m).end, false, 'all')
+  const openAllDay = (date) => openRange(date, date, false, 'all', true)
+  const openAllMonth = (m) => openRange(monthBounds(m).start, monthBounds(m).end, false, 'all', true)
   const openQuarter = (q) => openRange(monthBounds(q * 3).start, monthBounds(q * 3 + 2).end)
 
-  // Transactions shows one tab at a time, so a by-symbol click opens the tab
-  // holding those trades — for "All", options when the symbol had any in the
-  // range, else equity & futures.
-  const monthOfTrade = (t) => utcDate(t.close_date).getUTCMonth()
-  const tabFor = (ticker, inRange, src = source) => {
-    if (src !== 'all') return src === 'equity' ? 'equity' : undefined
-    const hasOptions = derived.optionTrades.some((t) => inRange(t) && (ticker == null || symbolOf(t) === ticker))
-    return hasOptions ? undefined : 'equity'
-  }
-  const openSymbol = (ticker) => openTransactions({ ticker, start: report.start, end: report.end, tab: tabFor(ticker, () => true) })
-  const openSymbolMonth = (ticker, m) => openTransactions({ ticker, ...monthBounds(m), tab: tabFor(ticker, (t) => monthOfTrade(t) === m) })
+  // Which Transactions tab a click opens: the source switch's — "All" opens
+  // the All tab (options with equity & futures).
+  const tabFor = (src = source) => (src === 'all' ? 'all' : src === 'equity' ? 'equity' : undefined)
+  const openSymbol = (ticker) => openTransactions({ ticker, start: report.start, end: report.end, tab: tabFor() })
+  const openSymbolMonth = (ticker, m) => openTransactions({ ticker, ...monthBounds(m), tab: tabFor() })
 
   const isMonth = report?.period === 'month'
   // Open trades for the month on screen (not a different one still loading).

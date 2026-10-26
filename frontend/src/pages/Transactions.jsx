@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { getAppConfig, getOptionTransactions, getOptionBids, getEquityTransactions, friendlyErrorMessage } from '../api/client'
+import { getAppConfig, getOptionTransactions, getOptionBids, getEquityTransactions, getIncomeAndFees, friendlyErrorMessage } from '../api/client'
 import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
 import { formatDate } from '../utils/dateFormat'
 import { formatOptionSymbol } from '../utils/optionSymbol'
@@ -48,6 +48,37 @@ const EQUITY_COLUMNS = [
   { key: 'total_amount', label: 'Total',       align: 'right' },
   { key: 'status',       label: 'Status' },
 ]
+
+// The All tab: options, equity & futures, and (optionally) income and fees
+// in one table, on the columns they share. A contract's strike and
+// expiration sit in its name; the other tabs keep their own columns.
+const ALL_COLUMNS = [
+  dateColumn('date', 'Opened'),
+  dateColumn('close_date', 'Closed'),
+  { key: 'kind',         label: 'Type' },
+  { key: 'label',        label: 'Contract / Symbol' },
+  { key: 'qty',          label: 'Quantity',    align: 'right' },
+  { key: 'open_price',   label: 'Open Price',  align: 'right' },
+  { key: 'close_price',  label: 'Close Price', align: 'right' },
+  { key: 'total_amount', label: 'Total Gain/Loss ($)', align: 'right' },
+  { key: 'status',       label: 'Status' },
+]
+const ASSET_KIND = { EQUITY: 'Stock', FUTURE: 'Future' }
+const INCOME_LABEL = {
+  INTEREST: 'Interest', MARGIN_INTEREST: 'Margin interest', DIVIDEND: 'Dividend',
+  SHORT_DIVIDEND: 'Dividend on a short', MONEY_FUND_DIVIDEND: 'Money fund dividend',
+}
+
+// An equity/futures row as the Equity & futures tab shows it: a negative
+// quantity on an "OPEN" row is a close whose opening fill is outside the
+// lookback, so its date and price are the close's; without both legs the
+// total is 0 (see the longer note at equityRows).
+function normalizeEquityRow(t) {
+  if (t.quantity < 0) {
+    return { ...t, close_date: t.date, close_price: t.open_price, date: null, open_price: null, status: 'CLOSED', total_amount: 0 }
+  }
+  return t.close_price == null ? { ...t, total_amount: 0 } : t
+}
 
 function firstOfMonth() {
   const d = new Date()
@@ -113,12 +144,12 @@ export default function Transactions() {
   // A chart-click link (e.g. from Reports) always carries its own ticker/dates
   // and should run a fresh search rather than restoring whatever was cached.
   const fromLink = Boolean(searchParams.get('ticker') || searchParams.get('start'))
-  const urlTab = searchParams.get('tab') === 'equity' ? 'equity' : (searchParams.get('tab') === 'options' ? 'options' : null)
+  const urlTab = ['equity', 'options', 'all'].includes(searchParams.get('tab')) ? searchParams.get('tab') : null
   // An incoming link with no explicit ?tab= (the options-chart click-through)
   // means "options" specifically, not whatever tab happened to be cached —
   // only a plain revisit (no link params at all) should restore the cache.
   const initialTab = urlTab ?? 'options'
-  const [tab, setTab] = useState(initialTab) // 'options' | 'equity'
+  const [tab, setTab] = useState(initialTab) // 'options' | 'equity' | 'all'
 
   // Searches and results are not cached between visits: account data is
   // always loaded fresh for whoever is signed in.
@@ -214,6 +245,7 @@ export default function Transactions() {
     grouping: false,
     view: initialTab === 'options' && linkSetView,
     equityView: initialTab === 'equity' && linkSetView,
+    allView: initialTab === 'all' && linkSetView,
   })
 
   // Arriving from a chart click (e.g. Reports) pre-fills the filters via the
@@ -241,11 +273,19 @@ export default function Transactions() {
           equityRealized = view === 'realized'
           setEquityRealizedOnly(equityRealized)
         }
+        let [allRealized, allUnrealized] = [allShowRealized, allShowUnrealized]
+        if (view && !touched.current.allView) {
+          ;[allRealized, allUnrealized] = [view !== 'unrealized', view !== 'realized']
+          setAllShown([allRealized, allUnrealized])
+        }
         if (initialTab === 'options' && fromLink) {
           runSearch(ticker, startDate, endDate, contractType, ignoreFutures, grouping, realized, unrealized)
         }
         if (initialTab === 'equity' && fromLink) {
           runEquitySearch(ticker, equityStartDate, equityEndDate, assetType, equityRealized)
+        }
+        if (initialTab === 'all' && fromLink) {
+          runAllSearch(ticker, allStartDate, allEndDate, allRealized, allUnrealized, includeIncome, grouping)
         }
       })
     return () => { cancelled = true }
@@ -382,21 +422,113 @@ export default function Transactions() {
   // Either way — an unmatched open (no close yet) or an unmatched close (no
   // open on record) — there's no way to compute a real gain/loss without
   // both legs, so Total shows 0 until a full round-trip is on record.
-  const equityRows = (equityTransactions ?? []).map((t) => {
-    if (t.quantity < 0) {
-      return {
-        ...t,
-        close_date: t.date,
-        close_price: t.open_price,
-        date: null,
-        open_price: null,
-        status: 'CLOSED',
-        total_amount: 0,
-      }
-    }
-    return t.close_price == null ? { ...t, total_amount: 0 } : t
-  })
+  const equityRows = (equityTransactions ?? []).map(normalizeEquityRow)
   const equityTotalAmount = equityRows.reduce((s, t) => s + (t.total_amount ?? 0), 0)
+
+  // ---- All: options + equity & futures (+ income and fees) ----
+  // Its own dates and realized/unrealized boxes, like the other tabs; the
+  // ticker is shared. A link from Reports sets them (?tab=all, and
+  // ?income=true when it came from the running total, which counts
+  // dividends, interest and fees).
+  const [[allShowRealized, allShowUnrealized], setAllShown] = useState(() => {
+    const realizedParam = initialTab === 'all' ? searchParams.get('realized') : null
+    const unrealizedParam = initialTab === 'all' ? searchParams.get('unrealized') : null
+    const realized = realizedParam ? realizedParam !== 'false' : true
+    const unrealized = unrealizedParam ? unrealizedParam === 'true' : false
+    return realized || unrealized ? [realized, unrealized] : [true, true]
+  })
+  const [includeIncome, setIncludeIncome] = useState(initialTab === 'all' ? searchParams.get('income') === 'true' : false)
+  const [allStartDate, setAllStartDate] = useState(() => (initialTab === 'all' ? searchParams.get('start') ?? firstOfMonth() : firstOfMonth()))
+  const [allEndDate, setAllEndDate] = useState(() => (initialTab === 'all' ? searchParams.get('end') ?? todayStr() : todayStr()))
+  const [allLoading, setAllLoading] = useState(false)
+  const [allError, setAllError] = useState(null)
+  const [allData, setAllData] = useState(null) // { options, equity, income }
+  const [allQuotes, setAllQuotes] = useState({})
+  const [allQuotesLoading, setAllQuotesLoading] = useState(false)
+
+  async function runAllSearch(tickerVal, startVal, endVal, realizedVal, unrealizedVal, incomeVal, ignoreGroupingVal) {
+    setAllLoading(true)
+    setAllError(null)
+    setAllData(null)
+    setAllQuotes({})
+    try {
+      const tickerUpper = tickerVal.trim().toUpperCase()
+      const realizedOnly = realizedVal && !unrealizedVal
+      const unrealizedOnly = unrealizedVal && !realizedVal
+      const [options, equity, income] = await Promise.all([
+        getOptionTransactions(tickerUpper, startVal, endVal, 'ALL', realizedOnly, unrealizedOnly, !ignoreGroupingVal),
+        // The equity API has no unrealized-only view: ask for everything and
+        // keep the open rows.
+        getEquityTransactions(tickerUpper, startVal, endVal, 'ALL', realizedOnly)
+          .then((rows) => (unrealizedOnly ? rows.filter((t) => t.close_price == null && !(t.quantity < 0)) : rows)),
+        // Income and fees belong to the account, not a ticker.
+        incomeVal && !tickerUpper && realizedVal ? getIncomeAndFees(startVal, endVal) : Promise.resolve([]),
+      ])
+      setAllData({ options, equity, income })
+      const open = options.filter((t) => t.type === 'TRADE' && t.strike_price != null)
+      if (open.length > 0) {
+        setAllQuotesLoading(true)
+        getOptionBids(open.map((t) => ({
+          key: t.symbol, underlying: t.underlying_symbol, expiration: t.expirationDate,
+          strike: t.strike_price, type: t.option_type,
+        })))
+          .then(setAllQuotes)
+          .catch(() => {})
+          .finally(() => setAllQuotesLoading(false))
+      }
+    } catch (err) {
+      setAllError(friendlyErrorMessage(err, 'Failed to fetch transactions. Make sure the API server is running.'))
+    } finally {
+      setAllLoading(false)
+    }
+  }
+
+  function handleAllSearch(e) {
+    e.preventDefault()
+    runAllSearch(ticker, allStartDate, allEndDate, allShowRealized, allShowUnrealized, includeIncome, ignoreGrouping)
+  }
+
+  // One row shape for all three. An open option leg is priced at its live
+  // bid (its unrealized gain), as on the Options tab.
+  const allOptionRows = (allData?.options ?? []).map((t) => {
+    const base = {
+      ...t, kind: 'Option', label: optionSymbolCell(t), qty: t.amount,
+      status: t.type === 'TRADE' ? 'OPEN' : t.type,
+    }
+    if (t.type !== 'TRADE') return base
+    const price = allQuotes[t.symbol]
+    return {
+      ...base,
+      close_price: price ?? null,
+      total_amount: price == null ? null : t.amount * getMultiplier(t.underlying_symbol) * (price - t.open_price),
+    }
+  })
+  const allEquityRows = (allData?.equity ?? []).map(normalizeEquityRow).map((t) => ({
+    ...t, kind: ASSET_KIND[t.asset_type] ?? t.asset_type, label: t.symbol, qty: t.quantity,
+  }))
+  const allIncomeRows = (allData?.income ?? []).map((r) => ({
+    close_date: r.date, date: null, kind: r.kind === 'FEE' ? 'Fee' : 'Income',
+    label: r.kind === 'FEE' ? r.description || r.category : INCOME_LABEL[r.category] ?? r.category,
+    total_amount: r.amount, status: r.category,
+  }))
+  const allRows = [...allOptionRows, ...allEquityRows, ...allIncomeRows]
+  const sumRealized = (rows) => rows.reduce((s, t) => s + (t.status === 'OPEN' ? 0 : (t.total_amount ?? 0)), 0)
+  const allTotals = {
+    options: sumRealized(allOptionRows),
+    equity: sumRealized(allEquityRows),
+    income: sumRealized(allIncomeRows),
+  }
+  const allUnrealized = allOptionRows.reduce((s, t) => s + (t.status === 'OPEN' ? (t.total_amount ?? 0) : 0), 0)
+  const allColumns = ALL_COLUMNS.map((c) => (c.key !== 'total_amount' ? c : {
+    ...c,
+    render: (row) => {
+      const val = row.total_amount
+      if (val == null) return row.status === 'OPEN' && allQuotesLoading ? 'Loading...' : '—'
+      const text = val.toLocaleString('en-US', { maximumFractionDigits: 2 })
+      return <span className={val > 0 ? 'cell-positive' : val < 0 ? 'cell-negative' : ''}>{text}</span>
+    },
+  }))
+  const usd = (v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
   return (
     <div className="page">
@@ -415,9 +547,103 @@ export default function Transactions() {
         >
           Equity &amp; Futures
         </button>
+        <button
+          type="button"
+          className={`tab-item ${tab === 'all' ? 'active' : ''}`}
+          onClick={() => setTab('all')}
+        >
+          All
+        </button>
       </div>
 
-      {tab === 'options' ? (
+      {tab === 'all' ? (
+        <>
+          <div className="card">
+            <form onSubmit={handleAllSearch}>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Ticker / Futures Root</label>
+                  <input
+                    type="text"
+                    value={ticker}
+                    onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                    placeholder="e.g. AAPL, ES (blank = all)"
+                    className="input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>From Date</label>
+                  <input type="date" value={allStartDate} onChange={(e) => setAllStartDate(e.target.value)} className="input" />
+                </div>
+                <div className="form-group">
+                  <label>To Date</label>
+                  <input type="date" value={allEndDate} onChange={(e) => setAllEndDate(e.target.value)} className="input" />
+                </div>
+              </div>
+
+              <div className="form-actions">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={allShowRealized}
+                    disabled={allShowRealized && !allShowUnrealized}
+                    onChange={(e) => { touched.current.allView = true; setAllShown([e.target.checked, allShowUnrealized]) }}
+                    className="toggle-checkbox"
+                  />
+                  <span>Realized Gains</span>
+                </label>
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={allShowUnrealized}
+                    disabled={allShowUnrealized && !allShowRealized}
+                    onChange={(e) => { touched.current.allView = true; setAllShown([allShowRealized, e.target.checked]) }}
+                    className="toggle-checkbox"
+                  />
+                  <span>Unrealized Gains</span>
+                </label>
+                <label className="toggle-label" title="Dividends, interest and fees — for the whole account, so not with a ticker">
+                  <input
+                    type="checkbox"
+                    checked={includeIncome}
+                    onChange={(e) => setIncludeIncome(e.target.checked)}
+                    className="toggle-checkbox"
+                  />
+                  <span>Income &amp; Fees</span>
+                </label>
+                <button type="submit" className="btn btn-primary" disabled={allLoading}>
+                  Search Transactions
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {allError && <div className="alert error">{allError}</div>}
+          {allLoading && <Spinner />}
+
+          {allData && !allLoading && (
+            allRows.length === 0 ? (
+              <div className="alert warning">No transactions found for the given criteria.</div>
+            ) : (
+              <div className="card">
+                <div className="section-header">
+                  <h3 className="section-title">Transactions</h3>
+                  <span className="summary-line">
+                    {allRows.length} records &nbsp;|&nbsp; Total: {usd(allTotals.options + allTotals.equity + allTotals.income)}
+                    {' '}(Options {usd(allTotals.options)} · Equity &amp; futures {usd(allTotals.equity)}
+                    {allIncomeRows.length > 0 && <> · Income &amp; fees {usd(allTotals.income)}</>})
+                    {allShowUnrealized && <>&nbsp;|&nbsp; Unrealized Gain: {usd(allUnrealized)}</>}
+                  </span>
+                  <DownloadCsvButton
+                    onClick={() => downloadCsv(`all-transactions_${allStartDate}_to_${allEndDate}.csv`, ALL_COLUMNS, allRows)}
+                  />
+                </div>
+                <DataTable data={allRows} columns={allColumns} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+              </div>
+            )
+          )}
+        </>
+      ) : tab === 'options' ? (
         <>
           <div className="card">
             <form onSubmit={handleSearch}>
