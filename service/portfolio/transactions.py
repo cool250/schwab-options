@@ -164,7 +164,8 @@ class TransactionService:
         return sorted((r for r in rows if start_date <= r["date"] <= end_date), key=lambda r: r["date"])
 
     def get_equity_transactions(self, stock_ticker: str, start_date: str, end_date: str,
-                                 asset_type: str = "ALL", realized_gains_only: bool = False) -> List[Dict]:
+                                 asset_type: str = "ALL", realized_gains_only: bool = False,
+                                 all_open: bool = False) -> List[Dict]:
         """
         Fetch FIFO-matched buy/sell round-trips for equities and outright futures
         contracts (i.e. the underlying instrument itself, not options on it).
@@ -179,6 +180,9 @@ class TransactionService:
             end_date (str): End date in YYYY-MM-DD format
             asset_type (str, optional): "EQUITY", "FUTURE", or "ALL". Defaults to "ALL"
             realized_gains_only (bool, optional): If True, only return closed round-trips.
+            all_open (bool, optional): Also return every lot still open, however
+                long ago it was opened (Positions' futures). Otherwise a trade is
+                returned only when it was opened or closed in the range.
 
         Returns:
             list: [{"date" (opened), "close_date", "symbol", "asset_type", "quantity",
@@ -222,18 +226,22 @@ class TransactionService:
             # A negative-quantity unmatched *futures* leg is most likely a
             # closing trade whose opening fill fell outside the lookback window
             # above (futures tags are unreliable, so the matcher queues it by
-            # sign) — its own date is the close date, so use that for range
-            # filtering; otherwise a stale close from last year leaks through.
+            # sign) — its own date is the close date, not an open date.
             # Stock fills follow their reliable OPENING/CLOSING tags: a
             # negative open stock lot is a real short (open, no close date),
             # and a close with no open comes back with its own close_date.
             is_futures_orphan = trade.get("quantity", 0) < 0 and trade["asset_type"] != "EQUITY"
             close_date_str = trade.get("close_date") or (trade["date"] if is_futures_orphan else "")
-            if close_date_str:
-                close_date = get_date_object(close_date_str)
-                if not (get_date_object(start_date) <= close_date <= get_date_object(end_date)):
-                    continue
-            elif realized_gains_only:
+            open_date_str = "" if is_futures_orphan else (trade.get("date") or "")
+            # Realized P&L belongs to the range it was closed in; otherwise a
+            # trade shows when it was opened or closed in the range — a lot
+            # opened before the range and still open isn't listed.
+            if realized_gains_only:
+                in_range = bool(close_date_str) and self._in_range(close_date_str, start_date, end_date)
+            else:
+                in_range = any(d and self._in_range(d, start_date, end_date)
+                               for d in (open_date_str, close_date_str))
+            if not in_range and not (all_open and not trade["closed"]):
                 continue
             # FIFO matching above stays keyed on the exact contract symbol (each
             # expiration is a distinct instrument); only the displayed symbol is
@@ -243,3 +251,7 @@ class TransactionService:
 
         results.sort(key=lambda r: r.get("close_date") or r["date"])
         return results
+
+    @staticmethod
+    def _in_range(date_str: str, start_date: str, end_date: str) -> bool:
+        return get_date_object(start_date) <= get_date_object(date_str) <= get_date_object(end_date)

@@ -154,7 +154,8 @@ class PositionService:
         # A failure propagates (502/503): this is the position list itself,
         # and must not read as "no open futures".
         trades = TransactionService().get_equity_transactions(
-            "", start_date, end_date, asset_type="FUTURE", realized_gains_only=False
+            "", start_date, end_date, asset_type="FUTURE", realized_gains_only=False,
+            all_open=True,
         )
 
         by_symbol: dict[str, dict] = {}

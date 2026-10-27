@@ -140,7 +140,7 @@ def test_short_sale_opening_while_long_is_a_new_short(make_service):
         {**equity_leg("2026-03-02", "SPY", 400, 680.0), "position_effect": "OPENING"},
         {**equity_leg("2026-04-16", "SPY", -500, 683.0), "position_effect": "OPENING"},
     ])
-    rows = svc.get_equity_transactions("", "2026-10-01", "2026-10-31", "ALL", realized_gains_only=False)
+    rows = svc.get_equity_transactions("", "2026-03-01", "2026-10-31", "ALL", realized_gains_only=False)
     assert sorted(r["quantity"] for r in rows if r["status"] == "OPEN") == [-500, 400]
     assert not [r for r in rows if r["status"] == "CLOSED"]
 
@@ -163,3 +163,22 @@ def test_shares_assigned_and_sold_the_same_day_close_each_other(make_service):
     rows = svc.get_equity_transactions("", "2025-01-01", "2025-01-31", "ALL", realized_gains_only=False)
     assert [(r["status"], r["quantity"]) for r in rows] == [("CLOSED", 200)]
     assert rows[0]["total_amount"] == pytest.approx(402.0)
+
+
+def test_only_trades_opened_or_closed_in_the_range_are_listed(make_service):
+    # A lot opened before the range and still open isn't listed; one opened
+    # in the range is, and so is a round-trip opened before it but closed in it.
+    svc = make_service(equity_legs=[
+        {**equity_leg("2026-01-05", "SPY", 100, 600.0), "position_effect": "OPENING"},
+        {**equity_leg("2026-02-02", "QQQ", 100, 500.0), "position_effect": "OPENING"},
+        {**equity_leg("2026-10-06", "QQQ", -100, 520.0), "position_effect": "CLOSING"},
+        {**equity_leg("2026-10-07", "IWM", 100, 250.0), "position_effect": "OPENING"},
+    ])
+    rows = svc.get_equity_transactions("", "2026-10-01", "2026-10-31", "ALL", realized_gains_only=False)
+    assert sorted((r["symbol"], r["status"]) for r in rows) == [("IWM", "OPEN"), ("QQQ", "CLOSED")]
+
+
+def test_all_open_keeps_lots_opened_before_the_range(make_service):
+    svc = make_service(equity_legs=[equity_leg("2026-01-05", "/ESZ26:XCME", 1, 6000.0, asset_type="FUTURE")])
+    rows = svc.get_equity_transactions("", "2026-10-01", "2026-10-31", "FUTURE", all_open=True)
+    assert [(r["symbol"], r["quantity"]) for r in rows] == [("ES", 1)]
