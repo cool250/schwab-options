@@ -4,6 +4,7 @@ import { getAppConfig, getOptionTransactions, getOptionBids, getEquityTransactio
 import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
 import { formatDate } from '../utils/dateFormat'
 import { formatOptionSymbol } from '../utils/optionSymbol'
+import { money } from '../utils/numberFormat'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 
@@ -32,10 +33,24 @@ const OPTION_COLUMNS = [
   { key: 'open_type',     label: 'Opened As' },
   { key: 'qty',           label: 'Quantity',     align: 'right' },
   { key: 'open_price',     label: 'Cost basis',  align: 'right' },
+  { key: 'initial_premium', label: 'Initial Premium', align: 'right', render: (row) => money(row.initial_premium) },
   { key: 'close_price',   label: 'Closing Price',  align: 'right' },
   { key: 'total_amount',     label: 'Total Gain/Loss ($)',  align: 'right' },
   { key: 'type',     label: 'Status' },
 ]
+
+// The dollars a leg opened for, credit positive — as Positions' Initial
+// Premium. A still-open leg's amount is signed (short negative); a matched
+// one's is a plain count, its direction in open_type. A grouped ratio spread's
+// open_price is already the net over both sides (short minus long), and a
+// close whose opening fill isn't on record has no premium to show.
+function initialPremium(t) {
+  const mult = getMultiplier(t.underlying_symbol)
+  if (typeof t.amount === 'string') return t.open_price == null ? null : t.open_price * mult
+  if (t.type === 'TRADE') return t.position_effect === 'OPENING' ? t.open_price * -t.amount * mult : null
+  if (t.position_effect !== 'MATCHED' || !t.open_type) return null
+  return t.open_price * Math.abs(t.amount) * mult * (t.open_type === 'STO' ? 1 : -1)
+}
 
 const EQUITY_COLUMNS = [
   { key: 'symbol',       label: 'Symbol' },
@@ -153,9 +168,12 @@ export default function Transactions() {
   const cachedOptions = null
   const cachedEquity = null
 
-  // One ticker for both tabs: typed on either, it's there on the other
-  // (both searches accept a stock ticker or a futures root, with or without "/").
+  // One ticker and one date range for every tab: set on any, they're there
+  // on the others (each search accepts a stock ticker or a futures root,
+  // with or without "/"). A link's ?start=/?end= set them whatever its tab.
   const [ticker, setTicker] = useState(searchParams.get('ticker')?.toUpperCase() ?? '')
+  const [startDate, setStartDate] = useState(() => searchParams.get('start') ?? firstOfMonth())
+  const [endDate, setEndDate] = useState(() => searchParams.get('end') ?? todayStr())
 
   // ---- Option transactions ----
   const [contractType, setContractType] = useState(cachedOptions?.contractType ?? 'ALL')
@@ -171,12 +189,6 @@ export default function Transactions() {
     const unrealized = unrealizedParam ? unrealizedParam === 'true' : cachedOptions?.showUnrealized ?? false
     return realized || unrealized ? [realized, unrealized] : [true, true]
   })
-  const [startDate, setStartDate] = useState(() => (
-    initialTab === 'options' ? (searchParams.get('start') ?? cachedOptions?.startDate ?? firstOfMonth()) : (cachedOptions?.startDate ?? firstOfMonth())
-  ))
-  const [endDate, setEndDate] = useState(() => (
-    initialTab === 'options' ? (searchParams.get('end') ?? cachedOptions?.endDate ?? todayStr()) : (cachedOptions?.endDate ?? todayStr())
-  ))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [transactions, setTransactions] = useState(cachedOptions?.transactions ?? null)
@@ -279,10 +291,10 @@ export default function Transactions() {
           runSearch(ticker, startDate, endDate, contractType, ignoreFutures, grouping, realized, unrealized)
         }
         if (initialTab === 'equity' && fromLink) {
-          runEquitySearch(ticker, equityStartDate, equityEndDate, assetType, equityRealized)
+          runEquitySearch(ticker, startDate, endDate, assetType, equityRealized)
         }
         if (initialTab === 'all' && fromLink) {
-          runAllSearch(ticker, allStartDate, allEndDate, allRealized, allUnrealized, includeIncome, grouping)
+          runAllSearch(ticker, startDate, endDate, allRealized, allUnrealized, includeIncome, grouping)
         }
       })
     return () => { cancelled = true }
@@ -302,7 +314,7 @@ export default function Transactions() {
   // auto-colors any field whose name contains "amount" as a gain/loss, and
   // a quantity isn't one.
   const optionRows = (transactions ?? []).map((raw) => {
-    const t = { ...raw, qty: raw.amount }
+    const t = { ...raw, qty: raw.amount, initial_premium: initialPremium(raw) }
     if (t.type !== 'TRADE') return t
     const price = optionQuotes[t.symbol]
     if (price == null) return { ...t, total_amount: null }
@@ -379,12 +391,6 @@ export default function Transactions() {
   const [equityRealizedOnly, setEquityRealizedOnly] = useState(
     initialTab === 'equity' && searchParams.get('realized') ? searchParams.get('realized') !== 'false' : cachedEquity?.realizedOnly ?? true
   )
-  const [equityStartDate, setEquityStartDate] = useState(() => (
-    initialTab === 'equity' ? (searchParams.get('start') ?? cachedEquity?.startDate ?? firstOfMonth()) : (cachedEquity?.startDate ?? firstOfMonth())
-  ))
-  const [equityEndDate, setEquityEndDate] = useState(() => (
-    initialTab === 'equity' ? (searchParams.get('end') ?? cachedEquity?.endDate ?? todayStr()) : (cachedEquity?.endDate ?? todayStr())
-  ))
   const [equityLoading, setEquityLoading] = useState(false)
   const [equityError, setEquityError] = useState(null)
   const [equityTransactions, setEquityTransactions] = useState(cachedEquity?.transactions ?? null)
@@ -405,7 +411,7 @@ export default function Transactions() {
 
   function handleEquitySearch(e) {
     e.preventDefault()
-    runEquitySearch(ticker, equityStartDate, equityEndDate, assetType, equityRealizedOnly)
+    runEquitySearch(ticker, startDate, endDate, assetType, equityRealizedOnly)
   }
 
   // Either way — an open lot (no close yet) or a close with no open on
@@ -415,8 +421,8 @@ export default function Transactions() {
   const equityTotalAmount = equityRows.reduce((s, t) => s + (t.total_amount ?? 0), 0)
 
   // ---- All: options + equity & futures (+ income and fees) ----
-  // Its own dates and realized/unrealized boxes, like the other tabs; the
-  // ticker is shared. A link from Reports sets them (?tab=all, and
+  // Its own realized/unrealized boxes, like the other tabs; the ticker and
+  // dates are shared. A link from Reports sets them (?tab=all, and
   // ?income=true when it came from the running total, which counts
   // dividends, interest and fees).
   const [[allShowRealized, allShowUnrealized], setAllShown] = useState(() => {
@@ -427,8 +433,6 @@ export default function Transactions() {
     return realized || unrealized ? [realized, unrealized] : [true, true]
   })
   const [includeIncome, setIncludeIncome] = useState(initialTab === 'all' ? searchParams.get('income') === 'true' : false)
-  const [allStartDate, setAllStartDate] = useState(() => (initialTab === 'all' ? searchParams.get('start') ?? firstOfMonth() : firstOfMonth()))
-  const [allEndDate, setAllEndDate] = useState(() => (initialTab === 'all' ? searchParams.get('end') ?? todayStr() : todayStr()))
   const [allLoading, setAllLoading] = useState(false)
   const [allError, setAllError] = useState(null)
   const [allData, setAllData] = useState(null) // { options, equity, income }
@@ -474,7 +478,7 @@ export default function Transactions() {
 
   function handleAllSearch(e) {
     e.preventDefault()
-    runAllSearch(ticker, allStartDate, allEndDate, allShowRealized, allShowUnrealized, includeIncome, ignoreGrouping)
+    runAllSearch(ticker, startDate, endDate, allShowRealized, allShowUnrealized, includeIncome, ignoreGrouping)
   }
 
   // One row shape for all three. An open option leg is priced at its live
@@ -562,11 +566,11 @@ export default function Transactions() {
                 </div>
                 <div className="form-group">
                   <label>From Date</label>
-                  <input type="date" value={allStartDate} onChange={(e) => setAllStartDate(e.target.value)} className="input" />
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input" />
                 </div>
                 <div className="form-group">
                   <label>To Date</label>
-                  <input type="date" value={allEndDate} onChange={(e) => setAllEndDate(e.target.value)} className="input" />
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="input" />
                 </div>
               </div>
 
@@ -624,7 +628,7 @@ export default function Transactions() {
                     {allShowUnrealized && <>&nbsp;|&nbsp; Unrealized Gain: {usd(allUnrealized)}</>}
                   </span>
                   <DownloadCsvButton
-                    onClick={() => downloadCsv(`all-transactions_${allStartDate}_to_${allEndDate}.csv`, ALL_COLUMNS, allRows)}
+                    onClick={() => downloadCsv(`all-transactions_${startDate}_to_${endDate}.csv`, ALL_COLUMNS, allRows)}
                   />
                 </div>
                 <DataTable data={allRows} columns={allColumns} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
@@ -765,11 +769,11 @@ export default function Transactions() {
                 </div>
                 <div className="form-group">
                   <label>From Date</label>
-                  <input type="date" value={equityStartDate} onChange={(e) => setEquityStartDate(e.target.value)} className="input" />
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input" />
                 </div>
                 <div className="form-group">
                   <label>To Date</label>
-                  <input type="date" value={equityEndDate} onChange={(e) => setEquityEndDate(e.target.value)} className="input" />
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="input" />
                 </div>
               </div>
 
@@ -805,7 +809,7 @@ export default function Transactions() {
                       {equityRows.length} records &nbsp;|&nbsp; Total: ${equityTotalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                     <DownloadCsvButton
-                      onClick={() => downloadCsv(`equity-transactions_${equityStartDate}_to_${equityEndDate}.csv`, EQUITY_COLUMNS, equityRows)}
+                      onClick={() => downloadCsv(`equity-transactions_${startDate}_to_${endDate}.csv`, EQUITY_COLUMNS, equityRows)}
                     />
                   </div>
                   <DataTable data={equityRows} columns={EQUITY_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
