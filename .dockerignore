@@ -3,6 +3,7 @@
 .env
 .env.*
 token.json
+schwab_tokens/
 config.py
 
 # Rebuilt inside the image
