@@ -27,7 +27,7 @@ def group_ratio_spreads(trades: List[Dict]) -> List[Dict]:
     directly and it must mean the same thing on every row. The record
     also carries a `"legs"` list of the original member records, and
     `total_amount`/`close_date` rolled up across the group. `open_price`
-    ("Cost basis" in the UI) and `close_price` ("Closing Price") are each
+    ("Trade Price" in the UI) and `close_price` ("Closing Price") are each
     the short side's quantity-weighted price minus the long side's —
     same net convention as group_open_ratio_spreads' net_trade_price —
     rather than left null, which is what the UI showed before for every
@@ -135,7 +135,7 @@ def group_ratio_spreads(trades: List[Dict]) -> List[Dict]:
         # down to a single contract (there's no single "quantity" to
         # divide by once the two sides differ, same reason the group's
         # own "quantity" column shows a ratio like "1:2" rather than a
-        # plain number). Without this the UI's Cost Basis/Closing Price
+        # plain number). Without this the UI's Trade Price/Closing Price
         # columns were blank for every grouped ratio-spread row.
         net_open_price = (short_qty * _weighted_price("open_price", short_legs)
                            - long_qty * _weighted_price("open_price", long_legs))
