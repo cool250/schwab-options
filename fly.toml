@@ -19,6 +19,9 @@ primary_region = 'iad'
   source = 'data'
   destination = '/data'
 
+# Run one machine only: the failed-login limits (api/login_limits.py) and the
+# Schwab token cache live in process memory, and SQLite on the /data volume
+# can't be shared — a second machine would split the limits and the data.
 [http_service]
   internal_port = 8080
   force_https = true

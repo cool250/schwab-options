@@ -54,6 +54,7 @@ from broker.schwab.auth import require_token_owner
 from api.copilot import router as copilot_router
 from api.market import router as market_router, stream_router as market_stream_router
 from api.portfolio import router as portfolio_router
+from api.security import api_docs_urls, install_log_redaction, install_security_headers
 from utils.app_config import get_config, public_config
 
 
@@ -88,11 +89,19 @@ class _SPAStaticFiles(StaticFiles):
         return response
 
 
+# The interactive API docs are off in production (api/security.py).
 app = FastAPI(
     title="Options Wheel API",
     version="1.0.0",
     description="REST API for the Options Wheel trading application.",
+    **api_docs_urls(),
 )
+
+# Login tokens never reach the logs (the WebSocket's ?token=), and every
+# response carries the security headers (api/security.py).
+install_log_redaction()
+_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+install_security_headers(app, _dist / "index.html")
 
 
 @app.exception_handler(BrokerAuthError)
@@ -161,6 +170,5 @@ app.include_router(copilot_router, prefix="/api/copilot", tags=["Copilot"], depe
 
 # Serve the React SPA from frontend/dist when it has been built (production).
 # This mount must come AFTER all API routers so API routes take priority.
-_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _dist.is_dir():
     app.mount("/", _SPAStaticFiles(directory=str(_dist), html=True), name="frontend")

@@ -31,6 +31,12 @@ export function LoginCard({ onSuccess, onClose }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       })
+      if (res.status === 429) {
+        // api/login_limits.py: logins paused after repeated failures.
+        const minutes = Math.max(1, Math.ceil(Number(res.headers.get('Retry-After')) / 60) || 15)
+        setError(`Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`)
+        return
+      }
       if (!res.ok) {
         setError('Invalid username or password.')
         return

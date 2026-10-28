@@ -8,13 +8,14 @@ import time
 import base64
 from datetime import datetime, timezone
 from urllib.parse import urlencode
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from api import users
 from api.users import User
+from api.login_limits import limiter as login_limiter
 from broker.schwab.auth.authenticate import build_authorize_url, exchange_authorization_code
 from broker.request_context import set_selected_account, set_selected_broker
 from broker.schwab.auth.token_provider import create_token_provider, set_token_owner
@@ -122,17 +123,41 @@ class LoginRequest(BaseModel):
     password: str
 
 
+def _client_ip(request: Request) -> Optional[str]:
+    # Fly's edge sets Fly-Client-IP itself (a client can't supply it);
+    # X-Forwarded-For can carry client-written entries, so it isn't used.
+    return request.headers.get("fly-client-ip") or (request.client.host if request.client else None)
+
+
+def _raise_if_throttled(username: str, ip: Optional[str]) -> None:
+    # Repeated failures for a username or from an address pause password
+    # checks there for a while (api/login_limits.py) — checked before the
+    # password, so a throttled guess is never tested.
+    wait = login_limiter.retry_after(username, ip)
+    if wait:
+        logger.warning("Password check throttled for a username/address after repeated failures")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed password attempts. Try again later.",
+            headers={"Retry-After": str(wait)},
+        )
+
+
 @router.post("/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
+    ip = _client_ip(request)
+    _raise_if_throttled(req.username, ip)
     # users.authenticate takes the same time for an unknown username as for
     # a wrong password, and treats a disabled account as invalid — the
     # response never reveals which of the three it was.
     user = users.authenticate(req.username, req.password)
     if user is None:
+        login_limiter.record_failure(req.username, ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
+    login_limiter.record_success(req.username)
     return {"token": _make_token(user.id), "user": user.public()}
 
 
@@ -170,11 +195,17 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/password")
-def change_password(req: ChangePasswordRequest, user: User = Depends(require_auth)):
+def change_password(req: ChangePasswordRequest, request: Request, user: User = Depends(require_auth)):
     """Change your own password. Signs out your other sessions; returns a
     fresh token so this one stays logged in."""
+    # Throttled like login, sharing its counts: a stolen session token must
+    # not become a way to guess the current password and lock the owner out.
+    ip = _client_ip(request)
+    _raise_if_throttled(user.username, ip)
     if users.authenticate(user.username, req.currentPassword) is None:
+        login_limiter.record_failure(user.username, ip)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    login_limiter.record_success(user.username)
     try:
         users.set_password(user.id, req.newPassword)
     except ValueError as e:

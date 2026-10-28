@@ -194,6 +194,18 @@ the broker's first when none is chosen or the chosen one is no longer
 authorized. Full account numbers never go to the browser: it gets a masked
 label and the provider's opaque id.
 
+Failed logins are throttled per username (5) and per client IP (20, from
+Fly's `Fly-Client-IP`, never `X-Forwarded-For`) over 15 minutes, answered
+with 429 + `Retry-After` before the password is checked
+(`api/login_limits.py`, in memory — one process). `POST /api/auth/password`
+shares those counts, so a stolen session can't guess the current password. Every HTTP response gets
+security headers from `api/security.py`, including a CSP that allows
+inline scripts only by hash (computed from `frontend/dist/index.html` at
+startup — so a new inline script there needs no manual hash, but anything
+loaded from another origin must be added to the CSP). Uvicorn's log lines
+have `?token=` redacted, and `/docs`/`/openapi.json` are off when
+`FLY_APP_NAME` is set (production).
+
 REST routes use `Depends(require_auth)` (Bearer header).
 The Schwab OAuth reconnect (`/api/auth/schwab/start|callback|status`, used
 by Settings) is the one exception to Bearer auth on the callback: Schwab's
