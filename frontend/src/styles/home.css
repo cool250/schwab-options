@@ -74,11 +74,11 @@
 .home-grid--wide { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
 @media (max-width: 960px) { .home-grid, .home-grid--wide { grid-template-columns: minmax(0, 1fr); } }
 /* The watchlist: every column the same width (fixed layout splits the
-   table evenly) and fitting its narrow card — tighter side padding only;
-   row height and type stay the shared DataTable's. */
+   table evenly) and fitting its narrow card. Cell padding stays the shared
+   DataTable's, like every other table. */
 .home-compact-table .data-table { table-layout: fixed; width: 100%; min-width: 0; }
 .home-compact-table .data-table th, .home-compact-table .data-table td {
-  padding-left: 6px; padding-right: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .home-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
