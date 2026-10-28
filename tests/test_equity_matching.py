@@ -182,3 +182,18 @@ def test_all_open_keeps_lots_opened_before_the_range(make_service):
     svc = make_service(equity_legs=[equity_leg("2026-01-05", "/ESZ26:XCME", 1, 6000.0, asset_type="FUTURE")])
     rows = svc.get_equity_transactions("", "2026-10-01", "2026-10-31", "FUTURE", all_open=True)
     assert [(r["symbol"], r["quantity"]) for r in rows] == [("ES", 1)]
+
+
+def test_futures_delivered_at_different_strikes_stay_separate_lots(make_service):
+    # Calls exercised the same day at two strikes: each delivery keeps its
+    # own strike as its price rather than one averaged lot.
+    es = dict(asset_type="FUTURE", multiplier=50)
+    svc = make_service(equity_legs=[
+        equity_leg("2026-10-23", "/ESZ26:XCME", 1, 7750.0, **es),
+        equity_leg("2026-10-23", "/ESZ26:XCME", 4, 7700.0, **es),
+        equity_leg("2026-10-27", "/ESZ26:XCME", -4, 7700.0, **es),
+        equity_leg("2026-10-27", "/ESZ26:XCME", -1, 7750.0, **es),
+    ])
+    rows = svc.get_equity_transactions("", "2026-10-01", "2026-10-31", "FUTURE")
+    assert sorted(r["close_price"] for r in rows) == [7700.0, 7700.0, 7750.0]
+    assert sum(r["total_amount"] for r in rows) == pytest.approx(0.0)

@@ -30,6 +30,9 @@
 .report-kpi-sub { font-size: 0.78rem; color: var(--text-muted); }
 /* A second line in a sub, e.g. Unrealized P&L's max at expiry. */
 .report-kpi-subline { display: block; margin-top: 2px; }
+/* Total P&L's YTD split: two kinds side by side per line (Equity |
+   Equity options, Futures | Futures options), columns aligned. */
+.report-kpi-subline.report-kpi-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; white-space: nowrap; }
 /* Trades tile: "3 closed · 13 expired · 2 assigned", wrapping inside the
    tile when the row is tight. */
 .report-kpi-breakdown { display: flex; flex-wrap: wrap; gap: 0 6px; white-space: nowrap; }

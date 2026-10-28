@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAllocations, getEquityTransactions, getIncomeAndFees, getOptionTransactions, getOptionBids, friendlyErrorMessage } from '../api/client'
 import { loadOpenPositionsPl } from '../utils/openPositions'
-import { getMultiplier } from '../utils/contractMultiplier'
+import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
 import {
   KpiStrip, MonthCalendar, DailyRunChart, SymbolTable,
@@ -62,6 +62,19 @@ function normalizeEquityRows(rows) {
 // showing up as $2,800 "P&L" for a month it was never closed in.
 function normalizeOptionRows(rows) {
   return rows.map((t) => (t.type === 'TRADE' ? { ...t, total_amount: 0 } : t))
+}
+
+// Realized P&L by kind: shares, equity options, futures, futures options.
+function plSplit(optionTrades, equityTrades) {
+  const sum = (rows) => rows.reduce((s, t) => s + (t.total_amount ?? 0), 0)
+  const futuresOption = (t) => isFuturesRoot(t.underlying_symbol)
+  const future = (t) => t.asset_type === 'FUTURE'
+  return {
+    equity: sum(equityTrades.filter((t) => !future(t))),
+    equityOptions: sum(optionTrades.filter((t) => !futuresOption(t))),
+    futures: sum(equityTrades.filter(future)),
+    futuresOptions: sum(optionTrades.filter(futuresOption)),
+  }
 }
 
 // { income, fees, incomeBy, feesBy } of getIncomeAndFees rows — totals, and
@@ -289,6 +302,7 @@ export default function Reports() {
       stats: tradeStats(optionTrades),
       prevStats: report.prevOptionRows ? tradeStats(closedTrades(report.prevOptionRows)) : null,
       equityNet: tradeStats(equityTrades).net,
+      split: plSplit(optionTrades, equityTrades),
       prevEquityNet: report.prevEquityRows ? tradeStats(closedTrades(report.prevEquityRows, { dropZero: true })).net : null,
       incomeFees: incomeFeeTotals(report.incomeFees),
       prevIncomeFees: incomeFeeTotals(report.prevIncomeFees),
@@ -419,6 +433,7 @@ export default function Reports() {
             prevName={report.prevName}
             netNote={isMonth ? null : allPositiveMonths}
             extraNet={derived.equityNet}
+            split={isMonth ? null : derived.split}
             prevExtraNet={derived.prevEquityNet}
             incomeFees={derived.incomeFees}
             prevIncomeFees={derived.prevIncomeFees}

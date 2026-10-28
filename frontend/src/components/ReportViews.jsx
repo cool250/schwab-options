@@ -129,13 +129,15 @@ const keyActivate = (fn) => (e) => {
  * stats: tradeStats() of this period's options. prev: the same for the
  * comparison period (or null). extraNet: this period's equity/futures P&L;
  * prevExtraNet: the comparison period's (null when it didn't load). The
- * lead tile is the total of both, with each part on its own line below.
+ * lead tile is the total of both, with each part on its own line below —
+ * or, given split (YTD): { equity, equityOptions, futures, futuresOptions },
+ * one line per kind instead.
  * incomeFees / prevIncomeFees: { income, fees } dividends + interest and
  * trading fees (signed) of this / the comparison period, or null when they
  * didn't load — the total adds them, each on its own line.
  * unrealized (YTD, current year): { loading, data, failed } from
- * loadOpenPositionsPl() — once loaded, the total adds it and it gets its own
- * tile broken down by stocks / options / futures.
+ * loadOpenPositionsPl() — its own tile, broken down by stocks / options /
+ * futures, and never added to Total P&L, which is realized only.
  */
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -186,12 +188,11 @@ function CategoryLines({ byCategory, lines }) {
  *  Unrealized option P&L column beside Total P&L (live prices), with their count. */
 export function KpiStrip({
   stats, prev, prevName, netNote, extraNet = 0, prevExtraNet = null,
-  incomeFees = null, prevIncomeFees = null, open = null, unrealized = null,
+  incomeFees = null, prevIncomeFees = null, open = null, unrealized = null, split = null,
 }) {
   const cashNet = (x) => (x ? x.income + x.fees : 0)
-  const realized = stats.net + extraNet + cashNet(incomeFees)
+  const total = stats.net + extraNet + cashNet(incomeFees)
   const openPl = unrealized?.data ?? null
-  const total = realized + (openPl?.total ?? 0)
   // Like for like: income and fees count on both sides or neither.
   const both = incomeFees && prevIncomeFees
   const delta = prev && prevExtraNet != null
@@ -208,12 +209,21 @@ export function KpiStrip({
           {delta != null
             ? <><span className={signClass(delta)}>{delta >= 0 ? '▲' : '▼'} {usd(Math.abs(delta))}</span> vs {prevName}</>
             : netNote}
-          <span className="report-kpi-subline">Options <span className={signClass(stats.net)}>{usd(stats.net)}</span></span>
-          <span className="report-kpi-subline">Equity &amp; futures <span className={signClass(extraNet)}>{usd(extraNet)}</span></span>
+          {split
+            ? [
+                [['Equity', split.equity], ['Equity options', split.equityOptions]],
+                [['Futures', split.futures], ['Futures options', split.futuresOptions]],
+              ].map((pair) => (
+                <span key={pair[0][0]} className="report-kpi-subline report-kpi-pair">
+                  {pair.map(([label, v]) => (
+                    <span key={label}>{label} <span className={signClass(v)}>{usd(v)}</span></span>
+                  ))}
+                </span>
+              ))
+            : [['Options', stats.net], ['Equity & futures', extraNet]].map(([label, v]) => (
+                <span key={label} className="report-kpi-subline">{label} <span className={signClass(v)}>{usd(v)}</span></span>
+              ))}
           {incomeFees && <span className="report-kpi-subline">Income &amp; fees <span className={signClass(cashNet(incomeFees))}>{usd(cashNet(incomeFees))}</span></span>}
-          {unrealized && (
-            <span className="report-kpi-subline">Unrealized <span className={signClass(openPl?.total)}>{unrealizedText}</span></span>
-          )}
         </>
       ),
       hero: true,

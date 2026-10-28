@@ -23,11 +23,17 @@ def combine_equity_lots(trades: List[Dict]) -> List[Dict]:
     (OPENING) are different lots. Merged, the cover became an opening buy
     and every later fill paired with the wrong lot (an account short 1,300
     SPY read as long 400).
+
+    Futures fills are kept apart by price: same-day deliveries from options
+    exercised at different strikes (4 at 7,700 and 1 at 7,750) are separate
+    trades, and averaged into one lot at 7,710 neither strike showed.
     """
     grouped = defaultdict(list)
     for trade in trades:
-        effect = trade.get("position_effect") if trade.get("asset_type") == "EQUITY" else None
-        key = (trade["date"], trade["symbol"], trade["amount"] > 0, effect)
+        is_equity = trade.get("asset_type") == "EQUITY"
+        effect = trade.get("position_effect") if is_equity else None
+        price = None if is_equity else trade["price"]
+        key = (trade["date"], trade["symbol"], trade["amount"] > 0, effect, price)
         grouped[key].append(trade)
 
     combined = []
