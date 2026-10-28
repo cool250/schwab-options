@@ -106,6 +106,7 @@ ADMIN_PASSWORD=pick-a-password
 OPENAI_API_KEY=sk-...           # only needed for the Copilot chat feature
 OPENAI_MODEL=gpt-4o             # defaults to gpt-4o if unset
 FRED_API_KEY=...                # Home's Upcoming events: CPI / jobs / PCE dates (free key from fred.stlouisfed.org)
+TOKEN_ENCRYPTION_KEY=...        # encrypts Schwab token files at rest — set it in production (see Token Storage)
 ```
 
 A quick way to generate `SECRET_KEY`:
@@ -460,5 +461,17 @@ Each user's Schwab OAuth token is stored as a JSON file:
 | Everyone else | `schwab_tokens/user_<id>.json` in the same folder |
 
 Files are written atomically and readable only by the app's own user (mode 0600). No extra configuration is needed locally; on Fly they're on the `/data` volume.
+
+**Encryption at rest.** With `TOKEN_ENCRYPTION_KEY` set, the files are encrypted (Fernet), so a copy of the volume — a snapshot, backup or sftp download — doesn't give access to anyone's Schwab account. Without it (fine for local development) they stay plain JSON. Set it in production as a Fly secret, generated straight into Fly so the value never appears on screen:
+
+```bash
+fly secrets set TOKEN_ENCRYPTION_KEY="$(python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+```
+
+- Existing plain files are encrypted the first time they're read after the key is set; nobody has to reconnect.
+- A plain `token.json` from `main.py` can still be uploaded by sftp — it's encrypted on first read.
+- **Losing or changing the key** makes the files unreadable: each user then sees Schwab as disconnected and reconnects from Settings. No other data is affected.
+- **Rotating:** set `TOKEN_ENCRYPTION_KEY=new,old`. The first key encrypts and either decrypts; each file is re-encrypted with the new key at its next refresh (within ~30 minutes of use). Drop the old key once every connected user has been active.
+- A malformed key stops the app at startup rather than at the first Schwab call.
 
 The access token is refreshed automatically (shortly before it expires, or on a `401`) and written back to the file. The refresh token itself expires after 7 days — reconnect from **Settings → Schwab Connection** (or, for the admin locally, re-run `main.py`).

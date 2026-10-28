@@ -50,7 +50,7 @@ from service.market.errors import UNAVAILABLE_MESSAGE, MarketDataError, SymbolNo
 from api import users
 from api.admin import router as admin_router
 from api.auth import router as auth_router, require_admin, require_auth
-from broker.schwab.auth import require_token_owner
+from broker.schwab.auth import check_token_encryption, require_token_owner
 from api.copilot import router as copilot_router
 from api.market import router as market_router, stream_router as market_stream_router
 from api.portfolio import router as portfolio_router
@@ -144,8 +144,11 @@ async def tastytrade_error_handler(request: Request, exc: TastytradeAPIError):
 # api/users.py), and every Schwab call must belong to a logged-in user —
 # require_token_owner() makes a call with no user context fail instead of
 # silently using the admin's token (broker/schwab/auth/token_provider.py).
+# Token files are encrypted at rest with TOKEN_ENCRYPTION_KEY; a malformed
+# key stops startup here.
 users.init_db()
 require_token_owner()
+check_token_encryption()
 
 # Application-level choices (config/app.properties, utils/app_config.py):
 # read now so a typo or bad value stops startup instead of the first request.

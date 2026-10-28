@@ -40,6 +40,8 @@ from contextvars import ContextVar, Token
 from typing import Optional
 from abc import ABC, abstractmethod
 
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
+
 logger = logging.getLogger(__name__)
 
 # Process-wide token cache, keyed by store (see TokenProvider._cached). Every
@@ -67,6 +69,44 @@ def get_app_credentials() -> tuple[str, str, str]:
         raise ValueError(f"Environment variables missing: {missing}")
 
     return app_key, app_secret, app_callback_url
+
+
+# ─── Encryption at rest ─────────────────────────────────────────────────
+# With TOKEN_ENCRYPTION_KEY set (a Fly secret, so never on the volume), token
+# files are Fernet-encrypted: a copy of the volume — a snapshot, a backup, an
+# sftp download — no longer gives access to anyone's brokerage account.
+# Several comma-separated keys rotate: the first encrypts, any of them
+# decrypts, and the next save (every ~30 min refresh) re-encrypts with the
+# first. Without a key (local dev, main.py) files stay plain JSON; a plain
+# file found while a key is set is encrypted in place on first read.
+
+class TokenDecryptError(ValueError):
+    """The token file can't be decrypted. A ValueError, so BaseClient treats
+    it like a missing token: the user is asked to reconnect Schwab, which
+    rewrites the file with the current key."""
+
+
+def _cipher() -> Optional[MultiFernet]:
+    keys = [k.strip() for k in os.getenv("TOKEN_ENCRYPTION_KEY", "").split(",") if k.strip()]
+    return MultiFernet([Fernet(k) for k in keys]) if keys else None
+
+
+def check_token_encryption() -> None:
+    """Called by the web app at startup: a malformed key stops startup
+    instead of the first Schwab call, and production without one is logged."""
+    if _cipher() is None and os.getenv("FLY_APP_NAME"):
+        logger.warning("TOKEN_ENCRYPTION_KEY is not set — Schwab tokens are stored unencrypted.")
+
+
+def _decrypt(raw: str) -> str:
+    cipher = _cipher()
+    if cipher is None:
+        raise TokenDecryptError("Schwab token file is encrypted but TOKEN_ENCRYPTION_KEY is not set")
+    try:
+        return cipher.decrypt(raw.strip().encode()).decode()
+    except InvalidToken:
+        raise TokenDecryptError("Schwab token file can't be decrypted with TOKEN_ENCRYPTION_KEY") from None
+
 
 class TokenProvider(ABC):
     """Abstract interface for Schwab OAuth token storage and retrieval."""
@@ -207,7 +247,19 @@ class FileTokenProvider(TokenProvider):
 
     def _read(self) -> dict:
         with open(self._file_path, "r") as f:
-            return json.load(f)
+            raw = f.read()
+        if not raw.lstrip().startswith("{"):
+            try:
+                return json.loads(_decrypt(raw))
+            except TokenDecryptError as exc:
+                logger.error("%s (%s)", exc, self._file_path)
+                raise
+        data = json.loads(raw)
+        # Plain JSON: saved before a key was set, or written by main.py.
+        if _cipher() is not None:
+            self._write(data)
+            logger.info("Encrypted the plaintext token file %s", self._file_path)
+        return data
 
     def _store_id(self) -> str:
         return f"file:{os.path.abspath(self._file_path)}"
@@ -228,21 +280,28 @@ class FileTokenProvider(TokenProvider):
 
     def save_tokens(self, token_data: dict) -> None:
         stamped = self._stamped(token_data)
+        self._write(stamped)
+        self._remember(stamped)
+        logger.debug("Tokens saved to %s", self._file_path)
+
+    def _write(self, data: dict) -> None:
         # Atomic replace: write a temp file, then swap it in, so a reader in
         # another process (or this one, on a cache miss) only ever sees the
         # old or the new file — never a truncated, half-written one. 0600:
         # the file grants access to the brokerage account.
+        cipher = _cipher()
+        content = json.dumps(data, indent=4)
+        if cipher is not None:
+            content = cipher.encrypt(content.encode()).decode()
         tmp_path = f"{self._file_path}.tmp"
         parent = os.path.dirname(os.path.abspath(self._file_path))
         os.makedirs(parent, mode=0o700, exist_ok=True)
         fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
-            json.dump(stamped, f, indent=4)
+            f.write(content)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, self._file_path)
-        self._remember(stamped)
-        logger.debug("Tokens saved to %s", self._file_path)
 
     def get_app_credentials(self) -> tuple[str, str, str]:
         return self._credentials or get_app_credentials()

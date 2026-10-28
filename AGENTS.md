@@ -220,7 +220,10 @@ Schwab tokens are served from a **process-wide in-memory cache**
 (`token_provider.py`, shared across every client's provider instance):
 token.json is re-read only when its mtime changes (so an external
 `main.py`/sftp replacement is picked up), saves are atomic (temp file +
-`os.replace`, mode 0600), and `BaseClient` refreshes the access token
+`os.replace`, mode 0600) and Fernet-encrypted when `TOKEN_ENCRYPTION_KEY`
+is set (a Fly secret; comma-separated keys rotate; a plain file is encrypted
+on first read; an undecryptable one is a `ValueError`, so it reads as
+"reconnect Schwab"), and `BaseClient` refreshes the access token
 ~60s *before* expiry, with a re-check under `_refresh_lock` so concurrent
 threads trigger one refresh. Read tokens through the provider, never by
 opening token.json directly. Each refresh logs whether Schwab rotated the
@@ -362,7 +365,7 @@ See the README's env var table for the full deployment list. The ones most
 relevant to day-to-day agent work: `SCHWAB_APP_KEY` /
 `SCHWAB_APP_SECRET` / `SCHWAB_APP_CALLBACK_URL`, `TASTY_CLIENT_ID` /
 `TASTY_CLIENT_SECRET` / `TASTY_REFRESH_TOKEN`, `OPENAI_API_KEY` /
-`OPENAI_MODEL`, `FRED_API_KEY` (optional: Home's economic release dates), `SECRET_KEY`, `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Deploy-only (Fly.io, set in `fly.toml`):
+`OPENAI_MODEL`, `FRED_API_KEY` (optional: Home's economic release dates), `TOKEN_ENCRYPTION_KEY` (Schwab token files at rest), `SECRET_KEY`, `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Deploy-only (Fly.io, set in `fly.toml`):
 `TOKEN_FILE` (where `FileTokenProvider` keeps the Schwab token — `/data/token.json`
 on the Fly volume; defaults to `token.json` in the working dir) and
 `LOG_TO_STDOUT` (mirror `logs/api.log` to stdout so `fly logs` shows it). Optional: `APP_PROPERTIES` (path to a properties file to use instead of `config/app.properties`).
