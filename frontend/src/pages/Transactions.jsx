@@ -47,8 +47,10 @@ const OPTION_COLUMNS = [
 function initialPremium(t) {
   const mult = getMultiplier(t.underlying_symbol)
   if (typeof t.amount === 'string') return t.open_price == null ? null : t.open_price * mult
-  if (t.type === 'TRADE') return t.position_effect === 'OPENING' ? t.open_price * -t.amount * mult : null
-  if (t.position_effect !== 'MATCHED' || !t.open_type) return null
+  // The matcher drops position_effect from its output; open_type (STO/BTO)
+  // is set only on a leg that opened, so a close whose open predates the
+  // history has none and shows "—".
+  if (t.open_type !== 'STO' && t.open_type !== 'BTO') return null
   return t.open_price * Math.abs(t.amount) * mult * (t.open_type === 'STO' ? 1 : -1)
 }
 
@@ -523,27 +525,41 @@ export default function Transactions() {
   }))
   const usd = (v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
+  // Switching tabs searches straight away with the fields as they stand
+  // (the ticker and dates are shared), rather than waiting for Search.
+  function switchTab(next) {
+    if (next === tab) return
+    setTab(next)
+    if (next === 'options') {
+      runSearch(ticker, startDate, endDate, contractType, ignoreFutures, ignoreGrouping, showRealized, showUnrealized)
+    } else if (next === 'equity') {
+      runEquitySearch(ticker, startDate, endDate, assetType, equityRealizedOnly)
+    } else {
+      runAllSearch(ticker, startDate, endDate, allShowRealized, allShowUnrealized, includeIncome, ignoreGrouping)
+    }
+  }
+
   return (
     <div className="page">
       <div className="tab-row">
         <button
           type="button"
           className={`tab-item ${tab === 'options' ? 'active' : ''}`}
-          onClick={() => setTab('options')}
+          onClick={() => switchTab('options')}
         >
           Options
         </button>
         <button
           type="button"
           className={`tab-item ${tab === 'equity' ? 'active' : ''}`}
-          onClick={() => setTab('equity')}
+          onClick={() => switchTab('equity')}
         >
           Equity &amp; Futures
         </button>
         <button
           type="button"
           className={`tab-item ${tab === 'all' ? 'active' : ''}`}
-          onClick={() => setTab('all')}
+          onClick={() => switchTab('all')}
         >
           All
         </button>
