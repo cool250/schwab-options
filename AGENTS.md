@@ -229,8 +229,8 @@ threads trigger one refresh. Read tokens through the provider, never by
 opening token.json directly. Each refresh logs whether Schwab rotated the
 refresh token — pending confirmation of that behavior before persisting
 the refresh token only on reconnect.
-WebSocket routes (`market_stream.py`) can't carry an `Authorization` header,
-so they pass the token as a `?token=` query param and call `verify_token()`
+WebSocket routes (`api/market/stream.py`) can't carry an `Authorization` header,
+so they pass the token as a `?token=` query param and call `token_user()`
 manually inside the handler — follow that same pattern for any new WS route.
 
 ## The copilot agent (`copilot/`)

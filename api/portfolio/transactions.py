@@ -26,15 +26,6 @@ def _range(start_date: date, end_date: date) -> tuple[str, str]:
     return start_date.isoformat(), end_date.isoformat()
 
 
-@router.get("/", summary="Raw transaction history")
-def get_transaction_history(
-    start_date: date,
-    end_date: date,
-    service: TransactionService = Depends(get_service),
-):
-    return service.get_transaction_history(*_range(start_date, end_date))
-
-
 @router.get("/options", summary="Parsed and matched option transactions")
 def get_option_transactions(
     start_date: date,

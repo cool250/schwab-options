@@ -9,7 +9,7 @@ filters, and hands off. Live prices for open legs come from Market
 
 import logging
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from service.portfolio.date_windows import equity_lookback_days, expand_date_range, open_position_lookback_days
 from service.portfolio.equity_matching import combine_equity_lots, cost_of_held_position, match_equity_fills
@@ -63,19 +63,6 @@ class TransactionService:
             if trade["type"] not in ("EXPIRED", "CLOSED", "ASSIGNED", "EXERCISED")
             and trade["underlying_symbol"] in CONTRACT_MULTIPLIER
         ]
-
-    def get_transaction_history(self, start_date: str, end_date: str) -> List[Any]:
-        """
-        Fetch the raw transaction history for the account.
-
-        Args:
-            start_date (str): Start date in YYYY-MM-DD format
-            end_date (str): End date in YYYY-MM-DD format
-
-        Returns:
-            list: Raw transaction records from the broker
-        """
-        return self.provider.fetch_raw_transactions(start_date, end_date)
 
     def get_option_transactions(self, stock_ticker: str, start_date: str, end_date: str,
                              contract_type: str = "ALL", realized_gains_only: bool = True,

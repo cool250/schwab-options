@@ -106,15 +106,10 @@ async def require_admin(user: User = Depends(require_auth)) -> User:
     return user
 
 
-def verify_token(token: str) -> bool:
-    """Public wrapper for WebSocket routes, which can't carry an Authorization
-    header the way HTTPBearer expects — they pass the token as a query param
-    and check it manually instead of via the require_auth dependency."""
-    return _verify_token(token) is not None
-
-
 def token_user(token: str, check_expiry: bool = True) -> Optional[User]:
-    """The user behind a WebSocket's token (see _verify_token)."""
+    """The user behind a WebSocket's token. WebSocket routes can't carry an
+    Authorization header the way HTTPBearer expects — they pass the token as
+    a query param and check it with this instead of require_auth."""
     return _verify_token(token, check_expiry)
 
 

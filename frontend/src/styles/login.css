@@ -1,12 +1,4 @@
 /* ─── Login page ─────────────────────────────────────── */
-.login-wrapper {
-  min-height: 100dvh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  padding: 24px;
-}
 .login-card {
   /* Always dark, independent of the app's light/dark theme toggle — hosts
      indutrades_logo.svg, which is built for a dark background (same file

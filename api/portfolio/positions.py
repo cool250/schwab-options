@@ -8,12 +8,9 @@ from api.auth import require_auth
 from api.users import User
 from service.portfolio import PositionService
 from service.portfolio.models import (
-    Balances,
     FuturesOptionPositions,
     FuturesPosition,
-    OptionPositions,
     PositionsSummary,
-    StockPosition,
 )
 from service.portfolio.providers import get_broker, get_position_provider, is_registered, list_brokers
 
@@ -28,16 +25,6 @@ def get_service() -> PositionService:
 def populate_positions(service: PositionService = Depends(get_service)):
     (puts, calls), balances, stocks = service.populate_positions()
     return PositionsSummary(puts=puts, calls=calls, balances=balances, stocks=stocks)
-
-
-@router.get("/balances", summary="Account balances", response_model=Balances)
-def get_balances(service: PositionService = Depends(get_service)):
-    return service.get_balances()
-
-
-@router.get("/stocks", summary="Stock / ETF positions", response_model=list[StockPosition])
-def get_stock_position(service: PositionService = Depends(get_service)):
-    return service.get_stock_position()
 
 
 @router.get(
@@ -66,17 +53,6 @@ def get_futures_position(service: PositionService = Depends(get_service)):
 def get_futures_option_position(service: PositionService = Depends(get_service)):
     puts, calls = service.get_futures_option_position()
     return FuturesOptionPositions(puts=puts, calls=calls)
-
-
-@router.get("/options", summary="Open option positions (puts and calls)", response_model=OptionPositions)
-def get_option_position(service: PositionService = Depends(get_service)):
-    puts, calls = service.get_option_position()
-    return OptionPositions(puts=puts, calls=calls)
-
-
-@router.get("/exposure", summary="Total dollar exposure by ticker", response_model=dict[str, float])
-def get_total_exposure(service: PositionService = Depends(get_service)):
-    return service.get_total_exposure()
 
 
 # ─── Accounts (the account picker) ───────────────────────────────────────

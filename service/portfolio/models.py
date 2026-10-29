@@ -98,11 +98,6 @@ class PositionsSummary(BaseModel):
     stocks: list[StockPosition]
 
 
-class OptionPositions(BaseModel):
-    puts: list[OptionPosition]
-    calls: list[OptionPosition]
-
-
 class FuturesOptionPositions(BaseModel):
     puts: list[FuturesOptionPosition]
     calls: list[FuturesOptionPosition]
