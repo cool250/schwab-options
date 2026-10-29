@@ -56,9 +56,10 @@ class PositionProvider(Protocol):
               "margin_balance": float | None,
               "cash_balance": float | None,
               "mutual_fund_value": float | None,
+              "short_balance": float | None,   # proceeds held for short stock
               "liquidation_value": float | None,
+              "net_liquidity": float | None,   # incl. any futures account
               "maintenance_requirement": float | None,   # whole account
-              "buying_power": float | None,
               "available_funds": float | None,
           } | None,   # None only if the account has no balances section at all
           "positions": [

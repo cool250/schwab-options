@@ -69,9 +69,13 @@ class PositionService:
         return Balances(
             cash_balance=cash if (margin is None or margin >= 0) else margin,
             mutual_fund_value=current["mutual_fund_value"],
+            cash_and_sweep=(
+                None if cash is None and current.get("short_balance") is None
+                else (cash or 0) + (current.get("short_balance") or 0)
+            ),
             account_value=current["liquidation_value"],
+            net_liquidity=current.get("net_liquidity"),
             maintenance_requirement=current.get("maintenance_requirement"),
-            buying_power=current.get("buying_power"),
             available_funds=current.get("available_funds"),
         )
 

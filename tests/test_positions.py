@@ -14,7 +14,7 @@ class FakePositions:
     def get_account_snapshot(self):
         base = {"tax_lot_long_price": None, "tax_lot_short_price": None, "long_open_pl": None, "short_open_pl": None}
         return {
-            "balances": {"margin_balance": 0.0, "cash_balance": 1000.0, "mutual_fund_value": 0.0, "liquidation_value": 1000.0},
+            "balances": {"margin_balance": 0.0, "cash_balance": 1000.0, "mutual_fund_value": 0.0, "short_balance": 250.0, "liquidation_value": 1000.0, "net_liquidity": 1500.0},
             "positions": [
                 {**base, "asset_type": "OPTION", "symbol": "SPY   261023P00700000", "long_quantity": 0, "short_quantity": 1,
                  "average_price": 2.00, "underlying_symbol": "SPY", "strike_price": 700.0,
@@ -57,6 +57,8 @@ def test_positions_are_numbers_not_display_strings():
     assert (stock.quantity, stock.trade_price, stock.current_price) == (10, 100.0, 110.0)
     balances = svc.get_balances()
     assert (balances.cash_balance, balances.mutual_fund_value, balances.account_value) == (1000.0, 0.0, 1000.0)
+    assert balances.cash_and_sweep == 1250.0  # cash + short-sale proceeds
+    assert balances.net_liquidity == 1500.0
 
 
 def _set_properties(monkeypatch, tmp_path, text):

@@ -105,7 +105,10 @@ class Accounts(BaseClient):
             )
 
         try:
-            return SecuritiesAccount(**securities_account_data)
+            return SecuritiesAccount(
+                **securities_account_data,
+                aggregatedBalance=response_data.get("aggregatedBalance"),
+            )
         except ValidationError as exc:
             raise BrokerValidationError(
                 f"Error parsing SecuritiesAccount: {exc}"

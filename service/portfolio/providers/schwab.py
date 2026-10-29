@@ -40,9 +40,10 @@ class SchwabPositionProvider:
             "margin_balance": current.marginBalance,
             "cash_balance": current.cashBalance,
             "mutual_fund_value": current.mutualFundValue,
+            "short_balance": current.shortBalance,
             "liquidation_value": current.liquidationValue,
+            "net_liquidity": account.aggregatedBalance.liquidationValue if account.aggregatedBalance else None,
             "maintenance_requirement": current.maintenanceRequirement,
-            "buying_power": current.buyingPower,
             "available_funds": current.availableFunds,
         }
 

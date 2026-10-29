@@ -15,13 +15,18 @@ class Balances(BaseModel):
     # Cash, or the margin balance when that's negative (money borrowed).
     cash_balance: Optional[float] = None
     mutual_fund_value: Optional[float] = None
+    # Cash plus the proceeds held for short stock — thinkorswim's
+    # "Cash & Sweep Vehicle" (securities account only).
+    cash_and_sweep: Optional[float] = None
     # Liquidation value of the whole account.
     account_value: Optional[float] = None
+    # Liquidation value including the futures account (thinkorswim's Net
+    # Liq); None when the broker doesn't report it.
+    net_liquidity: Optional[float] = None
     # Schwab's margin requirement for the whole account (stocks, options
     # and money funds; futures are in a sub-account Schwab doesn't report).
     maintenance_requirement: Optional[float] = None
-    # Schwab's buying power, and the funds available to open new positions.
-    buying_power: Optional[float] = None
+    # The securities account's funds available to open new positions.
     available_funds: Optional[float] = None
 
 

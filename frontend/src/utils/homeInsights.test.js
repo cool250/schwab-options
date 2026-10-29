@@ -2,17 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  futuresMarginEstimate, takeProfitCandidates,
+  takeProfitCandidates,
   equityShort, moneyness, expiringSoon, uncoveredShares, expiryCalendar,
 } from "./homeInsights.js";
-
-test("futures margin is pct of notional, and an unpriced contract is counted", () => {
-  const { total, unpriced } = futuresMarginEstimate(
-    [{ symbol: "ES", quantity: 6 }, { symbol: "NQ", quantity: -4 }, { symbol: "RTY", quantity: 1 }],
-    { ES: 7700, NQ: 29000 }, 15);
-  assert.equal(total, 6 * 7700 * 50 * 0.15 + 4 * 29000 * 20 * 0.15);
-  assert.equal(unpriced, 1);
-});
 
 test("take profit lists shorts that kept at least the threshold", () => {
   const rows = [{ key: "a", credit: 1000, pl: 800 }, { key: "b", credit: 1000, pl: 500 }, { key: "c", credit: 1000, pl: null }];
@@ -200,4 +192,14 @@ test("cushion status from the nearer margin-call move", async () => {
   assert.equal(cushionStatus(-0.25, 0.4).status, "healthy");
   assert.deepEqual(cushionStatus(-0.136, 0.389), { status: "watch", nearest: 0.136 });
   assert.equal(cushionStatus(-0.3, 0.08).status, "at_risk", "a near rally counts too");
+});
+
+test("available funds for trading: securities funds plus the futures account's net liq, less futures margin", async () => {
+  const { stressBook, availableFundsForTrading } = await import("./homeInsights.js");
+  const book = stressBook([{ kind: "future", root: "ES", qty: 1, price: 7000, mult: 50 }]);
+  const balances = { available_funds: 100000, net_liquidity: 150000, account_value: 120000 };
+  const { funds, futuresMargin } = availableFundsForTrading(balances, book, { futuresPct: 10, ivRise: 0 });
+  assert.ok(Math.abs(futuresMargin - 35000) < 1e-6, "worst loss over a 10% scan");
+  assert.ok(Math.abs(funds - (100000 + 30000 - 35000)) < 1e-6);
+  assert.equal(availableFundsForTrading({ ...balances, net_liquidity: null }, book, { futuresPct: 10, ivRise: 0 }), null);
 });

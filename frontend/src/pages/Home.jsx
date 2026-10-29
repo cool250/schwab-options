@@ -13,9 +13,9 @@ import { closedTrades } from '../utils/reportStats'
 import { futuresOptionContracts, futuresOptionRowPl } from '../utils/positionPl'
 import { getMultiplier, MULTIPLIER } from '../utils/contractMultiplier'
 import {
-  futuresMarginEstimate, ideaStress, ideaFit, worstCushion, rootLean, callsCoverLeft, takeProfitCandidates,
+  ideaStress, ideaFit, worstCushion, rootLean, callsCoverLeft, takeProfitCandidates,
   equityShort, eventsBefore, expiringSoon, uncoveredShares, expiryCalendar,
-  stressBook, marginCallMove, cushionStatus,
+  stressBook, marginCallMove, cushionStatus, availableFundsForTrading,
 } from '../utils/homeInsights'
 
 /*
@@ -29,7 +29,7 @@ import {
 
 const ROOTS = ['ES', 'NQ']
 const DEFAULT_RULES = {
-  'home.futures_margin_pct': 11, 'home.available_funds': 0, 'home.take_profit_pct': 75, 'home.expiring_days': 7, 'home.at_risk_pct': 2,
+  'home.futures_margin_pct': 11, 'home.take_profit_pct': 75, 'home.expiring_days': 7, 'home.at_risk_pct': 2,
   'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 5, 'home.idea_max_delta_pct': 20,
   'home.stress_iv_rise': 20, 'home.idea_crash_pct': 5, 'home.event_crash_pct': 8,
 }
@@ -245,9 +245,6 @@ export default function Home() {
       ...(futuresOptions?.puts ?? []).map((r) => futuresShort(r, 'PUT', bids, prices)),
       ...(futuresOptions?.calls ?? []).map((r) => futuresShort(r, 'CALL', bids, prices)),
     ].filter(Boolean)
-    const futMargin = futuresMarginEstimate(futures ?? [], prices, rules['home.futures_margin_pct'])
-    const maint = balances.maintenance_requirement ?? 0
-    const netLiq = balances.account_value ?? null
 
     // The book for the margin stress test (utils/homeInsights.js revalues
     // it after each move). Equity options price from Schwab's mark, with
@@ -286,23 +283,22 @@ export default function Home() {
     }
     const stress = stressBook(stressPositions)
     const stressOptions = { futuresPct: rules['home.futures_margin_pct'], ivRise: rules['home.stress_iv_rise'] }
-    // Available funds: thinkorswim's figure from app.properties when set
-    // (futures included), else Schwab's (securities only).
-    const fundsFromSettings = rules['home.available_funds'] > 0
-    const cushion = fundsFromSettings ? rules['home.available_funds'] : balances.available_funds ?? null
+    // Available funds for trading, futures included — computed from Schwab's
+    // balances and an estimated futures margin; Schwab's own (securities
+    // only) when the futures book couldn't be loaded.
+    const forTrading = futures == null || futuresOptions == null ? null : availableFundsForTrading(balances, stress, stressOptions)
+    const cushion = forTrading?.funds ?? balances.available_funds ?? null
     const callDrop = cushion == null ? null : marginCallMove(cushion, stress, -1, stressOptions)
     return {
       balances,
-      netLiq,
       prices,
       futuresMissing: futures == null || futuresOptions == null,
-      futMargin,
-      marginUsed: maint + futMargin.total,
       shorts,
       expiring: expiringSoon(shorts, rules['home.expiring_days'], rules['home.at_risk_pct']),
       takeProfit: takeProfitCandidates(shorts, rules['home.take_profit_pct']),
       uncovered: uncoveredShares(stocks, puts, calls),
       calendar: expiryCalendar(shorts, CALENDAR_DAYS),
+      forTrading,
       cushion,
       // For the new-income ideas, judged against this book.
       stressBook: stress,
@@ -316,7 +312,6 @@ export default function Home() {
   }, [book, rules])
 
   const marginPct = rules['home.futures_margin_pct']
-  const funds = derived?.cushion ?? null
   const crashPct = rules['home.idea_crash_pct']
   const ideaOptions = derived && { ...derived.stressOptions, crashPct }
   // An idea that lives through a major event (CPI, jobs, PCE, FOMC) is
@@ -467,23 +462,20 @@ export default function Home() {
       <div className="card">
         <div className="metrics-row home-metrics">
           <Metric
-            label="Securities net liq"
-            value={derived ? money(derived.netLiq, 0) : '…'}
-            title="Schwab's net liquidation value for the securities account only — the futures account isn't in Schwab's API, so thinkorswim's Net Liq is higher."
+            label="Cash and Sweep"
+            value={derived ? money(derived.balances.cash_and_sweep, 0) : '…'}
+            title="Schwab's cash balance plus the proceeds held for short stock — thinkorswim's Cash & Sweep Vehicle, for the securities account only."
           />
           <Metric
-            label="Securities available funds"
-            title="Schwab's available funds for the securities account only — thinkorswim's Available Funds For Trading is lower, since it also sets aside futures margin the futures account doesn't cover."
-            value={derived ? money(funds, 0) : '…'}
-            sub={derived?.balances.buying_power != null ? `${money(derived.balances.buying_power, 0)} buying power` : null}
+            label="Net Liquidity"
+            title="Schwab's liquidation value across the securities and futures accounts — thinkorswim's Net Liq."
+            value={derived ? money(derived.balances.net_liquidity, 0) : '…'}
           />
           <Metric
-            label="Margin used"
-            value={derived ? money(derived.marginUsed, 0) : '…'}
-            sub={derived && derived.netLiq
-              ? `${pct((derived.marginUsed / derived.netLiq) * 100)} of securities net liq · futures est. ${money(derived.futMargin.total, 0)} (${marginPct}%)`
-              : null}
-            title={`Schwab's maintenance requirement for stocks and options, plus futures margin estimated at ${marginPct}% of the futures' notional (home.futures_margin_pct in app.properties — Schwab doesn't report futures margin).`}
+            label="Available funds for trading"
+            value={derived ? money(derived.forTrading?.funds, 0) : '…'}
+            sub={derived?.forTrading ? `est. futures margin ${money(derived.forTrading.futuresMargin, 0)}` : derived?.futuresMissing ? 'futures unavailable' : null}
+            title={`Schwab's available funds for the securities account, plus the futures account's net liq, less futures margin — estimated as each root's worst loss over a ±${marginPct}% move (home.futures_margin_pct), since Schwab doesn't report it. Within a few percent of thinkorswim's Regular Futures Margin on a book of short futures options.`}
           />
           <Metric
             label="This month"

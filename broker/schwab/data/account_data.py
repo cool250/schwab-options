@@ -163,6 +163,13 @@ class ProjectedBalances(BaseModel):
     optionBuyingPower: Optional[float] = None
 
 
+class AggregatedBalance(BaseModel):
+    # Across the login's linked sub-accounts — the one liquidation value
+    # that includes the futures account.
+    currentLiquidationValue: Optional[float] = None
+    liquidationValue: Optional[float] = None
+
+
 class SecuritiesAccount(BaseModel):
     accountNumber: Optional[str] = None
     roundTrips: Optional[int] = None
@@ -173,6 +180,8 @@ class SecuritiesAccount(BaseModel):
     initialBalances: Optional[InitialBalances] = None
     currentBalances: Optional[CurrentBalances] = None
     projectedBalances: Optional[ProjectedBalances] = None
+    # A sibling of securitiesAccount in Schwab's response, attached here.
+    aggregatedBalance: Optional[AggregatedBalance] = None
 
 class AccountHash(BaseModel):
     hashValue: str

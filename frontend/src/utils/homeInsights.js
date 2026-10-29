@@ -12,20 +12,6 @@ const DAY = 86400000
 const isoToday = () => new Date().toISOString().slice(0, 10)
 const daysBetween = (fromIso, toIso) => Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / DAY)
 
-/** Estimated margin of outright futures: |qty| x price x point value x pct.
- *  Schwab doesn't report futures margin, so this stands in for it.
- *  futures: [{ symbol: 'ES', quantity, trade_price }]; prices: { ES: 7712.25 }. */
-export function futuresMarginEstimate(futures, prices, pct) {
-  let total = 0
-  let unpriced = 0
-  for (const f of futures ?? []) {
-    const price = prices[f.symbol]
-    if (price == null) { unpriced++; continue }
-    total += Math.abs(f.quantity) * price * getMultiplier(f.symbol) * (pct / 100)
-  }
-  return { total, unpriced }
-}
-
 /** Upcoming events (GET /api/market/events) that a position expiring on
  *  `expiration` lives through, today included: every major release and
  *  FOMC decision, the ticker's own earnings, and — for a short call, whose
@@ -294,6 +280,20 @@ function rootsRequirement(positions, move, futuresPct, ivRise) {
   const roots = {}
   for (const p of positions) if (p.root) (roots[p.root] ??= []).push(p)
   return Object.values(roots).reduce((sum, group) => sum + rootRequirement(group, move, futuresPct, ivRise), 0)
+}
+
+/** thinkorswim's Available Funds For Trading, from Schwab's balances plus an
+ *  estimated futures margin (Schwab doesn't report it): the securities
+ *  account's available funds, plus the futures account's net liq (total
+ *  net liq less the securities account's), less the futures requirement —
+ *  the same per-root scan the stress test uses.
+ *  balances: GET /api/portfolio/positions/'s balances.
+ *  -> { funds, futuresMargin }, or null when a balance is missing. */
+export function availableFundsForTrading(balances, book, { futuresPct, ivRise }) {
+  const { available_funds: securities, net_liquidity: total, account_value: securitiesLiq } = balances ?? {}
+  if (securities == null || total == null || securitiesLiq == null) return null
+  const futuresMargin = rootsRequirement(book.positions, 0, futuresPct, ivRise)
+  return { funds: securities + (total - securitiesLiq) - futuresMargin, futuresMargin }
 }
 
 /** The worst margin cushion over drops and rallies of crashPct and twice
