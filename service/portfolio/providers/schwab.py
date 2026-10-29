@@ -112,7 +112,6 @@ class SchwabPositionProvider:
                 "number": a["accountNumber"],
                 "type": a["type"],
                 "value": a["liquidationValue"],
-                "positions": a["positions"],
             }
             for a in self.client.list_accounts()
         ]

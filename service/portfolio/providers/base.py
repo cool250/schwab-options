@@ -103,7 +103,6 @@ class PositionProvider(Protocol):
             "number": str,      # full account number — server-side only
             "type": str | None, # e.g. "MARGIN", "CASH"
             "value": float | None,  # liquidation value
-            "positions": int,
         }, ...]
 
         The provider honors the chosen account by reading

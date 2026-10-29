@@ -55,10 +55,12 @@ class Accounts(BaseClient):
 
     def list_accounts(self) -> list[dict]:
         """Every account the login covers, in Schwab's order:
-        [{"accountNumber", "hashValue", "type", "liquidationValue", "positions"}]
-        — enough to tell them apart in an account picker."""
+        [{"accountNumber", "hashValue", "type", "liquidationValue"}]
+        — enough to tell them apart in an account picker. /accounts is asked
+        without fields=positions: balances only, so the picker doesn't pull
+        every holding of every account."""
         numbers = self._fetch_data(f"{self.base_url}/accounts/accountNumbers") or []
-        details = self._fetch_data(f"{self.base_url}/accounts", {"fields": "positions"}) or []
+        details = self._fetch_data(f"{self.base_url}/accounts") or []
         by_number = {}
         for item in details:
             account = item.get("securitiesAccount") or {}
@@ -71,7 +73,6 @@ class Accounts(BaseClient):
                 "hashValue": entry.get("hashValue"),
                 "type": account.get("type"),
                 "liquidationValue": (account.get("currentBalances") or {}).get("liquidationValue"),
-                "positions": len(account.get("positions") or []),
             })
         return out
 

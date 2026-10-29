@@ -6,7 +6,7 @@ const compactUsd = (v) =>
 
 function optionLabel(a) {
   const type = a.type ? a.type.charAt(0) + a.type.slice(1).toLowerCase() : null
-  return [a.label, type, compactUsd(a.value), `${a.positions} position${a.positions === 1 ? '' : 's'}`]
+  return [a.label, type, compactUsd(a.value)]
     .filter(Boolean)
     .join(' · ')
 }
@@ -66,7 +66,7 @@ export default function AccountPicker({ inline = false, onChanged }) {
       disabled={saving || accounts.length < 2}
     >
       {/* The Portfolio pages (inline) show just the masked account number; Settings
-          adds type, value and position count to help tell accounts apart. */}
+          adds type and value to help tell accounts apart. */}
       {accounts.map((a) => <option key={a.id} value={a.id}>{inline ? a.label : optionLabel(a)}</option>)}
     </select>
   )

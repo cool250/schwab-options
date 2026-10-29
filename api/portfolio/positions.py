@@ -96,7 +96,6 @@ def _accounts_for(user: User) -> list[dict]:
             "label": f"…{str(a['number'])[-4:]}",
             "type": a["type"],
             "value": a["value"],
-            "positions": a["positions"],
             "selected": a["number"] == active,
         }
         for a in accounts

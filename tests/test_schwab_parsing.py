@@ -111,3 +111,22 @@ def test_a_share_transfer_is_not_a_fill():
         SimpleNamespace(instrument=SimpleNamespace(symbol="META", assetType="EQUITY"), amount=90.0, price=0.0, cost=0.0, positionEffect=None),
     ])
     assert SchwabTransactionProvider(client=_FakeClient([transfer])).fetch_equity_future_legs("2026-10-01", "2026-10-31") == []
+
+
+def test_account_list_asks_for_balances_only():
+    from broker.schwab.clients.accounts import Accounts
+
+    calls = []
+
+    class StandIn(Accounts):
+        def _fetch_data(self, url=None, params=None, **kwargs):
+            calls.append((url.rsplit("/v1", 1)[1], params))
+            if url.endswith("/accountNumbers"):
+                return [{"accountNumber": "12345678", "hashValue": "H1"}]
+            return [{"securitiesAccount": {"accountNumber": "12345678", "type": "MARGIN",
+                                           "currentBalances": {"liquidationValue": 52340.17}}}]
+
+    accounts = StandIn(token_provider=object()).list_accounts()
+    assert accounts == [{"accountNumber": "12345678", "hashValue": "H1", "type": "MARGIN", "liquidationValue": 52340.17}]
+    # Without fields=positions: the picker doesn't download every holding.
+    assert ("/accounts", None) in calls
