@@ -335,7 +335,7 @@
 .ruler-tag-open { box-shadow: 0 0 0 2px var(--primary); z-index: 2; }
 
 /* ─── Responsive ─────────────────────────────────────── */
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .slider-label { width: 120px; }
   /* Back to stacked — side by side gets too cramped below this width. */
   .slider-row-pair { flex-direction: column; gap: 0; }

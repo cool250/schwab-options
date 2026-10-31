@@ -72,7 +72,7 @@
    pop-up opens leftward from the "?" instead of off the edge. */
 .screener-fields > .screener-range:last-child .help-tip-popup { left: auto; right: 0; }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   /* nowrap: a *wrapping* column sizes items to their widest content rather
      than the screen, which pushed the fields past the right edge. */
   .screener-fields { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }

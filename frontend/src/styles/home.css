@@ -31,7 +31,7 @@ a.home-alert:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) { .home-placeholder span { animation: none; } }
 
 /* Wide tables scroll sideways on a phone instead of squeezing. */
-@media (max-width: 640px) { .home .data-table th, .home .data-table td { white-space: nowrap; } }
+@media (max-width: 768px) { .home .data-table th, .home .data-table td { white-space: nowrap; } }
 
 /* New income: contract with its DTE / OTM / delta / events beneath. */
 .home-contract { display: flex; flex-direction: column; gap: 2px; }
@@ -51,11 +51,11 @@ a.home-alert:hover { text-decoration: underline; }
 .home-metrics .metric { min-width: 0; margin-right: 0; padding: 0 16px; border-right: none; border-left: 1px solid var(--border); }
 .home-metrics .metric:first-child { padding-left: 0; border-left: none; }
 .home-metrics .metric-subtext { overflow-wrap: anywhere; }
-@media (max-width: 1100px) {
+@media (max-width: 1024px) {
   .home-metrics { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .home-metrics .metric:nth-child(3n + 1) { padding-left: 0; border-left: none; }
 }
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .home-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .home-metrics .metric:nth-child(3n + 1) { padding-left: 16px; border-left: 1px solid var(--border); }
   .home-metrics .metric:nth-child(2n + 1) { padding-left: 0; border-left: none; }
@@ -74,7 +74,7 @@ a.home-alert:hover { text-decoration: underline; }
 .home-grid--wide { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
 /* Cards stacked in one grid column (the watchlist over upcoming events). */
 .home-stack { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
-@media (max-width: 960px) { .home-grid, .home-grid--wide { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1024px) { .home-grid, .home-grid--wide { grid-template-columns: minmax(0, 1fr); } }
 /* The watchlist: every column the same width (fixed layout splits the
    table evenly) and fitting its narrow card. Cell padding stays the shared
    DataTable's, like every other table. */
@@ -87,7 +87,7 @@ a.home-alert:hover { text-decoration: underline; }
 .home-list li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 4px 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
 .home-list li:first-child { border-top: none; }
 .home-list-main { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-@media (max-width: 560px) { .home-list li { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 768px) { .home-list li { grid-template-columns: minmax(0, 1fr); } }
 
 .home-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
 .home-chip--error   { color: var(--error); background: var(--error-bg); }

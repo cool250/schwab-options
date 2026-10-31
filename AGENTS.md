@@ -313,6 +313,24 @@ manually inside the handler — follow that same pattern for any new WS route.
   stays unsortable). Don't reintroduce the old "any `render` column is
   unsortable" rule; that silently broke sorting on several columns once
   before it was fixed.
+- **On a phone, `DataTable` rows are cards** (`PHONE_QUERY`, ≤768px): a
+  heading line (the row's name, with its P&L or ranking number at the right),
+  a grid of labelled fields, and the rest behind "More", with a "Sort by"
+  menu in place of the column headers. Give any table with more than a few
+  columns a `cards={{ title, fields, hide }}` placement (column keys — see
+  Positions/Transactions/Screener/Home); a table already built to fit a phone
+  passes `cards={false}`. It's a table-level prop, not a column property,
+  because several pages rebuild their columns on the fly. Desktop never sees
+  the cards.
+- **Mobile basics:** three breakpoints, 480 / 768 / 1024 (listed at the top
+  of `tokens.css` — don't add new ones). Touch-only styles go in
+  `styles/touch.css` under `(pointer: coarse)` / `(hover: none)` — never a
+  width — so a narrow desktop window doesn't get them; that's where the 44px
+  touch targets are. Fixed and edge elements pad for the notch with
+  `env(safe-area-inset-*)`. A `title=` tooltip also shows on tap on touch
+  screens (`components/TouchTitles.jsx`, mounted once in `App.jsx`), so
+  `title` is fine for explanations — but not on a button, where the tap is
+  the button's own.
 - `.cell-positive`/`.cell-negative` (green/red P&L text, `tables.css`) are
   scoped as `.data-table td.cell-positive` (class on the `<td>` itself,
   DataTable's own auto-coloring) **and** `.data-table td .cell-positive`
@@ -352,6 +370,19 @@ own sessionStorage login.
   (`test_layer_boundaries.py`), all through stand-ins
   (`tests/conftest.py`), so no broker or login is needed. Add a test with any change to that logic; for
   UI or live-broker behavior, still run the dev servers and exercise it.
+- UI check (`scripts/ui_check/`): screenshots of every page at 375 / 390 /
+  768 / 1280 / 1440px in light and dark, and a failure if any page scrolls
+  sideways. It runs the real app on sample brokers (`demo_server.py` +
+  `demo_data.py`: no broker, no real `.env`, a throwaway users DB), so its
+  screenshots never show a real account:
+  ```bash
+  cd frontend && npm run build && cd ..
+  uv run python -m scripts.ui_check.demo_server &          # port 8765
+  uv run python -m scripts.ui_check.check --out /tmp/ui    # --views / --widths to narrow it
+  ```
+  Run it after any layout change. The sample prices and charts move with the
+  clock, so compare two screenshots by eye, not pixel for pixel. First run:
+  `uv run playwright install chromium`.
 - Logs: `logs/api.log` (rotating), useful for debugging live broker/DXLink
   behavior — `--log-level debug` on uvicorn surfaces the raw WebSocket
   frames, which has been the fastest way to diagnose several past bugs here. Never log

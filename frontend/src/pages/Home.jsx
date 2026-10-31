@@ -28,6 +28,11 @@ import {
  */
 
 const ROOTS = ['ES', 'NQ']
+// On a phone (DataTable's cards): the contract and its key number on top.
+// The watchlist, events and calendar are short enough to stay tables.
+const IDEA_CARDS = { title: ['symbol', 'returnOnRisk'], fields: ['credit', 'riskAdded', 'maxContracts', 'analyze'] }
+const EXPIRING_CARDS = { title: ['key', 'pl'], fields: ['dte', 'status', 'distance', 'underlyingPrice', 'events'] }
+const TAKE_PROFIT_CARDS = { title: ['key', 'pl'], fields: ['kept', 'credit'] }
 const DEFAULT_RULES = {
   'home.futures_margin_pct': 11, 'home.take_profit_pct': 75, 'home.expiring_days': 7, 'home.at_risk_pct': 2,
   'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 5, 'home.idea_max_delta_pct': 20,
@@ -539,7 +544,7 @@ export default function Home() {
           {ideas.error && <div className="alert error">{ideas.error}</div>}
           {!ideas.loading && !ideas.error && (
             ideaRows.length
-              ? <DataTable data={ideaRows} paginate={false} columns={ideaCols} />
+              ? <DataTable data={ideaRows} paginate={false} columns={ideaCols} cards={IDEA_CARDS} />
               : <p className="summary-line">No /ES or /NQ {ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.</p>
           )}
         </div>
@@ -553,6 +558,7 @@ export default function Home() {
                 <DataTable
                   data={watch.rows}
                   paginate={false}
+                  cards={false}
                   columns={[
                     {
                       key: 'symbol', label: 'Symbol',
@@ -587,6 +593,7 @@ export default function Home() {
                   <DataTable
                     data={eventsShown}
                     paginate={false}
+                    cards={false}
                     columns={[
                       {
                         key: 'date', label: 'Date',
@@ -630,6 +637,7 @@ export default function Home() {
               <DataTable
                 data={derived.expiring}
                 paginate={false}
+                cards={EXPIRING_CARDS}
                 defaultSortKey="dte"
                 columns={[
                   { key: 'key', label: 'Contract', render: contractLabel },
@@ -661,6 +669,7 @@ export default function Home() {
               <DataTable
                 data={derived.calendar}
                 paginate={false}
+                cards={false}
                 columns={[
                   { key: 'date', label: 'Date', render: (d) => eventDay(d.date) },
                   { key: 'count', label: 'Shorts', align: 'right' },
@@ -699,6 +708,7 @@ export default function Home() {
               <DataTable
                 data={derived.takeProfit}
                 paginate={false}
+                cards={TAKE_PROFIT_CARDS}
                 columns={[
                   {
                     key: 'key', label: 'Contract',

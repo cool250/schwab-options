@@ -240,7 +240,7 @@
   letter-spacing: 0;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .sb-overlay { padding: 0; }
   .sb-dialog { height: 100%; border-radius: 0; border: none; }
   .sb-top, .sb-body, .sb-footer { padding-left: 16px; padding-right: 16px; }

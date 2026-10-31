@@ -186,7 +186,7 @@
 /* ─── Mobile navbar (hamburger) ──────────────────────── */
 @media (max-width: 768px) {
   .navbar {
-    padding: 0 16px;
+    padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px));
     flex-wrap: wrap;
     gap: 0;
   }

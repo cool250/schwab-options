@@ -6,6 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import Navbar from './components/Navbar'
 import CopilotWidget, { CopilotDisabledLauncher } from './components/CopilotWidget'
 import RequireSchwab from './components/RequireSchwab'
+import TouchTitles from './components/TouchTitles'
 import Login from './pages/Login'
 import Landing from './pages/Landing'
 import Home from './pages/Home'
@@ -68,6 +69,8 @@ export default function App() {
             }
           />
         </Routes>
+        {/* Touch screens: a tapped title shows its text (no hover there). */}
+        <TouchTitles />
       </BrowserRouter>
     </AuthProvider>
     </ThemeProvider>

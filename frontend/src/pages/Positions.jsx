@@ -158,6 +158,21 @@ function optionColumns(optionType, theta) {
 // it (see the futuresContractQuotes lazy-load below), so it's added as its
 // own render-based column (futuresContractCurrentPriceColumn) instead of a
 // plain key, same pattern as the futures-option tables' Current Price.
+// On a phone (DataTable's cards): the contract and its P&L on top, the
+// numbers you'd act on beneath; ticker and strike are already in the symbol.
+const STOCK_CARDS = { title: ['symbol', 'broker_pl'], fields: ['quantity', 'trade_price', 'current_price', 'maintenance_requirement'] }
+const OPTION_CARDS = {
+  title: ['symbol', 'total_value'],
+  fields: ['days_to_expiry', 'quantity', 'trade_price', 'current_price', 'theta', 'maintenance_requirement'],
+  hide: ['ticker', 'strike_price'],
+}
+const FUTURES_CARDS = { title: ['symbol', 'pl'], fields: ['quantity', 'trade_price', 'current_price'] }
+const FUTURES_OPTION_CARDS = {
+  title: ['symbol', 'pl'],
+  fields: ['days_to_expiry', 'quantity', 'trade_price', 'current_price', 'theta'],
+  hide: ['ticker', 'strike_price'],
+}
+
 const FUTURES_COLUMNS = [
   { key: 'symbol',      label: 'Symbol' },
   quantityColumn,
@@ -673,7 +688,7 @@ export default function Positions() {
                     P&amp;L: ${totalStockPL.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Maint. Req: {money(sumMaintReq(stocks))}
                   </p>
-                  <DataTable data={stocks} columns={STOCK_COLUMNS} defaultSortKey="symbol" />
+                  <DataTable data={stocks} columns={STOCK_COLUMNS} cards={STOCK_CARDS} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No stocks found.</div>
@@ -690,7 +705,7 @@ export default function Positions() {
                     Theta: {equityThetaTotal(puts)}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Maint. Req: {money(sumMaintReq(puts))}
                   </p>
-                  <DataTable data={withPremium(puts)} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} defaultSortKey="days_to_expiry" />
+                  <DataTable data={withPremium(puts)} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} cards={OPTION_CARDS} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No PUT option positions found.</div>
@@ -706,7 +721,7 @@ export default function Positions() {
                     Theta: {equityThetaTotal(calls)}&nbsp;&nbsp;|&nbsp;&nbsp;
                     Maint. Req: {money(sumMaintReq(calls))}
                   </p>
-                  <DataTable data={withPremium(calls)} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} defaultSortKey="days_to_expiry" />
+                  <DataTable data={withPremium(calls)} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} cards={OPTION_CARDS} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No CALL option positions found.</div>
@@ -728,7 +743,7 @@ export default function Positions() {
                 <div className="card">
                   <h3 className="section-title">Futures</h3>
                   {futuresContractSummary(futures)}
-                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} defaultSortKey="symbol" />
+                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} cards={FUTURES_CARDS} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No open futures positions found.</div>
@@ -742,6 +757,7 @@ export default function Positions() {
                   <DataTable
                     data={futuresPuts}
                     columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('PUT')], 'PUT', true)}
+                    cards={FUTURES_OPTION_CARDS}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>
@@ -757,6 +773,7 @@ export default function Positions() {
                   <DataTable
                     data={futuresCalls}
                     columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('CALL')], 'CALL', true)}
+                    cards={FUTURES_OPTION_CARDS}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>

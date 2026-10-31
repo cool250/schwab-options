@@ -80,6 +80,11 @@ const ALL_COLUMNS = [
   { key: 'total_amount', label: 'Total Gain/Loss ($)', align: 'right' },
   { key: 'status',       label: 'Status' },
 ]
+// On a phone (DataTable's cards): the contract and its gain/loss on top,
+// the prices and dates that tell its story beneath.
+const OPTION_CARDS = { title: ['symbol', 'total_amount'], fields: ['qty', 'open_price', 'close_price', 'close_date'], hide: ['strike_price'] }
+const EQUITY_CARDS = { title: ['symbol', 'total_amount'], fields: ['quantity', 'open_price', 'close_price', 'close_date'] }
+const ALL_CARDS = { title: ['label', 'total_amount'], fields: ['kind', 'qty', 'open_price', 'close_date'] }
 const ASSET_KIND = { EQUITY: 'Stock', FUTURE: 'Future' }
 const INCOME_LABEL = {
   INTEREST: 'Interest', MARGIN_INTEREST: 'Margin interest', DIVIDEND: 'Dividend',
@@ -647,7 +652,7 @@ export default function Transactions() {
                     onClick={() => downloadCsv(`all-transactions_${startDate}_to_${endDate}.csv`, ALL_COLUMNS, allRows)}
                   />
                 </div>
-                <DataTable data={allRows} columns={allColumns} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+                <DataTable data={allRows} columns={allColumns} cards={ALL_CARDS} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
               </div>
             )
           )}
@@ -754,7 +759,7 @@ export default function Transactions() {
                       onClick={() => downloadCsv(`option-transactions_${startDate}_to_${endDate}.csv`, optionColumns, optionRows)}
                     />
                   </div>
-                  <DataTable data={optionRows} columns={optionColumns} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+                  <DataTable data={optionRows} columns={optionColumns} cards={OPTION_CARDS} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
                 </div>
               )}
             </>
@@ -828,7 +833,7 @@ export default function Transactions() {
                       onClick={() => downloadCsv(`equity-transactions_${startDate}_to_${endDate}.csv`, EQUITY_COLUMNS, equityRows)}
                     />
                   </div>
-                  <DataTable data={equityRows} columns={EQUITY_COLUMNS} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+                  <DataTable data={equityRows} columns={EQUITY_COLUMNS} cards={EQUITY_CARDS} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
                 </div>
               )}
             </>

@@ -1,0 +1,46 @@
+/* ─── Touch screens ──────────────────────────────────────
+   Keyed to the device, not the window width, so a desktop browser with a
+   mouse never sees any of this — however narrow its window. */
+
+/* Finger-sized targets: at least 44px tall (Apple's and Google's minimum). */
+@media (pointer: coarse) {
+  .btn,
+  .tab-item,
+  .nav-link,
+  .nav-group-toggle,
+  .link-button,
+  .home-alert {
+    min-height: 44px;
+  }
+  .btn { display: inline-flex; align-items: center; justify-content: center; }
+  .table-pagination-pages button { min-width: 44px; min-height: 44px; }
+  .table-pagination-size select { min-height: 44px; }
+  input[type="checkbox"],
+  input[type="radio"] { width: 20px; height: 20px; }
+
+  /* The "?" stays a small circle; an invisible ring around it takes the tap. */
+  .help-tip-button { position: relative; }
+  .help-tip-button::after { content: ''; position: absolute; inset: -14px; }
+}
+
+/* No hover on a touch screen: a tapped button would otherwise keep its
+   lifted hover state until the next tap elsewhere. */
+@media (hover: none) {
+  .btn-primary:hover:not(:disabled),
+  .btn-secondary:hover:not(:disabled) { transform: none; }
+}
+
+/* A `title` shown on tap (components/TouchTitles.jsx). */
+.touch-title {
+  position: fixed;
+  z-index: 300;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--card-bg);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.2));
+  pointer-events: none;
+}

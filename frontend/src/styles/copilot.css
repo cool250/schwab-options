@@ -19,8 +19,8 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 
 .copilot-widget {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
+  right: calc(20px + env(safe-area-inset-right, 0px));
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   z-index: 200;
   display: flex;
   flex-direction: column;
@@ -170,7 +170,7 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 }
 .copilot-widget.full-page .copilot-bubble { font-size: 1.093rem; } /* 0.95rem + 15% */
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .copilot-widget.full-page .copilot-panel { inset: 0; border-radius: 0; }
 }
 
@@ -371,7 +371,7 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 }
 
 @media (max-width: 480px) {
-  .copilot-widget { right: 12px; bottom: 12px; }
+  .copilot-widget { right: calc(12px + env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   .copilot-panel { width: 100vw; }
   /* Full-width panel on mobile overlays instead of squeezing content to nothing. */
   body.copilot-open { padding-right: 0; }

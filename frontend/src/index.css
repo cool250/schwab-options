@@ -31,3 +31,6 @@
 @import './styles/screener.css';
 @import './styles/settings.css';
 @import './styles/copilot.css';
+
+/* Touch screens: finger-sized targets, tap-to-read titles */
+@import './styles/touch.css';

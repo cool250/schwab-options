@@ -1,4 +1,14 @@
 /* ─── Design tokens ──────────────────────────────────── */
+/* Breakpoints (CSS variables can't be used in a media query, so they're
+   listed here and used as literals):
+     max-width: 480px   small phones — the tightest spacing
+     max-width: 768px   phones and tablets in portrait — the mobile layout,
+                        hamburger nav, and DataTable's cards
+                        (components/DataTable.jsx, PHONE_QUERY)
+     max-width: 1024px  tablets in landscape and small laptops — two-column
+                        grids stack
+   min-width: 769px is the desktop side of 768. Touch-only styles use
+   (pointer: coarse), not a width, so a narrow desktop window keeps them off. */
 :root {
   /* Brand */
   --primary:       #2563eb;

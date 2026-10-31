@@ -152,10 +152,10 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
 .report-ycal-cell { cursor: pointer; }
 .report-ycal-cell:hover, .report-ycal-cell:focus-visible { outline: none; stroke: var(--text); stroke-width: 1.5; }
 
-@media (max-width: 960px) {
+@media (max-width: 1024px) {
   .report-row { grid-template-columns: minmax(0, 1fr); }
 }
-@media (max-width: 560px) {
+@media (max-width: 768px) {
   .report-kpis { flex-wrap: wrap; }
   .report-kpi { flex: 1 1 40%; border-left: none; margin-left: 0; padding-left: 0; }
   .report-kpi--hero, .report-kpi--wide { flex-basis: 100%; }

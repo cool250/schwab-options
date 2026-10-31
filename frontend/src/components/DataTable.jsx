@@ -1,5 +1,49 @@
 import { useEffect, useState } from 'react'
 
+// Phones and tablets in portrait (tokens.css breakpoints): rows render as
+// cards instead of a table that only shows three columns at a time.
+export const PHONE_QUERY = '(max-width: 768px)'
+
+function useMatchMedia(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia?.(query).matches ?? false)
+  useEffect(() => {
+    const media = window.matchMedia?.(query)
+    if (!media) return
+    const onChange = () => setMatches(media.matches)
+    onChange()
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [query])
+  return matches
+}
+
+// Where each column goes on a card. A label-less column with no data (a
+// checkbox) leads the card unless `spec` places it. With `spec` ({ title, fields, hide }:
+// column keys), the listed columns go there in the listed order and every
+// other column goes under More; without it, the first column is the title,
+// the next four are fields and the rest are under More.
+function cardLayout(columns, sample, spec) {
+  const placed = { control: [], title: [], field: [], more: [] }
+  const rest = []
+  const listed = new Set([...(spec?.title ?? []), ...(spec?.fields ?? [])])
+  for (const col of columns) {
+    if (!col.label && !(col.key in (sample ?? {})) && !listed.has(col.key)) placed.control.push(col)
+    else if (!spec?.hide?.includes(col.key)) rest.push(col)
+  }
+  if (spec) {
+    const byKey = Object.fromEntries(rest.map((c) => [c.key, c]))
+    placed.title = (spec.title ?? []).map((k) => byKey[k]).filter(Boolean)
+    placed.field = (spec.fields ?? []).map((k) => byKey[k]).filter(Boolean)
+    const used = new Set([...placed.title, ...placed.field])
+    placed.more = rest.filter((c) => !used.has(c))
+  } else {
+    placed.title = rest.slice(0, 1)
+    placed.field = rest.slice(1, 5)
+    placed.more = rest.slice(5)
+  }
+  return placed
+}
+
 function fmt(val) {
   if (val == null) return '—'
   if (typeof val === 'number') return val.toLocaleString('en-US', { maximumFractionDigits: 2 })
@@ -36,16 +80,24 @@ function getCellClass(key, val) {
  *                     rows-per-page) shows once a table has 10+ rows; page buttons
  *                     only when there's more than one page. Sorting applies to
  *                     all rows before paging. Rows-per-page is remembered per browser.
+ *   cards           — on a phone (PHONE_QUERY) rows are cards; this places the columns, by
+ *                     key: { title: [...] (the heading line — a second key sits at its
+ *                     right end, e.g. P&L), fields: [...] (labelled values), hide: [...] }.
+ *                     Every other column goes behind the card's More toggle. Without it,
+ *                     the first column is the title and the next four are fields.
+ *                     false keeps the table on a phone too — for a table already built
+ *                     to fit one (a few short columns).
  *   defaultPageSize — rows per page until the user picks another size (default 25).
  *                     A table with its own default remembers its own choice, so
  *                     picking a size elsewhere doesn't override it.
  */
-export default function DataTable({ data, columns: columnsProp, defaultSortKey, defaultSortDir = 'asc', maxHeight, paginate = true, defaultPageSize = DEFAULT_PAGE_SIZE }) {
+export default function DataTable({ data, columns: columnsProp, defaultSortKey, defaultSortDir = 'asc', maxHeight, paginate = true, defaultPageSize = DEFAULT_PAGE_SIZE, cards: cardSpec }) {
   const pageSizeKey = defaultPageSize === DEFAULT_PAGE_SIZE ? PAGE_SIZE_KEY : `${PAGE_SIZE_KEY}-${defaultPageSize}`
   const [sortCol, setSortCol] = useState(defaultSortKey ?? null)
   const [sortDir, setSortDir] = useState(defaultSortDir)
   const [pageSize, setPageSize] = useState(() => loadPageSize(pageSizeKey, defaultPageSize))
   const [page, setPage] = useState(1)
+  const asCards = useMatchMedia(PHONE_QUERY)
   const rowCount = data?.length ?? 0
 
   // Back to page 1 when the row count or the sort changes (a new search,
@@ -92,6 +144,53 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
   function changePageSize(n) {
     setPageSize(n)
     try { localStorage.setItem(pageSizeKey, String(n)) } catch {}
+  }
+
+  const pagination = paginate && sorted.length >= PAGE_SIZES[0] && (
+    <Pagination
+      page={current}
+      pageCount={pageCount}
+      start={start}
+      shown={visible.length}
+      total={sorted.length}
+      pageSize={pageSize}
+      onPage={setPage}
+      onPageSize={changePageSize}
+    />
+  )
+
+  if (asCards && cardSpec !== false) {
+    const layout = cardLayout(columns, data[0], cardSpec)
+    const sortable = columns.filter(({ key, label }) => label && key != null && key in data[0])
+    return (
+      <>
+        {sortable.length > 1 && (
+          <div className="dt-sort">
+            <label>
+              Sort by
+              <select value={sortCol ?? ''} onChange={(e) => { setSortCol(e.target.value || null); setSortDir('asc') }}>
+                {sortCol == null && <option value="">As listed</option>}
+                {sortable.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+              </select>
+            </label>
+            {sortCol != null && (
+              <button
+                type="button"
+                className="dt-sort-dir"
+                onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                aria-label={sortDir === 'asc' ? 'Sorted ascending — switch to descending' : 'Sorted descending — switch to ascending'}
+              >
+                {sortDir === 'asc' ? '↑' : '↓'}
+              </button>
+            )}
+          </div>
+        )}
+        <ul className="dt-cards" style={maxHeight ? { maxHeight, overflowY: 'auto' } : undefined}>
+          {visible.map((row, i) => <Card key={start + i} row={row} layout={layout} />)}
+        </ul>
+        {pagination}
+      </>
+    )
   }
 
   return (
@@ -142,19 +241,53 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
         </tbody>
       </table>
     </div>
-    {paginate && sorted.length >= PAGE_SIZES[0] && (
-      <Pagination
-        page={current}
-        pageCount={pageCount}
-        start={start}
-        shown={visible.length}
-        total={sorted.length}
-        pageSize={pageSize}
-        onPage={setPage}
-        onPageSize={changePageSize}
-      />
-    )}
+    {pagination}
     </>
+  )
+}
+
+function cellValue({ key, render }, row) {
+  return render ? render(row) : fmt(row[key])
+}
+
+function Fields({ columns, row }) {
+  return (
+    <dl className="dt-card-fields">
+      {columns.map((col) => (
+        <div key={col.key}>
+          <dt>{col.label}</dt>
+          <dd className={col.render ? '' : getCellClass(col.key, row[col.key])}>{cellValue(col, row)}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+// One row as a card: control and title on the heading line (a second title
+// column sits at its right end, e.g. P&L), fields beneath, the rest behind More.
+function Card({ row, layout: { control, title, field, more } }) {
+  const [main, ...aside] = title
+  return (
+    <li className="dt-card">
+      {(control.length > 0 || main) && (
+        <div className="dt-card-head">
+          {control.map((col) => <span key={col.key} className="dt-card-control">{cellValue(col, row)}</span>)}
+          {main && <span className="dt-card-title">{cellValue(main, row)}</span>}
+          {aside.map((col) => (
+            <span key={col.key} className={`dt-card-aside ${col.render ? '' : getCellClass(col.key, row[col.key])}`}>
+              {cellValue(col, row)}
+            </span>
+          ))}
+        </div>
+      )}
+      {field.length > 0 && <Fields columns={field} row={row} />}
+      {more.length > 0 && (
+        <details className="dt-card-more">
+          <summary>More</summary>
+          <Fields columns={more} row={row} />
+        </details>
+      )}
+    </li>
   )
 }
 
