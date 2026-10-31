@@ -36,7 +36,7 @@ const NAV_GROUPS = [
 const TAB_LINKS = [
   { to: '/home', label: 'Home', Icon: HomeIcon },
   { to: '/positions', label: 'Positions', Icon: PositionsIcon },
-  { to: '/screener', label: 'Screener', Icon: ScreenerIcon },
+  { to: '/allocation', label: 'Reports', Icon: ReportsIcon },
   { to: '/analyze', label: 'Analyze', Icon: AnalyzeIcon },
 ]
 
