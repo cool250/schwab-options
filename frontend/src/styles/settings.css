@@ -70,3 +70,11 @@
 }
 .account-picker-inline .input { width: auto; min-width: 0; max-width: 100%; padding: 6px 0; font-weight: 600; }
 .account-picker-error { color: var(--error); }
+
+/* Phones: the select fills the row beside its label, at a size that's easy
+   to read and tap (16px also stops iOS zooming in on focus). */
+@media (max-width: 768px) {
+  .portfolio-account-bar { justify-content: stretch; }
+  .account-picker-inline { flex: 1; flex-wrap: nowrap; }
+  .account-picker-inline .input { flex: 1; padding: 8px 10px; font-size: 16px; }
+}

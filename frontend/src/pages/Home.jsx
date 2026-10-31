@@ -464,7 +464,7 @@ export default function Home() {
       )}
 
       {/* 1. Capacity and results */}
-      <div className="card">
+      <div className="card" id="home-summary">
         <div className="metrics-row home-metrics">
           <Metric
             label="Cash and Sweep"
@@ -661,9 +661,9 @@ export default function Home() {
         )}
 
         {!book.loading && !derived?.calendar.length ? (
-          <EmptyCard title="Expiry calendar" message={`Nothing expires in the next ${CALENDAR_DAYS} days.`} />
+          <EmptyCard id="home-calendar" title="Expiry calendar" message={`Nothing expires in the next ${CALENDAR_DAYS} days.`} />
         ) : (
-          <div className="card">
+          <div className="card" id="home-calendar">
             <CardHead title="Expiry calendar" sub={`Next ${CALENDAR_DAYS} days`} />
             {book.loading ? <Placeholder rows={4} /> : (
               <DataTable
@@ -684,8 +684,8 @@ export default function Home() {
       {/* 4. Income from what you hold, and profit to take */}
       <div className="home-grid">
 
-        {sharesEmpty ? <EmptyCard title="Shares to sell against" message="Every share is covered." /> : (
-          <div className="card">
+        {sharesEmpty ? <EmptyCard id="home-shares" title="Shares to sell against" message="Every share is covered." /> : (
+          <div className="card" id="home-shares">
             <CardHead title="Shares to sell against" sub="Shares not yet covered by a short call (long) or short put (short)" />
             {book.loading ? <Placeholder /> : (
               <ul className="home-list">

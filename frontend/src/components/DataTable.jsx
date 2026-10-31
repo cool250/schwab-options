@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 // cards instead of a table that only shows three columns at a time.
 export const PHONE_QUERY = '(max-width: 768px)'
 
-function useMatchMedia(query) {
+export function useMatchMedia(query) {
   const [matches, setMatches] = useState(() => window.matchMedia?.(query).matches ?? false)
   useEffect(() => {
     const media = window.matchMedia?.(query)

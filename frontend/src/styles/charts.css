@@ -49,3 +49,17 @@
   .gauge-row { grid-template-columns: 1fr; }
   .gauge { justify-content: flex-start; }
 }
+
+/* Phones: the ranges stay one row that scrolls sideways, rather than
+   wrapping to a second row above the chart. */
+@media (max-width: 768px) {
+  .range-pills {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .range-pills::-webkit-scrollbar { display: none; }
+  .range-pill { flex: none; }
+}

@@ -340,4 +340,8 @@
   /* Back to stacked — side by side gets too cramped below this width. */
   .slider-row-pair { flex-direction: column; gap: 0; }
   .slider-row-pair > .slider-row + .slider-row { margin-top: 14px; }
+  /* The chain opens centred on the strike column (StrikeLab's
+     OptionChainTable), so CALLS / PUTS sit beside it to stay in view. */
+  .chain-head .chain-side-label:nth-child(2) { justify-self: end; padding-right: 10px; }
+  .chain-head .chain-side-label:nth-child(4) { justify-self: start; padding-left: 10px; }
 }

@@ -119,6 +119,10 @@ def main() -> int:
                         page.goto(args.base + path, wait_until="networkidle")
                         page.wait_for_timeout(args.settle_ms)
                         for selector in clicks:
+                            # On a phone a search form that already has results
+                            # is folded behind its Filters bar (FilterSheet.jsx).
+                            if selector == SUBMIT and page.locator(".filter-bar:visible").count():
+                                page.locator(".filter-bar:visible").first.click()
                             page.locator(selector).first.click()
                             page.wait_for_load_state("networkidle")
                             page.wait_for_timeout(args.settle_ms)

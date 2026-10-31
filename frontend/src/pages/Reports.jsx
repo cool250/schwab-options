@@ -4,6 +4,7 @@ import { getAllocations, getEquityTransactions, getIncomeAndFees, getOptionTrans
 import { loadOpenPositionsPl } from '../utils/openPositions'
 import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
+import { useMatchMedia } from '../components/DataTable'
 import {
   KpiStrip, MonthCalendar, DailyRunChart, SymbolTable,
   MonthGrid, MonthlyRunChart, SymbolMonthHeat, YearCalendar, SourceTabs,
@@ -266,6 +267,31 @@ export default function Reports() {
     load('month', year, m)
   }
 
+  // A sideways swipe on the daily calendar steps a month back or forward
+  // (touch screens), within the years the Year dropdown offers and never
+  // past the current month.
+  function shiftMonth(delta) {
+    const index = year * 12 + (month - 1) + delta
+    const y = Math.floor(index / 12), m = (index % 12) + 1
+    if (y < yearOptions[yearOptions.length - 1] || y * 12 + m > currentYear() * 12 + currentMonth()) return
+    setYear(y)
+    setMonth(m)
+    load('month', y, m)
+  }
+  const swipeable = useMatchMedia('(hover: none)')
+  const swipeStart = useRef(null)
+  const swipe = {
+    onTouchStart: (e) => { swipeStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } },
+    onTouchEnd: (e) => {
+      const start = swipeStart.current
+      swipeStart.current = null
+      if (!start) return
+      const dx = e.changedTouches[0].clientX - start.x
+      const dy = e.changedTouches[0].clientY - start.y
+      if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) shiftMonth(dx < 0 ? 1 : -1)
+    },
+  }
+
   // The current month loads as soon as the page opens; YTD loads the
   // selected year the first time its tab is opened.
   const loadedOnMount = useRef(false)
@@ -459,12 +485,14 @@ export default function Reports() {
                 <span className="report-card-note">
                   {isMonth
                     ? `${sourceLabel} · click a day or week${source === 'equity' ? '' : ' · dashed days: open options expiring'}`
+                    + (swipeable ? ' · swipe for another month' : '')
                     : `${sourceLabel} · ${positiveMonths} · click a month or quarter`}
                 </span>
               </div>
               {!(sourceTrades.length > 0 || (isMonth && calendarOpenLegs.length > 0)) ? (
                 <p className="summary-line">{sourceEmpty}</p>
               ) : isMonth ? (
+                <div {...swipe}>
                 <MonthCalendar
                   year={report.year}
                   month={report.month}
@@ -475,6 +503,7 @@ export default function Reports() {
                   openLegs={calendarOpenLegs}
                   openLoading={source !== 'equity' && (openNow?.loading ?? false)}
                 />
+                </div>
               ) : (
                 <MonthGrid
                   trades={sourceTrades}

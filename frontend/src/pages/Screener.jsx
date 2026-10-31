@@ -7,6 +7,7 @@ import { setCopilotContext, clearCopilotContext } from '../utils/copilotContext'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
 import HelpTip from '../components/HelpTip'
+import FilterSheet from '../components/FilterSheet'
 import { createSessionCache } from '../utils/sessionCaches'
 
 // Survives navigating away and back within a session (same pattern as
@@ -349,7 +350,10 @@ export default function Screener() {
 
   return (
     <div className="page">
-      <div className="card">
+      <FilterSheet
+        folded={result != null}
+        summary={result?.criteria && `${result.criteria.symbols.join(', ')} · ${strategyName(result.criteria.strategy)} · ${result.criteria.minDte}–${result.criteria.maxDte} DTE`}
+      >
         <form onSubmit={handleSubmit}>
           <div className="screener-fields">
             <div className="form-group screener-tickers">
@@ -453,7 +457,7 @@ export default function Screener() {
             </button>
           </div>
         </form>
-      </div>
+      </FilterSheet>
 
       {error && <div className="alert error">{error}</div>}
       {loading && <Spinner />}

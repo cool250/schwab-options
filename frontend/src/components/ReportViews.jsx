@@ -808,7 +808,7 @@ export function SymbolMonthHeat({ trades, lastMonth, onCell, onMonth }) {
   if (symbols.length === 0) return null
   return (
     <>
-      <div className="report-table-wrap">
+      <div className="report-table-wrap report-table-wrap--latest">
         <table className="report-table report-heat">
           <thead>
             <tr>

@@ -167,4 +167,17 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
   .pnl-week-value { font-size: 0.74rem; }
   .pnl-full { display: none; }
   .pnl-short { display: inline; }
+
+  /* Tables wider than the phone scroll sideways under a fixed symbol
+     column, so every number stays labelled. */
+  .report-table th:first-child,
+  .report-table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--card-bg); }
+  .report-table tbody tr.report-row-link:hover td:first-child { background: var(--bg); }
+  /* The symbol-by-month table and the year calendar open scrolled to the
+     latest month: a right-to-left scroll box starts at its right end, and
+     the content inside reads left to right as usual. */
+  .report-table-wrap--latest,
+  .report-ycal { direction: rtl; }
+  .report-table-wrap--latest > *,
+  .report-ycal > * { direction: ltr; }
 }

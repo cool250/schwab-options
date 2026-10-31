@@ -7,6 +7,7 @@ import { formatOptionSymbol } from '../utils/optionSymbol'
 import { money } from '../utils/numberFormat'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
+import FilterSheet from '../components/FilterSheet'
 
 // A `render` column formats the display only — DataTable still sorts by the
 // raw row[key] (ISO "YYYY-MM-DD", which sorts chronologically), so this
@@ -544,6 +545,9 @@ export default function Transactions() {
     }
   }
 
+
+  // The phone's folded search form shows what's set (FilterSheet).
+  const filterSummary = `${ticker || 'All tickers'} · ${formatDate(startDate)} – ${formatDate(endDate)}`
   return (
     <div className="page">
       <div className="tab-row">
@@ -572,7 +576,7 @@ export default function Transactions() {
 
       {tab === 'all' ? (
         <>
-          <div className="card">
+          <FilterSheet folded={allData != null} summary={filterSummary}>
             <form onSubmit={handleAllSearch}>
               <div className="form-row">
                 <div className="form-group">
@@ -630,7 +634,7 @@ export default function Transactions() {
                 </button>
               </div>
             </form>
-          </div>
+          </FilterSheet>
 
           {allError && <div className="alert error">{allError}</div>}
           {allLoading && <Spinner />}
@@ -659,7 +663,7 @@ export default function Transactions() {
         </>
       ) : tab === 'options' ? (
         <>
-          <div className="card">
+          <FilterSheet folded={transactions != null} summary={filterSummary}>
             <form onSubmit={handleSearch}>
               <div className="form-row">
                 <div className="form-group">
@@ -734,7 +738,7 @@ export default function Transactions() {
                 </button>
               </div>
             </form>
-          </div>
+          </FilterSheet>
 
           {error && <div className="alert error">{error}</div>}
           {loading && <Spinner />}
@@ -767,7 +771,7 @@ export default function Transactions() {
         </>
       ) : (
         <>
-          <div className="card">
+          <FilterSheet folded={equityTransactions != null} summary={filterSummary}>
             <form onSubmit={handleEquitySearch}>
               <div className="form-row">
                 <div className="form-group">
@@ -813,7 +817,7 @@ export default function Transactions() {
                 </button>
               </div>
             </form>
-          </div>
+          </FilterSheet>
 
           {equityError && <div className="alert error">{equityError}</div>}
           {equityLoading && <Spinner />}

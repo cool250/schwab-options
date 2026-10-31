@@ -117,3 +117,12 @@ export const CollapseIcon = () => (
     <polyline points="18 17 13 12 18 7" />
   </Icon>
 )
+
+// "More" in the phone tab bar.
+export const MoreIcon = () => (
+  <Icon>
+    <circle cx="5" cy="12" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="19" cy="12" r="1" />
+  </Icon>
+)

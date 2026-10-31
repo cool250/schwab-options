@@ -100,3 +100,30 @@ a.home-alert:hover { text-decoration: underline; }
 /* Upcoming events' date over time; and the per-position chips. */
 .home-event-when { display: flex; flex-direction: column; font-weight: 600; font-variant-numeric: tabular-nums; }
 .home-event-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+
+/* Phones: one column in the order it's read on the go — what needs doing
+   (alerts, the numbers, what expires, profit to take, shares to cover),
+   then new trades, then reference (watchlist, events, calendar). The grids
+   step aside (display: contents) so every card is a direct item of .page's
+   flex column and `order` can place it; desktop keeps the grid as written. */
+@media (max-width: 768px) {
+  .home .home-grid,
+  .home .home-stack { display: contents; }
+  .home-head           { order: 0; }
+  .home > .alert       { order: 1; }
+  .home-alerts         { order: 2; }
+  #home-summary        { order: 3; }
+  #home-expiring       { order: 4; }
+  #home-take-profit    { order: 5; }
+  #home-shares         { order: 6; }
+  #home-ideas          { order: 7; }
+  #home-watchlist      { order: 8; }
+  #home-events         { order: 9; }
+  #home-calendar       { order: 10; }
+
+  /* The watchlist: five even columns cut the symbol and price to "…" here,
+     so columns size to their content, with tighter padding to fit. */
+  .home-compact-table .data-table { table-layout: auto; }
+  .home-compact-table .data-table th,
+  .home-compact-table .data-table td { padding-left: 6px; padding-right: 6px; font-size: 0.85rem; text-overflow: clip; }
+}

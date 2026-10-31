@@ -1,10 +1,14 @@
 /* ─── Navbar ─────────────────────────────────────────── */
 /* A fixed left sidebar on desktop (see the min-width: 769px block at the
-   bottom); on phones it stays the top bar with a hamburger dropdown, since a
-   sidebar would eat too much of a narrow screen. The base rules below are
+   bottom); on phones a slim top bar with the logo, plus a bottom tab bar
+   whose "More" opens the full menu as a sheet, since a sidebar would eat too
+   much of a narrow screen. The base rules below are
    that top bar; the desktop block converts it. */
 :root {
   --sidebar-width: 200px;
+  /* The phone's bottom tab bar (≤768px), not counting the home-bar inset.
+     Pages and the copilot button pad by this so nothing sits under it. */
+  --tabbar-height: 58px;
 }
 /* Collapsed to an icon rail (Navbar.jsx toggles this class on <html>). */
 :root.sidebar-collapsed {
@@ -124,18 +128,9 @@
    rules, which would otherwise erase the indent. */
 .nav-link.nav-sublink { padding-left: 26px; }
 
-/* Hamburger button — hidden on desktop */
-.navbar-hamburger {
-  display: none;
-  margin-left: auto;
-  background: none;
-  border: none;
-  font-size: 1.4rem;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--text-inverse);
-  padding: 6px 8px;
-}
+/* Phone tab bar and its More sheet's backdrop — hidden on desktop */
+.navbar-tabs,
+.navbar-sheet-backdrop { display: none; }
 /* Mobile sign-out inside the dropdown — hidden on desktop */
 .navbar-logout--mobile { display: none; }
 /* Desktop sign-out — shown on desktop */
@@ -183,37 +178,83 @@
    adds the pointer, since it's an <a href="#"> handled in JS. */
 .navbar-logout { cursor: pointer; }
 
-/* ─── Mobile navbar (hamburger) ──────────────────────── */
+/* ─── Mobile navbar (top bar + bottom tabs) ─────────── */
 @media (max-width: 768px) {
   .navbar {
     padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px));
-    flex-wrap: wrap;
     gap: 0;
   }
   .navbar-brand  { flex: 1; padding: 10px 0; }
   .navbar-logo   { height: 31px; width: auto; } /* 20% up from 26px */
-  .navbar-hamburger { display: block; }
 
-  /* Desktop sign-out hidden; mobile one inside dropdown shown */
+  /* Desktop sign-out hidden; mobile one inside the More sheet shown */
   .navbar-logout--desktop { display: none; }
   .navbar-settings--desktop { display: none; }
   .navbar-settings--mobile { display: flex; }
   .navbar-user--desktop { display: none; }
   .navbar-user--mobile { display: flex; border-top: none; padding-top: 8px; }
 
-  /* Collapsed by default */
-  .navbar-links {
-    display: none;
-    width: 100%;
-    flex-direction: column;
-    gap: 2px;
-    padding: 8px 0 12px;
-    /* --border is a light-page divider; on the dark --nav-bg it would be a
-       harsh bright line, so use a subtle white hairline instead. */
+  .navbar-tabs {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    height: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    background: var(--nav-bg);
     border-top: 1px solid rgba(255, 255, 255, 0.12);
   }
-  /* Open state */
+  .navbar-tab {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 0;
+    border: none;
+    background: none;
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.65);
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .navbar-tab .nav-icon { width: 22px; height: 22px; }
+  .navbar-tab.active { color: var(--text-inverse); font-weight: 600; }
+  .navbar-tab.active .nav-icon { color: var(--primary-hover); }
+  .navbar-tab:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.4); }
+
+  /* More: the full menu as a sheet rising from the tab bar. */
+  .navbar-links {
+    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
+    z-index: 1;
+    max-height: calc(100dvh - var(--tabbar-height) - 80px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px max(12px, env(safe-area-inset-right, 0px)) 12px max(12px, env(safe-area-inset-left, 0px));
+    background: var(--nav-bg);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.25);
+  }
   .navbar-links.open { display: flex; }
+  .navbar-sheet-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: var(--overlay-backdrop);
+  }
 
   .nav-link {
     padding: 10px 12px;

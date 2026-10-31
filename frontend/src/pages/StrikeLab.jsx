@@ -22,6 +22,7 @@ import { consumePendingLegs, onLegsApplied } from "../utils/copilotProposedLegs"
 import { createSessionCache } from "../utils/sessionCaches";
 import StrategyBuilderOverlay from "../components/StrategyBuilderOverlay";
 import HelpTip from "../components/HelpTip";
+import { useMatchMedia } from "../components/DataTable";
 
 /** Patches a live bid/ask tick into whichever leg (call or put, on whichever
  *  strike row) carries that streamer-symbol, leaving everything else as-is. */
@@ -215,6 +216,9 @@ const EXP_PAGE = 10;
 const EXP_DAYS_AHEAD = 730;
 
 export default function StrikeLab() {
+  // No hover on a touch screen: the payoff chart's readout opens where it's
+  // tapped instead (recharts takes one trigger, so a drag doesn't move it).
+  const touch = useMatchMedia("(hover: none)");
   const location = useLocation();
   // Positions selected on the Positions page arrive once, via router state, as
   // { analyzePositions: [{ symbol, strike, optionType, quantity, premium, dte }, ...], view }.
@@ -430,10 +434,14 @@ export default function StrikeLab() {
   // re-fetching the whole chain to see a fresher price. Reconnects with
   // backoff if the connection drops (dev-server restarts, brief network
   // blips, etc.); the effect's cleanup closes it on symbol/dte change or unmount.
+  // While the tab is in the background (another app, a locked phone) the
+  // socket is closed, to save battery and data, and reopened on return —
+  // the fresh snapshot brings the chain up to date.
   useEffect(() => {
     if (dte == null) return;
 
     let cancelled = false;
+    let paused = false;
     let socket = null;
     let reconnectTimer = null;
     let retryDelayMs = 1000;
@@ -506,7 +514,7 @@ export default function StrikeLab() {
       };
 
       socket.onclose = (event) => {
-        if (cancelled) return;
+        if (cancelled || paused) return;
         // 4401: token rejected/expired server-side (api/market/stream.py) —
         // retrying with the same stale token would just loop forever, so
         // send the user back through the same re-auth path the REST client
@@ -530,12 +538,26 @@ export default function StrikeLab() {
       socket.onerror = () => socket.close();
     }
 
+    function onVisibility() {
+      if (document.hidden) {
+        paused = true;
+        clearTimeout(reconnectTimer);
+        socket?.close();
+      } else if (paused) {
+        paused = false;
+        retryDelayMs = 1000;
+        connect();
+      }
+    }
+
     setLoadingChain(true);
     setChainError(null);
     connect();
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
       clearTimeout(reconnectTimer);
       socket?.close();
       if (socketRef.current === socket) socketRef.current = null;
@@ -1024,7 +1046,7 @@ export default function StrikeLab() {
                   axisLine={{ stroke: "var(--border-strong)" }}
                   width={56}
                 />
-                <Tooltip content={<PayoffTooltip />} />
+                <Tooltip content={<PayoffTooltip />} trigger={touch ? "click" : "hover"} />
                 <ReferenceLine y={0} stroke="var(--border-strong)" strokeWidth={1.5} />
                 <ReferenceLine x={spot} stroke="var(--primary)" strokeDasharray="4 4" strokeWidth={1.5} />
                 {breakevens.map((b, i) => (
@@ -1564,6 +1586,14 @@ function PLTable({ legs, spot, lo, hi, dte, iv, chain }) {
 ============================================================================ */
 function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg, legs }) {
   const rows = chain?.chain;
+  const scrollRef = useRef(null);
+
+  // On a phone the chain is wider than the screen: open it centred on the
+  // strike column, between calls and puts, rather than at the calls' edge.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (box && box.scrollWidth > box.clientWidth) box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2;
+  }, [chain?.expirationDate, rows?.length]);
 
   if (!rows || rows.length === 0) {
     return (
@@ -1596,7 +1626,7 @@ function OptionChainTable({ chain, spot, lo, hi, loading, onAddLeg, onRemoveLeg,
           </span>
         </div>
       )}
-      <div className="table-scroll chain-table-scroll">
+      <div className="table-scroll chain-table-scroll" ref={scrollRef}>
         <div className="chain-table">
           <div className="chain-header-sticky">
             <div className="chain-row chain-head">

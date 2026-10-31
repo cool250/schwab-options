@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   PortfolioIcon, MarketIcon, HomeIcon, PositionsIcon, ReportsIcon, TransactionsIcon,
-  AnalyzeIcon, ChartsIcon, ScreenerIcon, SettingsIcon, SignOutIcon, CollapseIcon,
+  AnalyzeIcon, ChartsIcon, ScreenerIcon, SettingsIcon, SignOutIcon, CollapseIcon, MoreIcon,
 } from './NavIcons'
 
 // Menu structure: each group is a collapsible parent with its pages beneath.
@@ -29,6 +29,15 @@ const NAV_GROUPS = [
       { to: '/screener', label: 'Screener', Icon: ScreenerIcon },
     ],
   },
+]
+
+// The phone's bottom tab bar: the pages checked most on a phone, then "More"
+// (the rest of the menu, opened as a sheet above the bar).
+const TAB_LINKS = [
+  { to: '/home', label: 'Home', Icon: HomeIcon },
+  { to: '/positions', label: 'Positions', Icon: PositionsIcon },
+  { to: '/screener', label: 'Screener', Icon: ScreenerIcon },
+  { to: '/analyze', label: 'Analyze', Icon: AnalyzeIcon },
 ]
 
 // Which groups the user has collapsed — a per-browser convenience, so every
@@ -72,6 +81,18 @@ export default function Navbar() {
   const close = () => setOpen(false)
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [rail, setRail] = useState(loadRail)
+  const inTabs = TAB_LINKS.some((l) => pathname.startsWith(l.to))
+
+  // The phone's More sheet closes on navigation and on Escape.
+  useEffect(() => { setOpen(false) }, [pathname])
+  useEffect(() => {
+    // copilot.css hides the floating copilot button over the open sheet.
+    document.documentElement.classList.toggle('nav-sheet-open', open)
+    if (!open) return
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open])
 
   // The rail width lives in --sidebar-width (navbar.css), which also sets
   // .app-shell's left padding — so the page reflows to the narrower menu.
@@ -118,16 +139,28 @@ export default function Navbar() {
         </button>
       </div>
 
-      <button
-        className="navbar-hamburger"
-        onClick={() => setOpen((o) => !o)}
-        aria-label={open ? 'Close menu' : 'Open menu'}
-        aria-expanded={open}
-      >
-        {open ? '✕' : '☰'}
-      </button>
+      {/* Phones: a bottom tab bar in place of the sidebar. */}
+      <div className="navbar-tabs">
+        {TAB_LINKS.map((link) => (
+          <NavLink key={link.to} to={link.to} className={({ isActive }) => `navbar-tab${isActive && !open ? ' active' : ''}`}>
+            <link.Icon />
+            <span>{link.label}</span>
+          </NavLink>
+        ))}
+        <button
+          type="button"
+          className={`navbar-tab${open || !inTabs ? ' active' : ''}`}
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-controls="navbar-menu"
+        >
+          <MoreIcon />
+          <span>More</span>
+        </button>
+      </div>
+      {open && <div className="navbar-sheet-backdrop" onClick={close} aria-hidden="true" />}
 
-      <div className={`navbar-links${open ? ' open' : ''}`}>
+      <div id="navbar-menu" className={`navbar-links${open ? ' open' : ''}`}>
         <NavUser user={user} className="navbar-user--mobile" />
         {NAV_GROUPS.map((group) => {
           // A group holding the current page always shows it, even if the
@@ -190,7 +223,7 @@ export default function Navbar() {
 
       {/* Who's signed in, Settings (incl. light/dark theme) and Sign out,
           pinned to the bottom of the desktop sidebar. On phones these live
-          inside the hamburger dropdown instead (the --mobile copies above). */}
+          in the More sheet instead (the --mobile copies above). */}
       <NavUser user={user} className="navbar-user--desktop" />
       <NavLink
         to="/settings"

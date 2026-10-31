@@ -30,10 +30,53 @@
 
 /* ─── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
-  .main-content   { padding: 20px max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+  /* A card's title row: the title and its button share the first line and
+     the summary numbers take a full line beneath. */
+  .section-header { flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+  .section-header > .summary-line { order: 1; flex-basis: 100%; }
+  /* Bottom padding clears the tab bar (navbar.css) and the home bar. */
+  .main-content   { padding: 20px max(16px, env(safe-area-inset-right, 0px)) calc(20px + var(--tabbar-height) + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
   .page           { gap: 14px; }
   .card           { padding: 16px; }
 }
 @media (max-width: 480px) {
-  .main-content { padding: 12px max(12px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
+  .main-content { padding: 12px max(12px, env(safe-area-inset-right, 0px)) calc(12px + var(--tabbar-height) + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
 }
+
+/* ─── Filter sheet (components/FilterSheet.jsx) ──────────
+   Phones only: a search form folded behind a bar once results show, opened
+   as a sheet rising from the tab bar. */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.filter-bar-label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; font-size: 0.85rem; }
+.filter-bar-summary { flex: 1; min-width: 0; color: var(--text-muted); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-bar-edit { margin-left: auto; color: var(--primary); font-weight: 600; font-size: 0.85rem; }
+.filter-sheet { display: none; }
+.filter-sheet.open {
+  display: block;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
+  z-index: 160; /* over the selection bar (150), under the copilot (200) */
+  max-height: calc(100dvh - var(--tabbar-height) - 60px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.2);
+}
+.filter-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.filter-sheet-backdrop { position: fixed; inset: 0; z-index: 155; background: var(--overlay-backdrop); }

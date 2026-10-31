@@ -172,6 +172,19 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 
 @media (max-width: 768px) {
   .copilot-widget.full-page .copilot-panel { inset: 0; border-radius: 0; }
+  /* Phones: a round icon button above the tab bar (navbar.css) — the
+     labelled pill covered the right edge of every card. The label stays
+     in aria-label. */
+  .copilot-widget { bottom: calc(var(--tabbar-height) + 12px + env(safe-area-inset-bottom, 0px)); }
+  .copilot-launcher { width: 48px; height: 48px; padding: 0; border-radius: 50%; box-shadow: var(--shadow-md); }
+  .copilot-launcher-label { display: none; }
+  .copilot-panel { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  /* Above the Positions selection bar while it's showing (positions.css). */
+  body:has(.selection-bar) .copilot-widget { bottom: calc(var(--tabbar-height) + 96px + env(safe-area-inset-bottom, 0px)); }
+  /* Out of the way while the phone's More sheet or a filter sheet is open
+     (Navbar.jsx, FilterSheet.jsx). */
+  .nav-sheet-open .copilot-widget,
+  body:has(.filter-sheet.open) .copilot-widget { display: none; }
 }
 
 .copilot-messages {
@@ -371,7 +384,7 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 }
 
 @media (max-width: 480px) {
-  .copilot-widget { right: calc(12px + env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .copilot-widget { right: calc(12px + env(safe-area-inset-right, 0px)); bottom: calc(var(--tabbar-height) + 12px + env(safe-area-inset-bottom, 0px)); }
   .copilot-panel { width: 100vw; }
   /* Full-width panel on mobile overlays instead of squeezing content to nothing. */
   body.copilot-open { padding-right: 0; }
