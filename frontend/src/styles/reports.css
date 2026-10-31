@@ -159,6 +159,9 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
   .report-kpis { flex-wrap: wrap; }
   .report-kpi { flex: 1 1 40%; border-left: none; margin-left: 0; padding-left: 0; }
   .report-kpi--hero, .report-kpi--wide { flex-basis: 100%; }
+  /* Phones show just the first tile, Total P&L; the rest of the numbers
+     are in the views below it. */
+  .report-kpi:not(:first-child) { display: none; }
   .pnl-cal { gap: 3px; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1fr); }
   .pnl-cal--months { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1fr); }
   .pnl-day { min-height: 46px; padding: 4px 5px; }
