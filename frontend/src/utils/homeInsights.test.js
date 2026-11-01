@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   takeProfitCandidates,
-  equityShort, moneyness, expiringSoon, uncoveredShares, expiryCalendar,
+  equityShort, uncoveredShares,
 } from "./homeInsights.js";
 
 test("take profit lists shorts that kept at least the threshold", () => {
@@ -11,24 +11,11 @@ test("take profit lists shorts that kept at least the threshold", () => {
   assert.deepEqual(takeProfitCandidates(rows, 75).map((r) => [r.key, r.kept]), [["a", 80]]);
 });
 
-test("an equity short's credit and moneyness", () => {
+test("an equity short's credit", () => {
   const s = equityShort({ symbol: "Q", ticker: "QQQ", strike_price: 700, expiration_date: "2026-10-30", days_to_expiry: 3,
-    quantity: -2, trade_price: 1.5, total_value: 200, underlying_price: 720 }, "PUT");
+    quantity: -2, trade_price: 1.5, total_value: 200 }, "PUT");
   assert.equal(s.credit, 300);
   assert.equal(equityShort({ quantity: 1 }, "PUT"), null, "longs aren't shorts");
-  assert.equal(moneyness(s, 2).status, "otm");
-  assert.equal(moneyness({ ...s, underlyingPrice: 705 }, 2).status, "at_risk");
-  assert.equal(moneyness({ ...s, underlyingPrice: 690 }, 2).status, "itm");
-  assert.equal(moneyness({ type: "CALL", strike: 700, underlyingPrice: 680 }, 2).status, "otm");
-});
-
-test("expiring soon puts the riskiest first", () => {
-  const list = expiringSoon([
-    { key: "far", dte: 20, type: "PUT", strike: 100, underlyingPrice: 120 },
-    { key: "safe", dte: 2, type: "PUT", strike: 100, underlyingPrice: 120 },
-    { key: "itm", dte: 4, type: "PUT", strike: 100, underlyingPrice: 95 },
-  ], 7, 2);
-  assert.deepEqual(list.map((s) => s.key), ["itm", "safe"]);
 });
 
 test("uncovered shares: long shares beyond short calls, short shares beyond short puts", () => {
@@ -36,14 +23,6 @@ test("uncovered shares: long shares beyond short calls, short shares beyond shor
   const calls = [{ ticker: "GOOG", quantity: -1 }];
   const puts = [{ ticker: "QQQ", quantity: -11 }];
   assert.deepEqual(uncoveredShares(stocks, puts, calls).map((u) => [u.ticker, u.side, u.contracts]), [["GOOG", "CALL", 1]]);
-});
-
-test("expiry calendar groups shorts by date within the window", () => {
-  const cal = expiryCalendar([
-    { expiration: "2026-10-27", credit: 100 }, { expiration: "2026-10-27", credit: 50 },
-    { expiration: "2026-10-30", credit: 10 }, { expiration: "2026-12-18", credit: 999 },
-  ], 10, "2026-10-25");
-  assert.deepEqual(cal, [{ date: "2026-10-27", count: 2, credit: 150 }, { date: "2026-10-30", count: 1, credit: 10 }]);
 });
 
 test("implied volatility round-trips through Black-Scholes", async () => {

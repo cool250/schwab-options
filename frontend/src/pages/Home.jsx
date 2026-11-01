@@ -14,7 +14,7 @@ import { futuresOptionContracts, futuresOptionRowPl } from '../utils/positionPl'
 import { getMultiplier, MULTIPLIER } from '../utils/contractMultiplier'
 import {
   ideaStress, ideaFit, worstCushion, rootLean, callsCoverLeft, takeProfitCandidates,
-  equityShort, eventsBefore, expiringSoon, uncoveredShares, expiryCalendar,
+  equityShort, eventsBefore, uncoveredShares,
   stressBook, marginCallMove, cushionStatus, availableFundsForTrading,
 } from '../utils/homeInsights'
 
@@ -34,11 +34,10 @@ const SYMBOL_PINNED = { pinned: 'symbol' }
 const CONTRACT_PINNED = { pinned: 'key' }
 const DATE_PINNED = { pinned: 'date' }
 const DEFAULT_RULES = {
-  'home.futures_margin_pct': 11, 'home.take_profit_pct': 75, 'home.expiring_days': 7, 'home.at_risk_pct': 2,
+  'home.futures_margin_pct': 11, 'home.take_profit_pct': 75,
   'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 5, 'home.idea_max_delta_pct': 20,
   'home.stress_iv_rise': 20, 'home.idea_crash_pct': 5, 'home.event_crash_pct': 8,
 }
-const CALENDAR_DAYS = 14
 const IDEAS_SHOWN = 8
 const EVENTS_DAYS = 14
 
@@ -50,15 +49,10 @@ const CUSHION_STATUS = {
   watch: { label: 'Watch', tone: 'warning' },
   at_risk: { label: 'At risk', tone: 'error' },
 }
-const STATUS = {
-  itm: { label: 'In the money', tone: 'error' },
-  at_risk: { label: 'Near strike', tone: 'warning' },
-  otm: { label: 'Out of the money', tone: 'ok' },
-}
 
 // A futures-option position row as a short for the rules (null for a long;
-// a grouped ratio spread has no single strike, so no moneyness).
-function futuresShort(row, type, bids, prices) {
+// a grouped ratio spread has no single strike).
+function futuresShort(row, type, bids) {
   const quantity = row.quantity ?? null
   if (row.long_leg ? !(row.total_value > 0) : !(quantity < 0)) return null
   return {
@@ -70,7 +64,6 @@ function futuresShort(row, type, bids, prices) {
     dte: row.days_to_expiry,
     quantity,
     label: row.long_leg ? `/${row.ticker} ${row.ratio} ratio ${formatDate(row.expiration_date)}` : null,
-    underlyingPrice: row.long_leg ? null : prices[row.ticker] ?? null,
     credit: row.total_value ?? 0,
     pl: futuresOptionRowPl(row, bids),
   }
@@ -188,7 +181,7 @@ export default function Home() {
       ...(p.stocks ?? []).map((s) => s.symbol),
       ...[...(p.puts ?? []), ...(p.calls ?? [])].map((r) => r.ticker),
     ].filter(Boolean))].slice(0, 100)
-    const days = Math.max(EVENTS_DAYS, rules['home.idea_max_dte'], rules['home.expiring_days']) + 1
+    const days = Math.max(EVENTS_DAYS, rules['home.idea_max_dte']) + 1
     setEvents({ loading: true })
     getMarketEvents(symbols, days)
       .then((r) => !cancelled && setEvents({ loading: false, list: r.events ?? [], notes: r.notes ?? [] }))
@@ -248,8 +241,8 @@ export default function Home() {
     const shorts = [
       ...puts.map((r) => equityShort(r, 'PUT')),
       ...calls.map((r) => equityShort(r, 'CALL')),
-      ...(futuresOptions?.puts ?? []).map((r) => futuresShort(r, 'PUT', bids, prices)),
-      ...(futuresOptions?.calls ?? []).map((r) => futuresShort(r, 'CALL', bids, prices)),
+      ...(futuresOptions?.puts ?? []).map((r) => futuresShort(r, 'PUT', bids)),
+      ...(futuresOptions?.calls ?? []).map((r) => futuresShort(r, 'CALL', bids)),
     ].filter(Boolean)
 
     // The book for the margin stress test (utils/homeInsights.js revalues
@@ -299,11 +292,8 @@ export default function Home() {
       balances,
       prices,
       futuresMissing: futures == null || futuresOptions == null,
-      shorts,
-      expiring: expiringSoon(shorts, rules['home.expiring_days'], rules['home.at_risk_pct']),
       takeProfit: takeProfitCandidates(shorts, rules['home.take_profit_pct']),
       uncovered: uncoveredShares(stocks, puts, calls),
-      calendar: expiryCalendar(shorts, CALENDAR_DAYS),
       forTrading,
       cushion,
       // For the new-income ideas, judged against this book.
@@ -375,13 +365,12 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ideas, ideaSide, marginPct, crashPct, worstNow, worstEvent, eventCrashPct, eventList, rules])
 
-  const calendarCredit = (derived?.calendar ?? []).reduce((s, d) => s + d.credit, 0)
   const cushionState = derived?.cushion == null ? null : cushionStatus(derived.callDrop, derived.callRally)
   const eventsShown = eventList
     .filter((e) => e.date <= iso(new Date(Date.now() + EVENTS_DAYS * 86400000)))
     .sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '99:99').localeCompare(b.time ?? '99:99'))
 
-  // The alert line: what needs attention today, each linking to its card.
+  // The alert line: what needs attention today, linking to its card if it has one.
   const alerts = []
   if (derived) {
     if (cushionState && cushionState.status !== 'healthy') {
@@ -390,10 +379,7 @@ export default function Home() {
         text: `Margin call at a ${pct(cushionState.nearest * 100, 1)} move · cushion ${money(derived.cushion, 0)}`,
       })
     }
-    const itm = derived.expiring.filter((s) => s.status === 'itm').length
-    const near = derived.expiring.filter((s) => s.status === 'at_risk').length
-    if (itm) alerts.push({ tone: 'error', href: '#home-expiring', text: `${itm} expiring short${itm === 1 ? '' : 's'} in the money` })
-    if (near) alerts.push({ tone: 'warning', href: '#home-expiring', text: `${near} near the strike` })
+    if (derived.futuresMissing) alerts.push({ tone: 'warning', text: "Futures options couldn't be loaded, so they're left out" })
     if (derived.takeProfit.length) {
       alerts.push({ tone: 'ok', href: '#home-take-profit', text: `${derived.takeProfit.length} short${derived.takeProfit.length === 1 ? '' : 's'} to take profit on` })
     }
@@ -489,11 +475,6 @@ export default function Home() {
             label="This month"
             value={month.loading ? '…' : month.error ? '—' : <span className={signClass(month.total)}>{money(month.total, 0)}</span>}
             sub={month.loading || month.error ? month.error : `Options ${money(month.options, 0)} · Equity & futures ${money(month.equity, 0)} · Income & fees ${money(month.cash, 0)}`}
-          />
-          <Metric
-            label="Premium expiring"
-            value={derived ? money(calendarCredit, 0) : '…'}
-            sub={derived ? `next ${CALENDAR_DAYS} days · ${count(derived.calendar.reduce((s, d) => s + d.count, 0))} positions` : null}
           />
         </div>
       </div>
@@ -629,62 +610,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 3. Risk: what expires soon, with the calendar beside it */}
-      <div className="home-grid home-grid--wide">
-        {!book.loading && !derived?.expiring.length ? (
-          <EmptyCard id="home-expiring" title={`Expiring within ${rules['home.expiring_days']} days`} message="No short options expire in that window." />
-        ) : (
-          <div className="card" id="home-expiring">
-            <CardHead title={`Expiring within ${rules['home.expiring_days']} days`} sub="Soonest first" />
-            {book.loading ? <Placeholder rows={4} /> : (
-              <DataTable
-                data={derived.expiring}
-                paginate={false}
-                cards={CONTRACT_PINNED}
-                defaultSortKey="dte"
-                columns={[
-                  { key: 'key', label: 'Contract', render: contractLabel },
-                  { key: 'dte', label: 'DTE', align: 'right' },
-                  {
-                    key: 'events', label: 'Before expiry',
-                    render: (s) => <EventChips events={eventsBefore(eventList, { ticker: s.ticker, type: s.type, expiration: s.expiration })} />,
-                  },
-                  {
-                    key: 'status', label: 'Status',
-                    render: (s) => (s.status ? <span className={`home-chip home-chip--${STATUS[s.status].tone}`}>{STATUS[s.status].label}</span> : '—'),
-                  },
-                  { key: 'distance', label: 'Cushion', align: 'right', render: (s) => (s.distance == null ? '—' : pct(s.distance)) },
-                  { key: 'underlyingPrice', label: 'Underlying', align: 'right', render: (s) => money(s.underlyingPrice) },
-                  { key: 'pl', label: 'P&L', align: 'right', render: (s) => <span className={signClass(s.pl)}>{money(s.pl, 0)}</span> },
-                ]}
-              />
-            )}
-            {derived?.futuresMissing && <p className="summary-line">Futures options couldn't be loaded, so they're left out.</p>}
-          </div>
-        )}
-
-        {!book.loading && !derived?.calendar.length ? (
-          <EmptyCard id="home-calendar" title="Expiry calendar" message={`Nothing expires in the next ${CALENDAR_DAYS} days.`} />
-        ) : (
-          <div className="card" id="home-calendar">
-            <CardHead title="Expiry calendar" sub={`Next ${CALENDAR_DAYS} days`} />
-            {book.loading ? <Placeholder rows={4} /> : (
-              <DataTable
-                data={derived.calendar}
-                paginate={false}
-                cards={DATE_PINNED}
-                columns={[
-                  { key: 'date', label: 'Date', render: (d) => eventDay(d.date) },
-                  { key: 'count', label: 'Shorts', align: 'right' },
-                  { key: 'credit', label: 'Premium', align: 'right', render: (d) => money(d.credit, 0) },
-                ]}
-              />
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* 4. Income from what you hold, and profit to take */}
+      {/* 3. Income from what you hold, and profit to take */}
       <div className="home-grid">
 
         {sharesEmpty ? <EmptyCard id="home-shares" title="Shares to sell against" message="Every share is covered." /> : (

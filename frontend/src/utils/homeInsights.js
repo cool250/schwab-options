@@ -8,9 +8,7 @@ import { blackScholes } from './payoffMath.js'
  * numbers; the page formats them.
  */
 
-const DAY = 86400000
 const isoToday = () => new Date().toISOString().slice(0, 10)
-const daysBetween = (fromIso, toIso) => Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / DAY)
 
 /** Upcoming events (GET /api/market/events) that a position expiring on
  *  `expiration` lives through, today included: every major release and
@@ -40,7 +38,7 @@ export function takeProfitCandidates(rows, pct) {
 
 /** An equity option position row as a short-option entry for the rules
  *  above (null for a long): { ticker, type, strike, expiration, dte,
- *  quantity, underlyingPrice, credit, pl }. */
+ *  quantity, credit, pl }. */
 export function equityShort(row, type) {
   if (!(row.quantity < 0)) return null
   return {
@@ -51,31 +49,9 @@ export function equityShort(row, type) {
     expiration: row.expiration_date,
     dte: row.days_to_expiry,
     quantity: row.quantity,
-    underlyingPrice: row.underlying_price ?? null,
     credit: (row.trade_price ?? 0) * -row.quantity * MULTIPLIER,
     pl: row.total_value ?? null,
   }
-}
-
-/** Where a short stands against its strike: 'itm' past it, 'at_risk'
- *  within atRiskPct of it, 'otm' otherwise, null without a price.
- *  distance: percent the underlying is on the safe side of the strike. */
-export function moneyness(short, atRiskPct) {
-  const u = short.underlyingPrice
-  if (u == null || !short.strike) return { status: null, distance: null }
-  const distance = short.type === 'PUT' ? ((u - short.strike) / short.strike) * 100 : ((short.strike - u) / short.strike) * 100
-  const status = distance < 0 ? 'itm' : distance < atRiskPct ? 'at_risk' : 'otm'
-  return { status, distance }
-}
-
-/** Shorts expiring within `days`, each with its moneyness, the riskiest
- *  first (in the money, then at risk, then by days to expiry). */
-export function expiringSoon(shorts, days, atRiskPct) {
-  const rank = { itm: 0, at_risk: 1, otm: 2, null: 3 }
-  return shorts
-    .filter((s) => s.dte != null && s.dte <= days)
-    .map((s) => ({ ...s, ...moneyness(s, atRiskPct) }))
-    .sort((a, b) => rank[a.status] - rank[b.status] || a.dte - b.dte)
 }
 
 /** Shares not yet earning option premium: long shares beyond what short
@@ -95,21 +71,6 @@ export function uncoveredShares(stocks, puts, calls) {
     if (contracts > 0) out.push({ ticker: s.symbol, side: long ? 'CALL' : 'PUT', shares: free, contracts, price: s.current_price ?? null })
   }
   return out.sort((a, b) => b.contracts * (b.price ?? 0) - a.contracts * (a.price ?? 0))
-}
-
-/** Open shorts by expiration date over the next `days` calendar days:
- *  [{ date, count, credit }] — credit the premium still at stake. */
-export function expiryCalendar(shorts, days, today = isoToday()) {
-  const by = {}
-  for (const s of shorts) {
-    if (!s.expiration) continue
-    const ahead = daysBetween(today, s.expiration)
-    if (ahead < 0 || ahead > days) continue
-    const d = (by[s.expiration] ??= { date: s.expiration, count: 0, credit: 0 })
-    d.count++
-    d.credit += s.credit ?? 0
-  }
-  return Object.values(by).sort((a, b) => a.date.localeCompare(b.date))
 }
 
 /*

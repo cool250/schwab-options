@@ -31,8 +31,6 @@ SETTINGS: dict[str, tuple[type, Any, Optional[tuple], Optional[int]]] = {
     "copilot.history_days": (int, 90, None, 1),
     "home.futures_margin_pct": (int, 11, None, 1),
     "home.take_profit_pct": (int, 75, None, 1),
-    "home.expiring_days": (int, 7, None, 1),
-    "home.at_risk_pct": (int, 2, None, 0),
     "home.idea_max_dte": (int, 7, None, 0),
     "home.idea_min_delta_pct": (int, 5, None, 0),
     "home.idea_max_delta_pct": (int, 20, None, 1),
@@ -48,7 +46,7 @@ SETTINGS: dict[str, tuple[type, Any, Optional[tuple], Optional[int]]] = {
 PUBLIC_SETTINGS = (
     "trades.group_ratio_spreads", "transactions.default_view",
     # The Home page's rules (all applied in the browser).
-    "home.futures_margin_pct", "home.take_profit_pct", "home.expiring_days", "home.at_risk_pct",
+    "home.futures_margin_pct", "home.take_profit_pct",
     "home.idea_max_dte", "home.idea_min_delta_pct", "home.idea_max_delta_pct",
     "home.stress_iv_rise", "home.idea_crash_pct", "home.event_crash_pct",
 )

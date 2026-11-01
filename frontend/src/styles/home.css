@@ -69,8 +69,7 @@ a.home-alert:hover { text-decoration: underline; }
 
 /* Two cards side by side, one column when narrow. */
 .home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-/* A wide card with a narrow one beside it (new income + watchlist and
-   events, expiring shorts + expiry calendar). */
+/* A wide card with a narrow one beside it (new income + watchlist and events). */
 .home-grid--wide { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
 /* Cards stacked in one grid column (the watchlist over upcoming events). */
 .home-stack { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
@@ -102,8 +101,8 @@ a.home-alert:hover { text-decoration: underline; }
 .home-event-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 
 /* Phones: one column in the order it's read on the go — what needs doing
-   (alerts, the numbers, what expires, profit to take, shares to cover),
-   then new trades, then reference (watchlist, events, calendar). The grids
+   (alerts, the numbers, profit to take, shares to cover),
+   then new trades, then reference (watchlist, events). The grids
    step aside (display: contents) so every card is a direct item of .page's
    flex column and `order` can place it; desktop keeps the grid as written. */
 @media (max-width: 768px) {
@@ -113,13 +112,14 @@ a.home-alert:hover { text-decoration: underline; }
   .home > .alert       { order: 1; }
   .home-alerts         { order: 2; }
   #home-summary        { order: 3; }
-  #home-expiring       { order: 4; }
   #home-take-profit    { order: 5; }
   #home-shares         { order: 6; }
   #home-ideas          { order: 7; }
   #home-watchlist      { order: 8; }
   #home-events         { order: 9; }
-  #home-calendar       { order: 10; }
+
+  /* The summary's headline numbers only. */
+  .home-metrics .metric-subtext { display: none; }
 
   /* The watchlist: five even columns cut the symbol and price to "…" here,
      so columns size to their content, with tighter padding to fit. */
