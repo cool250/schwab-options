@@ -64,6 +64,32 @@ def test_etf_fills_count_as_equity():
     assert (leg["symbol"], leg["asset_type"], leg["position_effect"]) == ("IWM", "EQUITY", "CLOSING")
 
 
+def test_shares_assigned_on_a_friday_are_dated_that_friday():
+    # Booked Saturday (2026-10-31) with Monday's tradeDate.
+    shares = _activity(1, "2026-11-02", "QQQ", "COLLECTIVE_INVESTMENT", 1100.0, 720.0, "CLOSING")
+    shares.time = get_date_object("2026-10-31")
+    client = _FakeClient([shares])
+    [leg] = SchwabTransactionProvider(client=client).fetch_equity_future_legs("2026-10-01", "2026-11-05")
+    assert leg["date"] == "2026-10-30"
+
+
+def test_a_stock_fill_after_midnight_utc_keeps_its_trade_date():
+    shares = _activity(1, "2026-10-30", "QQQ", "COLLECTIVE_INVESTMENT", 100.0, 700.0, "OPENING")
+    shares.time = get_date_object("2026-10-31")
+    client = _FakeClient([shares])
+    [leg] = SchwabTransactionProvider(client=client).fetch_equity_future_legs("2026-10-01", "2026-11-05")
+    assert leg["date"] == "2026-10-30"
+
+
+def test_a_futures_fill_keeps_its_trade_date():
+    # The evening session belongs to the next trade date.
+    future = _activity(1, "2026-10-28", "/NQZ26:XCME", "FUTURE", 1.0, 29000.0, "OPENING")
+    future.time = get_date_object("2026-10-27")
+    client = _FakeClient([future])
+    [leg] = SchwabTransactionProvider(client=client).fetch_equity_future_legs("2026-10-01", "2026-11-05")
+    assert leg["date"] == "2026-10-28"
+
+
 def test_long_range_is_fetched_a_year_at_a_time_without_duplicates():
     # Record 2 sits on the boundary date, so both windows return it.
     client = _FakeClient([

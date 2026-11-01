@@ -29,8 +29,8 @@ function optionSymbolCell(row) {
 const OPTION_COLUMNS = [
   { key: 'symbol', label: 'Symbol', render: optionSymbolCell },
   { key: 'strike_price', label: 'Strike', align: 'right' },
-  dateColumn('date', 'Opened Date'),
-  dateColumn('close_date', 'Closed Date'),
+  dateColumn('date', 'Open'),
+  dateColumn('close_date', 'Closed'),
   { key: 'open_type',     label: 'Opened As' },
   { key: 'qty',           label: 'Quantity',     align: 'right' },
   { key: 'open_price',     label: 'Trade Price', align: 'right' },
@@ -57,7 +57,7 @@ function initialPremium(t) {
 
 const EQUITY_COLUMNS = [
   { key: 'symbol',       label: 'Symbol' },
-  dateColumn('date', 'Opened'),
+  dateColumn('date', 'Open'),
   dateColumn('close_date', 'Closed'),
   { key: 'asset_type',   label: 'Asset Type' },
   { key: 'quantity',     label: 'Quantity',    align: 'right' },
@@ -71,7 +71,7 @@ const EQUITY_COLUMNS = [
 // in one table, on the columns they share. A contract's strike and
 // expiration sit in its name; the other tabs keep their own columns.
 const ALL_COLUMNS = [
-  dateColumn('date', 'Opened'),
+  dateColumn('date', 'Open'),
   dateColumn('close_date', 'Closed'),
   { key: 'kind',         label: 'Type' },
   { key: 'label',        label: 'Contract / Symbol' },
@@ -81,11 +81,10 @@ const ALL_COLUMNS = [
   { key: 'total_amount', label: 'Total Gain/Loss ($)', align: 'right' },
   { key: 'status',       label: 'Status' },
 ]
-// On a phone (DataTable's cards): the contract and its gain/loss on top,
-// the prices and dates that tell its story beneath.
-const OPTION_CARDS = { title: ['symbol', 'total_amount'], fields: ['qty', 'open_price', 'close_price', 'close_date'], hide: ['strike_price'] }
-const EQUITY_CARDS = { title: ['symbol', 'total_amount'], fields: ['quantity', 'open_price', 'close_price', 'close_date'] }
-const ALL_CARDS = { title: ['label', 'total_amount'], fields: ['kind', 'qty', 'open_price', 'close_date'] }
+// On a phone these stay tables, with the closed date fixed and the other
+// columns scrolling sideways beneath it, the contract first.
+const SYMBOL_PINNED = { pinned: 'close_date', next: ['symbol'] }
+const LABEL_PINNED = { pinned: 'close_date', next: ['label'] }
 const ASSET_KIND = { EQUITY: 'Stock', FUTURE: 'Future' }
 const INCOME_LABEL = {
   INTEREST: 'Interest', MARGIN_INTEREST: 'Margin interest', DIVIDEND: 'Dividend',
@@ -656,7 +655,7 @@ export default function Transactions() {
                     onClick={() => downloadCsv(`all-transactions_${startDate}_to_${endDate}.csv`, ALL_COLUMNS, allRows)}
                   />
                 </div>
-                <DataTable data={allRows} columns={allColumns} cards={ALL_CARDS} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+                <DataTable data={allRows} columns={allColumns} cards={LABEL_PINNED} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
               </div>
             )
           )}
@@ -763,7 +762,7 @@ export default function Transactions() {
                       onClick={() => downloadCsv(`option-transactions_${startDate}_to_${endDate}.csv`, optionColumns, optionRows)}
                     />
                   </div>
-                  <DataTable data={optionRows} columns={optionColumns} cards={OPTION_CARDS} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+                  <DataTable data={optionRows} columns={optionColumns} cards={SYMBOL_PINNED} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
                 </div>
               )}
             </>
@@ -837,7 +836,7 @@ export default function Transactions() {
                       onClick={() => downloadCsv(`equity-transactions_${startDate}_to_${endDate}.csv`, EQUITY_COLUMNS, equityRows)}
                     />
                   </div>
-                  <DataTable data={equityRows} columns={EQUITY_COLUMNS} cards={EQUITY_CARDS} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+                  <DataTable data={equityRows} columns={EQUITY_COLUMNS} cards={SYMBOL_PINNED} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
                 </div>
               )}
             </>

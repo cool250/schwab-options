@@ -22,6 +22,10 @@
 /* ─── Section titles ─────────────────────────────────── */
 .section-title { font-size: 1rem; font-weight: 700; color: var(--text); letter-spacing: 0.3px; text-transform: uppercase; }
 .summary-line  { font-size: 0.85rem; color: var(--text-muted); }
+/* Summary figures that are desktop-only; phones keep just the headline ones. */
+@media (max-width: 768px) {
+  .summary-extra { display: none; }
+}
 .section-header {
   display: flex;
   align-items: baseline;

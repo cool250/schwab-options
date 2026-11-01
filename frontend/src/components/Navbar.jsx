@@ -37,7 +37,7 @@ const TAB_LINKS = [
   { to: '/home', label: 'Home', Icon: HomeIcon },
   { to: '/positions', label: 'Positions', Icon: PositionsIcon },
   { to: '/allocation', label: 'Reports', Icon: ReportsIcon },
-  { to: '/analyze', label: 'Analyze', Icon: AnalyzeIcon },
+  { to: '/transactions', label: 'Transactions', Icon: TransactionsIcon },
 ]
 
 // Which groups the user has collapsed — a per-browser convenience, so every

@@ -158,20 +158,10 @@ function optionColumns(optionType, theta) {
 // it (see the futuresContractQuotes lazy-load below), so it's added as its
 // own render-based column (futuresContractCurrentPriceColumn) instead of a
 // plain key, same pattern as the futures-option tables' Current Price.
-// On a phone (DataTable's cards): the contract and its P&L on top, the
-// numbers you'd act on beneath; ticker and strike are already in the symbol.
-const STOCK_CARDS = { title: ['symbol', 'broker_pl'], fields: ['quantity', 'trade_price', 'current_price', 'maintenance_requirement'] }
-const OPTION_CARDS = {
-  title: ['symbol', 'total_value'],
-  fields: ['days_to_expiry', 'quantity', 'trade_price', 'current_price', 'theta', 'maintenance_requirement'],
-  hide: ['ticker', 'strike_price'],
-}
-const FUTURES_CARDS = { title: ['symbol', 'pl'], fields: ['quantity', 'trade_price', 'current_price'] }
-const FUTURES_OPTION_CARDS = {
-  title: ['symbol', 'pl'],
-  fields: ['days_to_expiry', 'quantity', 'trade_price', 'current_price', 'theta'],
-  hide: ['ticker', 'strike_price'],
-}
+// On a phone these stay tables, with the name fixed and the other columns
+// scrolling sideways beneath it; option tables leave out the checkbox.
+const SYMBOL_PINNED = { pinned: 'symbol' }
+const OPTION_PINNED = { pinned: 'ticker', hide: ['select'] }
 
 const FUTURES_COLUMNS = [
   { key: 'symbol',      label: 'Symbol' },
@@ -564,8 +554,10 @@ export default function Positions() {
     }
     return (
       <p className="summary-line">
-        Total: {rows.length}&nbsp;&nbsp;|&nbsp;&nbsp;P&amp;L: {plText}&nbsp;&nbsp;|&nbsp;&nbsp;
-        Theta: {thetaTotalText(rows, futuresThetas, futuresQuotesLoading, futuresMultiplier)}
+        Total: {rows.length}&nbsp;&nbsp;|&nbsp;&nbsp;P&amp;L: {plText}
+        <span className="summary-extra">
+          &nbsp;&nbsp;|&nbsp;&nbsp;Theta: {thetaTotalText(rows, futuresThetas, futuresQuotesLoading, futuresMultiplier)}
+        </span>
       </p>
     )
   }
@@ -596,6 +588,42 @@ export default function Positions() {
 
   return (
     <div className={`page${selected.size > 0 ? ' page--with-selection-bar' : ''}`}>
+      {/* Balances — account-wide, so above the tabs and shown on both */}
+      {balances && (
+        <div className="metrics-row">
+          {balances.cash_balance != null && (
+            <div className="metric">
+              <span className="metric-label">Cash Balance</span>
+              <span className="metric-value">
+                ${balances.cash_balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
+          {balances.mutual_fund_value != null && (
+            <div className="metric">
+              <span className="metric-label">Mutual Fund</span>
+              <span className="metric-value">
+                ${balances.mutual_fund_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
+          {balances.account_value != null && (
+            <div className="metric" title="Schwab's net liquidation value for the securities account only — the futures account isn't in Schwab's API, so thinkorswim's Net Liq is higher.">
+              <span className="metric-label">Securities Net Liq</span>
+              <span className="metric-value highlight">
+                ${balances.account_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
+          {balances.maintenance_requirement != null && (
+            <div className="metric" title="Schwab's margin requirement for stocks, options and money funds — futures are held in a sub-account Schwab doesn't report">
+              <span className="metric-label">Maintenance Req</span>
+              <span className="metric-value">{money(balances.maintenance_requirement)}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="tab-bar">
         <div className="tab-row">
           <button
@@ -643,52 +671,18 @@ export default function Positions() {
 
           {data && !loading && (
             <>
-              {/* Balances */}
-              {balances && (
-                <div className="metrics-row">
-                  {balances.cash_balance != null && (
-                    <div className="metric">
-                      <span className="metric-label">Cash Balance</span>
-                      <span className="metric-value">
-                        ${balances.cash_balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  {balances.mutual_fund_value != null && (
-                    <div className="metric">
-                      <span className="metric-label">Mutual Fund</span>
-                      <span className="metric-value">
-                        ${balances.mutual_fund_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  {balances.account_value != null && (
-                    <div className="metric" title="Schwab's net liquidation value for the securities account only — the futures account isn't in Schwab's API, so thinkorswim's Net Liq is higher.">
-                      <span className="metric-label">Securities Net Liq</span>
-                      <span className="metric-value highlight">
-                        ${balances.account_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  {balances.maintenance_requirement != null && (
-                    <div className="metric" title="Schwab's margin requirement for stocks, options and money funds — futures are held in a sub-account Schwab doesn't report">
-                      <span className="metric-label">Maintenance Req</span>
-                      <span className="metric-value">{money(balances.maintenance_requirement)}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* Stocks */}
               {stocks.length > 0 ? (
                 <div className="card">
                   <h3 className="section-title">Stocks</h3>
                   <p className="summary-line">
                     Total: {stocks.length}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    P&amp;L: ${totalStockPL.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Maint. Req: {money(sumMaintReq(stocks))}
+                    P&amp;L: ${totalStockPL.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    <span className="summary-extra">
+                      &nbsp;&nbsp;|&nbsp;&nbsp;Maint. Req: {money(sumMaintReq(stocks))}
+                    </span>
                   </p>
-                  <DataTable data={stocks} columns={STOCK_COLUMNS} cards={STOCK_CARDS} defaultSortKey="symbol" />
+                  <DataTable data={stocks} columns={STOCK_COLUMNS} cards={SYMBOL_PINNED} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No stocks found.</div>
@@ -700,12 +694,16 @@ export default function Positions() {
                   <h3 className="section-title">Puts</h3>
                   <p className="summary-line">
                     Total: {puts.length}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(puts)}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Theta: {equityThetaTotal(puts)}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Maint. Req: {money(sumMaintReq(puts))}
+                    <span className="summary-extra">
+                      Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
+                    </span>
+                    P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(puts)}
+                    <span className="summary-extra">
+                      &nbsp;&nbsp;|&nbsp;&nbsp;Theta: {equityThetaTotal(puts)}&nbsp;&nbsp;|&nbsp;&nbsp;
+                      Maint. Req: {money(sumMaintReq(puts))}
+                    </span>
                   </p>
-                  <DataTable data={withPremium(puts)} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} cards={OPTION_CARDS} defaultSortKey="days_to_expiry" />
+                  <DataTable data={withPremium(puts)} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} cards={OPTION_PINNED} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No PUT option positions found.</div>
@@ -717,11 +715,13 @@ export default function Positions() {
                   <h3 className="section-title">Calls</h3>
                   <p className="summary-line">
                     Total: {calls.length}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(calls)}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Theta: {equityThetaTotal(calls)}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    Maint. Req: {money(sumMaintReq(calls))}
+                    P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(calls)}
+                    <span className="summary-extra">
+                      &nbsp;&nbsp;|&nbsp;&nbsp;Theta: {equityThetaTotal(calls)}&nbsp;&nbsp;|&nbsp;&nbsp;
+                      Maint. Req: {money(sumMaintReq(calls))}
+                    </span>
                   </p>
-                  <DataTable data={withPremium(calls)} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} cards={OPTION_CARDS} defaultSortKey="days_to_expiry" />
+                  <DataTable data={withPremium(calls)} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} cards={OPTION_PINNED} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No CALL option positions found.</div>
@@ -743,7 +743,7 @@ export default function Positions() {
                 <div className="card">
                   <h3 className="section-title">Futures</h3>
                   {futuresContractSummary(futures)}
-                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} cards={FUTURES_CARDS} defaultSortKey="symbol" />
+                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} cards={SYMBOL_PINNED} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No open futures positions found.</div>
@@ -757,7 +757,7 @@ export default function Positions() {
                   <DataTable
                     data={futuresPuts}
                     columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('PUT')], 'PUT', true)}
-                    cards={FUTURES_OPTION_CARDS}
+                    cards={OPTION_PINNED}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>
@@ -773,7 +773,7 @@ export default function Positions() {
                   <DataTable
                     data={futuresCalls}
                     columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('CALL')], 'CALL', true)}
-                    cards={FUTURES_OPTION_CARDS}
+                    cards={OPTION_PINNED}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>

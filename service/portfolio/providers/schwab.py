@@ -6,7 +6,7 @@ it records expirations, assignments and futures-option exercises.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from broker.schwab import Client
@@ -17,6 +17,14 @@ from service.shared.contracts import get_contract_multiplier, parse_option_symbo
 from utils.utils import get_date_string
 
 logger = logging.getLogger(__name__)
+
+
+def _weekday_on_or_before(date_str: str) -> str:
+    """The date itself, or the Friday before it if it's a weekend."""
+    if not date_str:
+        return date_str
+    day = datetime.strptime(date_str, "%Y-%m-%d")
+    return get_date_string(day - timedelta(days=max(day.weekday() - 4, 0)))
 
 
 class SchwabPositionProvider:
@@ -399,8 +407,19 @@ class SchwabTransactionProvider:
                     if amount == 0:
                         continue
 
+                    # Shares from a Friday assignment carry Monday's tradeDate
+                    # but Saturday's execution time. Going by tradeDate left
+                    # the close out of a report run in between; a Saturday
+                    # date goes back to Friday, the day it belongs to (the
+                    # Reports calendars only draw weekdays). Futures keep
+                    # tradeDate: their evening session is the next trade day.
+                    executed = getattr(transaction, "time", None)
+                    fill_date = trade_date_str
+                    if asset == "EQUITY" and isinstance(executed, datetime):
+                        fill_date = _weekday_on_or_before(min(trade_date_str, get_date_string(executed)))
+
                     results.append({
-                        "date": trade_date_str,
+                        "date": fill_date,
                         "symbol": symbol,
                         "asset_type": asset,
                         "amount": amount,

@@ -77,6 +77,20 @@
 /* ─── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
   .form-row { grid-template-columns: 1fr 1fr; }
+  /* A search form's checkboxes as pills, several to a line rather than a
+     stack of rows. */
+  .form-actions { gap: 8px; }
+  .form-actions .toggle-label {
+    position: relative; min-height: 36px; padding: 0 9px; font-size: 0.78rem;
+    border: 1px solid var(--border); border-radius: 999px;
+  }
+  .form-actions .toggle-checkbox { position: absolute; opacity: 0; pointer-events: none; }
+  .form-actions .toggle-label:has(.toggle-checkbox:checked) {
+    color: var(--primary); border-color: var(--primary); background: var(--primary-light);
+  }
+  .form-actions .toggle-label:has(.toggle-checkbox:checked) span::before { content: '✓ '; }
+  .form-actions .toggle-label:has(.toggle-checkbox:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .form-actions .btn { width: 100%; }
   /* iOS Safari zooms the whole page in when a field under 16px gets focus —
      and stays zoomed and panned sideways, so the page looks cut off at the
      edges. 16px on phones prevents it (without disabling pinch-zoom). */

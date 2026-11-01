@@ -18,7 +18,7 @@ export function useMatchMedia(query) {
 }
 
 // Where each column goes on a card. A label-less column with no data (a
-// checkbox) leads the card unless `spec` places it. With `spec` ({ title, fields, hide }:
+// checkbox) leads the card unless `spec` places or hides it. With `spec` ({ title, fields, hide }:
 // column keys), the listed columns go there in the listed order and every
 // other column goes under More; without it, the first column is the title,
 // the next four are fields and the rest are under More.
@@ -27,8 +27,9 @@ function cardLayout(columns, sample, spec) {
   const rest = []
   const listed = new Set([...(spec?.title ?? []), ...(spec?.fields ?? [])])
   for (const col of columns) {
+    if (spec?.hide?.includes(col.key)) continue
     if (!col.label && !(col.key in (sample ?? {})) && !listed.has(col.key)) placed.control.push(col)
-    else if (!spec?.hide?.includes(col.key)) rest.push(col)
+    else rest.push(col)
   }
   if (spec) {
     const byKey = Object.fromEntries(rest.map((c) => [c.key, c]))
@@ -86,7 +87,9 @@ function getCellClass(key, val) {
  *                     Every other column goes behind the card's More toggle. Without it,
  *                     the first column is the title and the next four are fields.
  *                     false keeps the table on a phone too — for a table already built
- *                     to fit one (a few short columns).
+ *                     to fit one (a few short columns). { pinned: key, next: [...], hide: [...] } keeps the
+ *                     table instead, with that column first and fixed, the `next` columns beside it and
+ *                     the others after them, scrolling sideways.
  *   defaultPageSize — rows per page until the user picks another size (default 25).
  *                     A table with its own default remembers its own choice, so
  *                     picking a size elsewhere doesn't override it.
@@ -95,9 +98,10 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
   const pageSizeKey = defaultPageSize === DEFAULT_PAGE_SIZE ? PAGE_SIZE_KEY : `${PAGE_SIZE_KEY}-${defaultPageSize}`
   const [sortCol, setSortCol] = useState(defaultSortKey ?? null)
   const [sortDir, setSortDir] = useState(defaultSortDir)
+  const [sortTapped, setSortTapped] = useState(false)
   const [pageSize, setPageSize] = useState(() => loadPageSize(pageSizeKey, defaultPageSize))
   const [page, setPage] = useState(1)
-  const asCards = useMatchMedia(PHONE_QUERY)
+  const onPhone = useMatchMedia(PHONE_QUERY)
   const rowCount = data?.length ?? 0
 
   // Back to page 1 when the row count or the sort changes (a new search,
@@ -108,11 +112,19 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
 
   if (!data || data.length === 0) return null
 
-  const columns = columnsProp
+  const allColumns = columnsProp
     ? columnsProp
     : Object.keys(data[0]).map((k) => ({ key: k, label: k.replace(/_/g, ' ') }))
+  const pinned = onPhone ? cardSpec?.pinned : undefined
+  // The pinned column leads, wherever it sits on a wider screen, then `next`.
+  const lead = pinned ? [pinned, ...(cardSpec.next ?? [])] : []
+  const leadRank = ({ key }) => (lead.includes(key) ? lead.indexOf(key) : lead.length)
+  const columns = pinned
+    ? allColumns.filter((c) => !cardSpec.hide?.includes(c.key)).sort((a, b) => leadRank(a) - leadRank(b))
+    : allColumns
 
   function toggleSort(key) {
+    setSortTapped(true)
     if (sortCol === key) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
@@ -159,7 +171,7 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
     />
   )
 
-  if (asCards && cardSpec !== false) {
+  if (onPhone && cardSpec !== false && !pinned) {
     const layout = cardLayout(columns, data[0], cardSpec)
     const sortable = columns.filter(({ key, label }) => label && key != null && key in data[0])
     return (
@@ -196,7 +208,7 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
   return (
     <>
     <div className="table-scroll" style={maxHeight ? { maxHeight, overflowY: 'auto' } : undefined}>
-      <table className="data-table">
+      <table className={`data-table${pinned ? ' data-table--pinned' : ''}`}>
         <thead>
           <tr>
             {columns.map(({ key, label, width, align, render }) => {
@@ -210,11 +222,12 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
                 <th
                   key={key}
                   onClick={sortable ? () => toggleSort(key) : undefined}
-                  className={sortable ? 'th-sortable' : ''}
+                  className={`${sortable ? 'th-sortable' : ''}${key === pinned ? ' dt-pinned' : ''}`}
                   style={{ width, textAlign: align ?? (isNumeric ? 'right' : 'left') }}
                 >
                   {label}
-                  {sortable && sortCol === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                  {/* A pinned header is narrow: no arrow until a tap asks for one, and never alone on a line. */}
+                  {sortable && sortCol === key && (key !== pinned || sortTapped) ? (sortDir === 'asc' ? '\u00a0↑' : '\u00a0↓') : ''}
                 </th>
               )
             })}
@@ -229,7 +242,7 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
                 return (
                   <td
                     key={key}
-                    className={render ? '' : getCellClass(key, val)}
+                    className={`${render ? '' : getCellClass(key, val)}${key === pinned ? ' dt-pinned' : ''}`}
                     style={{ textAlign: align ?? (isNumeric ? 'right' : 'left') }}
                   >
                     {render ? render(row) : fmt(val)}

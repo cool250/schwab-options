@@ -5,7 +5,7 @@ import {
   getAllocations, getEquityTransactions, getIncomeAndFees, screenOptions, getMarketEvents, getWatchlist, friendlyErrorMessage,
 } from '../api/client'
 import HelpTip from '../components/HelpTip'
-import DataTable from '../components/DataTable'
+import DataTable, { PHONE_QUERY, useMatchMedia } from '../components/DataTable'
 import { money, count } from '../utils/numberFormat'
 import { formatDate } from '../utils/dateFormat'
 import { formatOptionSymbol } from '../utils/optionSymbol'
@@ -28,11 +28,11 @@ import {
  */
 
 const ROOTS = ['ES', 'NQ']
-// On a phone (DataTable's cards): the contract and its key number on top.
-// The watchlist, events and calendar are short enough to stay tables.
-const IDEA_CARDS = { title: ['symbol', 'returnOnRisk'], fields: ['credit', 'riskAdded', 'maxContracts', 'analyze'] }
-const EXPIRING_CARDS = { title: ['key', 'pl'], fields: ['dte', 'status', 'distance', 'underlyingPrice', 'events'] }
-const TAKE_PROFIT_CARDS = { title: ['key', 'pl'], fields: ['kept', 'credit'] }
+// On a phone these stay tables, with the left column fixed and the others
+// scrolling sideways beneath it.
+const SYMBOL_PINNED = { pinned: 'symbol' }
+const CONTRACT_PINNED = { pinned: 'key' }
+const DATE_PINNED = { pinned: 'date' }
 const DEFAULT_RULES = {
   'home.futures_margin_pct': 11, 'home.take_profit_pct': 75, 'home.expiring_days': 7, 'home.at_risk_pct': 2,
   'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 5, 'home.idea_max_delta_pct': 20,
@@ -106,6 +106,7 @@ function analyzeState(legs) {
 
 export default function Home() {
   const navigate = useNavigate()
+  const onPhone = useMatchMedia(PHONE_QUERY)
   const [refreshKey, setRefreshKey] = useState(0)
   const [rules, setRules] = useState(DEFAULT_RULES)
   const [rulesLoaded, setRulesLoaded] = useState(false)
@@ -410,7 +411,7 @@ export default function Home() {
           <span className="home-contract-name">{formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol}</span>
           <span className="home-contract-meta">
             {r.dte} DTE · {pct(r.otmPct)} OTM{r.delta != null ? ` · Δ ${Math.abs(r.delta).toFixed(2)}` : ''}
-            {r.events?.length > 0 && <> <EventChips events={r.events} /></>}
+            {!onPhone && r.events?.length > 0 && <> <EventChips events={r.events} /></>}
           </span>
         </span>
       ),
@@ -429,6 +430,8 @@ export default function Home() {
         ? <span title="Capped at the long futures not yet covered by a short call">{count(r.maxContracts)} · covered</span>
         : count(r.maxContracts)),
     },
+    // The fixed contract column is too narrow for these on a phone.
+    ...(onPhone ? [{ key: 'events', label: 'Before expiry', render: (r) => <EventChips events={r.events} /> }] : []),
     {
       key: 'analyze', label: '',
       render: (r) => (
@@ -544,7 +547,7 @@ export default function Home() {
           {ideas.error && <div className="alert error">{ideas.error}</div>}
           {!ideas.loading && !ideas.error && (
             ideaRows.length
-              ? <DataTable data={ideaRows} paginate={false} columns={ideaCols} cards={IDEA_CARDS} />
+              ? <DataTable data={ideaRows} paginate={false} columns={ideaCols} cards={SYMBOL_PINNED} />
               : <p className="summary-line">No /ES or /NQ {ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.</p>
           )}
         </div>
@@ -558,7 +561,7 @@ export default function Home() {
                 <DataTable
                   data={watch.rows}
                   paginate={false}
-                  cards={false}
+                  cards={SYMBOL_PINNED}
                   columns={[
                     {
                       key: 'symbol', label: 'Symbol',
@@ -593,7 +596,7 @@ export default function Home() {
                   <DataTable
                     data={eventsShown}
                     paginate={false}
-                    cards={false}
+                    cards={DATE_PINNED}
                     columns={[
                       {
                         key: 'date', label: 'Date',
@@ -637,7 +640,7 @@ export default function Home() {
               <DataTable
                 data={derived.expiring}
                 paginate={false}
-                cards={EXPIRING_CARDS}
+                cards={CONTRACT_PINNED}
                 defaultSortKey="dte"
                 columns={[
                   { key: 'key', label: 'Contract', render: contractLabel },
@@ -669,7 +672,7 @@ export default function Home() {
               <DataTable
                 data={derived.calendar}
                 paginate={false}
-                cards={false}
+                cards={DATE_PINNED}
                 columns={[
                   { key: 'date', label: 'Date', render: (d) => eventDay(d.date) },
                   { key: 'count', label: 'Shorts', align: 'right' },
@@ -708,7 +711,7 @@ export default function Home() {
               <DataTable
                 data={derived.takeProfit}
                 paginate={false}
-                cards={TAKE_PROFIT_CARDS}
+                cards={CONTRACT_PINNED}
                 columns={[
                   {
                     key: 'key', label: 'Contract',
