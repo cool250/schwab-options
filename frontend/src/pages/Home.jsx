@@ -104,7 +104,6 @@ function analyzeState(legs) {
 
 export default function Home() {
   const navigate = useNavigate()
-  const [refreshKey, setRefreshKey] = useState(0)
   const [rules, setRules] = useState(DEFAULT_RULES)
   const [rulesLoaded, setRulesLoaded] = useState(false)
   const [book, setBook] = useState({ loading: true }) // positions + futures + quotes
@@ -149,7 +148,7 @@ export default function Home() {
       }
     })()
     return () => { cancelled = true }
-  }, [refreshKey])
+  }, [])
 
   // Month-to-date realized P&L: trades closed this month plus income and fees.
   useEffect(() => {
@@ -173,7 +172,7 @@ export default function Home() {
       })
       .catch((err) => !cancelled && setMonth({ loading: false, error: friendlyErrorMessage(err, 'Could not load this month.') }))
     return () => { cancelled = true }
-  }, [refreshKey])
+  }, [])
 
   // Upcoming events — once positions are in, for their tickers' earnings
   // and ex-dividend dates.
@@ -233,7 +232,7 @@ export default function Home() {
       })
       .catch((err) => !cancelled && setIdeas({ loading: false, error: friendlyErrorMessage(err, 'Could not load /ES and /NQ ideas.') }))
     return () => { cancelled = true }
-  }, [refreshKey, rules, rulesLoaded])
+  }, [rules, rulesLoaded])
 
   const derived = useMemo(() => {
     if (book.loading || book.error) return null
@@ -444,7 +443,6 @@ export default function Home() {
     <div className="page home">
       <div className="home-head">
         {book.loadedAt && <span className="summary-line home-updated">Updated {book.loadedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
-        <button type="button" className="btn btn-secondary" onClick={() => setRefreshKey((k) => k + 1)}>Refresh</button>
       </div>
 
       {book.error && <div className="alert error">{book.error}</div>}
