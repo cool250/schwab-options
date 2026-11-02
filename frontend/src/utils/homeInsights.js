@@ -1,5 +1,5 @@
 import { getMultiplier, MULTIPLIER } from './contractMultiplier.js'
-import { blackScholes } from './payoffMath.js'
+import { blackScholes, findBreakevens, probabilityOfProfit } from './payoffMath.js'
 
 /*
  * The Home page's decisions, as pure functions over the rows the Positions
@@ -220,6 +220,8 @@ export function cushionChange(book, move, { futuresPct, ivRise, relief = false }
  *    atRisk       crashLoss (if a loss) + crashMargin: the cushion the
  *                 trade uses up in the crash
  *    returnOnRisk credit / atRisk (%), and annualized.
+ *    pop          chance of expiring above zero P&L at today's IV, no crash
+ *                 (a fraction; the same model as Analyze).
  *  null when the option can't be priced (no iv and no price to imply one). */
 export function ideaStress(row, { crashPct, futuresPct, ivRise }) {
   const mult = getMultiplier(row.underlying)
@@ -233,7 +235,9 @@ export function ideaStress(row, { crashPct, futuresPct, ivRise }) {
   const crashMargin = Math.max(rootRequirement([p], move, futuresPct, ivRise), flat)
   const atRisk = Math.max(0, crashLoss) + crashMargin
   const returnOnRisk = (credit / atRisk) * 100
-  return { move, iv, credit, crashLoss, crashMargin, atRisk, returnOnRisk, annualized: returnOnRisk * 365 / Math.max(row.dte ?? 1, 1) }
+  const legs = [{ type: row.type, side: 'SELL', strike: row.strike, premium: row.premium, qty: 1, multiplier: mult }]
+  const pop = probabilityOfProfit(legs, row.spot, iv, row.dte, findBreakevens(legs))
+  return { move, iv, credit, crashLoss, crashMargin, atRisk, returnOnRisk, annualized: returnOnRisk * 365 / Math.max(row.dte ?? 1, 1), pop }
 }
 
 // Futures margin for every root in `positions` after `move`.

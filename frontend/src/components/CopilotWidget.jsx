@@ -307,7 +307,7 @@ export default function CopilotWidget() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about your portfolio, the market, or an options strategy…"
+              aria-label="Message Copilot"
               disabled={loading}
             />
             <button type="submit" className="btn btn-primary" disabled={loading || !input.trim()}>

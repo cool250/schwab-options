@@ -36,6 +36,9 @@ a.home-alert:hover { text-decoration: underline; }
 /* New income: contract with its DTE / OTM / delta / events beneath. */
 .home-contract { display: flex; flex-direction: column; gap: 2px; }
 .home-contract-name { font-weight: 600; }
+.home-idea-contract { white-space: nowrap; }
+/* Ten columns: two-word headers take two lines so the Analyze button fits. */
+@media (min-width: 769px) { .home-ideas-table .data-table th { white-space: normal; } }
 .home-contract-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 0.78rem; color: var(--text-muted); }
 .home-card-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
 .home-side-tabs { flex: none; }
@@ -97,8 +100,8 @@ a.home-alert:hover { text-decoration: underline; }
 .home-event-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 
 /* Phones: one column in the order it's read on the go — what needs doing
-   (alerts, the numbers, events, the watchlist, profit to take, shares to
-   cover), then new trades. The grids
+   (alerts, the numbers, events, the watchlist), new trades, then profit to
+   take and shares to cover. The grids
    step aside (display: contents) so every card is a direct item of .page's
    flex column and `order` can place it; desktop keeps the grid as written. */
 @media (max-width: 768px) {
@@ -109,9 +112,9 @@ a.home-alert:hover { text-decoration: underline; }
   #home-summary        { order: 3; }
   #home-events         { order: 4; }
   #home-watchlist      { order: 5; }
-  #home-take-profit    { order: 6; }
-  #home-shares         { order: 7; }
-  #home-ideas          { order: 8; }
+  #home-ideas          { order: 6; }
+  #home-take-profit    { order: 7; }
+  #home-shares         { order: 8; }
 
   /* The summary's headline numbers only. */
   .home-metrics .metric-subtext { display: none; }

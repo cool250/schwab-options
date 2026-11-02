@@ -328,7 +328,6 @@ export default function Positions() {
 
   const puts = data?.puts ?? []
   const calls = data?.calls ?? []
-  const balances = data?.balances ?? null
   const stocks = data?.stocks ?? []
   const futures = futuresData?.futures ?? []
   const futuresPuts = futuresData?.puts ?? []
@@ -588,42 +587,6 @@ export default function Positions() {
 
   return (
     <div className={`page${selected.size > 0 ? ' page--with-selection-bar' : ''}`}>
-      {/* Balances — account-wide, so above the tabs and shown on both */}
-      {balances && (
-        <div className="metrics-row">
-          {balances.cash_balance != null && (
-            <div className="metric">
-              <span className="metric-label">Cash Balance</span>
-              <span className="metric-value">
-                ${balances.cash_balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-          )}
-          {balances.mutual_fund_value != null && (
-            <div className="metric">
-              <span className="metric-label">Mutual Fund</span>
-              <span className="metric-value">
-                ${balances.mutual_fund_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-          )}
-          {balances.account_value != null && (
-            <div className="metric" title="Schwab's net liquidation value for the securities account only — the futures account isn't in Schwab's API, so thinkorswim's Net Liq is higher.">
-              <span className="metric-label">Securities Net Liq</span>
-              <span className="metric-value highlight">
-                ${balances.account_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-          )}
-          {balances.maintenance_requirement != null && (
-            <div className="metric" title="Schwab's margin requirement for stocks, options and money funds — futures are held in a sub-account Schwab doesn't report">
-              <span className="metric-label">Maintenance Req</span>
-              <span className="metric-value">{money(balances.maintenance_requirement)}</span>
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="tab-bar">
         <div className="tab-row">
           <button

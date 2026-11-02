@@ -5,7 +5,7 @@ import {
   getAllocations, getEquityTransactions, getIncomeAndFees, screenOptions, getMarketEvents, getWatchlist, friendlyErrorMessage,
 } from '../api/client'
 import HelpTip from '../components/HelpTip'
-import DataTable, { PHONE_QUERY, useMatchMedia } from '../components/DataTable'
+import DataTable from '../components/DataTable'
 import { money, count } from '../utils/numberFormat'
 import { formatDate } from '../utils/dateFormat'
 import { formatOptionSymbol } from '../utils/optionSymbol'
@@ -77,13 +77,18 @@ function eventTime(t) {
 }
 // Short names for a position's upcoming events, major ones as warnings.
 const EVENT_SHORT = { FOMC: 'FOMC', EARNINGS: 'Earnings', EX_DIVIDEND: 'Ex-div' }
+// A release's short form is its bracketed part: "Consumer Price Index (CPI)".
+function eventShort(e) {
+  const bracketed = e.name.match(/\((.+)\)/)?.[1]
+  return EVENT_SHORT[e.kind] ?? (bracketed ? bracketed[0].toUpperCase() + bracketed.slice(1) : e.name)
+}
 function EventChips({ events }) {
   if (!events?.length) return '—'
   return (
     <span className="home-event-chips">
       {events.map((e) => (
         <span key={`${e.date}|${e.name}`} className={`home-chip home-chip--${e.major ? 'warning' : 'ok'}`} title={`${e.name} · ${eventDay(e.date)}`}>
-          {EVENT_SHORT[e.kind] ?? e.name} {e.date.slice(5).replace('-', '/')}
+          {eventShort(e)} {e.date.slice(5).replace('-', '/')}
         </span>
       ))}
     </span>
@@ -99,7 +104,6 @@ function analyzeState(legs) {
 
 export default function Home() {
   const navigate = useNavigate()
-  const onPhone = useMatchMedia(PHONE_QUERY)
   const [refreshKey, setRefreshKey] = useState(0)
   const [rules, setRules] = useState(DEFAULT_RULES)
   const [rulesLoaded, setRulesLoaded] = useState(false)
@@ -346,7 +350,12 @@ export default function Home() {
       const eventCrash = crossed.some((e) => e.major)
       const stressed = ideaStress(r, { crashPct: eventCrash ? eventCrashPct : crashPct, futuresPct: marginPct, ivRise: rules['home.stress_iv_rise'] })
       if (!stressed) continue
-      const row = { ...r, ...stressed, events: crossed, eventCrash }
+      const row = {
+        ...r, ...stressed, events: crossed, eventCrash,
+        // Sort keys: delta by size (puts' are negative), events by the nearest.
+        deltaSize: r.delta == null ? null : Math.abs(r.delta),
+        eventDate: crossed.map((e) => e.date).sort()[0] ?? null,
+      }
       Object.assign(row, fitted(row, 0))
       const key = `${r.underlying}|${r.expirationDate}`
       if (!best[key] || rank(row, best[key]) < 0) best[key] = row
@@ -393,15 +402,16 @@ export default function Home() {
     {
       key: 'symbol', label: 'Contract',
       render: (r) => (
-        <span className="home-contract" title={ideaDetail(r, crashPct, eventCrashPct)}>
-          <span className="home-contract-name">{formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol}</span>
-          <span className="home-contract-meta">
-            {r.dte} DTE · {pct(r.otmPct)} OTM{r.delta != null ? ` · Δ ${Math.abs(r.delta).toFixed(2)}` : ''}
-            {!onPhone && r.events?.length > 0 && <> <EventChips events={r.events} /></>}
-          </span>
+        <span className="home-contract-name home-idea-contract" title={ideaDetail(r, crashPct, eventCrashPct)}>
+          {formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol}
         </span>
       ),
     },
+    { key: 'pop', label: 'POP', align: 'right', render: (r) => (r.pop == null ? '—' : pct(r.pop * 100, 0)) },
+    { key: 'dte', label: 'DTE', align: 'right' },
+    { key: 'otmPct', label: 'OTM', align: 'right', render: (r) => pct(r.otmPct) },
+    { key: 'deltaSize', label: 'Delta', align: 'right', render: (r) => (r.deltaSize == null ? '—' : r.deltaSize.toFixed(2)) },
+    { key: 'eventDate', label: 'Before expiry', render: (r) => <EventChips events={r.events} /> },
     { key: 'credit', label: 'Credit', align: 'right', render: (r) => money(r.credit, 0) },
     {
       key: 'riskAdded', label: 'Risk to book', align: 'right',
@@ -416,8 +426,6 @@ export default function Home() {
         ? <span title="Capped at the long futures not yet covered by a short call">{count(r.maxContracts)} · covered</span>
         : count(r.maxContracts)),
     },
-    // The fixed contract column is too narrow for these on a phone.
-    ...(onPhone ? [{ key: 'events', label: 'Before expiry', render: (r) => <EventChips events={r.events} /> }] : []),
     {
       key: 'analyze', label: '',
       render: (r) => (
@@ -566,6 +574,7 @@ export default function Home() {
             way at once ({eventCrashPct}% or {2 * eventCrashPct}% if it lives through CPI, jobs, PCE or an FOMC decision): Risk to book is
             how much one contract lowers the worst cushion, and Max qty the most that keep it above zero. Trades that offset your positions
             rank first; new calls are capped at the long futures not yet covered. Hover a contract for its own stress numbers.
+            POP is the estimated chance of expiring above zero P&amp;L, from a lognormal model at the contract&apos;s implied volatility: no skew, no early exit.
           </>}
           right={(
             <div className="tab-row home-side-tabs" role="tablist" aria-label="Puts or calls">
@@ -603,7 +612,7 @@ export default function Home() {
         {ideas.error && <div className="alert error">{ideas.error}</div>}
         {!ideas.loading && !ideas.error && (
           ideaRows.length
-            ? <DataTable data={ideaRows} paginate={false} columns={ideaCols} cards={SYMBOL_PINNED} />
+            ? <div className="home-ideas-table"><DataTable data={ideaRows} paginate={false} columns={ideaCols} cards={SYMBOL_PINNED} /></div>
             : <p className="summary-line">No /ES or /NQ {ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.</p>
         )}
       </div>

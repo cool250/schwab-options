@@ -92,7 +92,7 @@ test("positions with no price are left out and counted", async () => {
 
 test("a new-income idea under a crash: loss, margin after, return on risk", async () => {
   const { ideaStress } = await import("./homeInsights.js");
-  const { blackScholes } = await import("./payoffMath.js");
+  const { blackScholes, normCdf } = await import("./payoffMath.js");
   const opts = { crashPct: 5, futuresPct: 11, ivRise: 20 };
   const row = (strike) => ({ underlying: "/ES", type: "PUT", strike, spot: 7000, dte: 5, iv: 0.18,
     premium: blackScholes(7000, strike, 5, 0.18, false) });
@@ -104,6 +104,14 @@ test("a new-income idea under a crash: loss, margin after, return on risk", asyn
   assert.ok(far.crashMargin >= 6500 * 50 * 0.11, "never below the flat estimate");
   assert.ok(Math.abs(near.atRisk - (near.crashLoss + near.crashMargin)) < 1e-6);
   assert.ok(Math.abs(near.returnOnRisk - (near.credit / near.atRisk) * 100) < 1e-9);
+  // POP: a farther strike is likelier to keep its credit. A short put wins
+  // above its breakeven (strike - credit), a short call below (strike + credit).
+  assert.ok(far.pop > near.pop && near.pop > 0.5 && far.pop < 1, `pop ${near.pop} ${far.pop}`);
+  const sigma = 0.18 * Math.sqrt(5 / 365);
+  const below = (price) => normCdf((Math.log(price / 7000) + sigma * sigma / 2) / sigma);
+  const atm = (type) => ideaStress({ ...row(7000), type, premium: 50 }, opts).pop;
+  assert.ok(Math.abs(atm("PUT") - (1 - below(6950))) < 1e-9);
+  assert.ok(Math.abs(atm("CALL") - below(7050)) < 1e-9);
   // A call is stressed by a rally.
   assert.equal(ideaStress({ ...row(7100), type: "CALL", premium: 10 }, opts).move, 0.05);
   assert.equal(ideaStress({ ...row(6900), iv: null, mid: null, premium: 0 }, opts), null);

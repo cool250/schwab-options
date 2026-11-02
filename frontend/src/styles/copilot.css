@@ -72,7 +72,9 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   bottom: 0;
   width: var(--copilot-width);
   max-width: 100vw;
+  /* dvh: on iOS Safari 100vh runs under the toolbar, hiding the input. */
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   gap: 10px;
