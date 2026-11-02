@@ -13,7 +13,7 @@ from service.market.screener_strategies import (
     STRATEGY_OPTION_TYPES,
     combo_rows,
 )
-from service.shared.strategy_math import otm_pct
+from service.shared.strategy_math import otm_pct, probability_of_profit
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,19 @@ def long_option_row(c: dict, underlying: str, spot: float) -> Optional[dict]:
         "breakeven": breakeven,
         "breakevenMovePct": move,
     }
+
+
+def row_pop(row: dict) -> Optional[float]:
+    """Chance a screener row finishes above zero P&L at expiration, at the
+    prices it was ranked at (strategy_math.probability_of_profit): a single
+    contract at its own IV, a combination at the average of its legs'."""
+    if "legs" in row:
+        ivs = [leg["iv"] for leg in row["legs"] if leg["iv"]]
+        iv = sum(ivs) / len(ivs) if ivs else None
+        return probability_of_profit(row["legs"], row["credit"], row["spot"], iv, row["dte"])
+    qty = 1 if row["strategy"] in LONG_STRATEGIES else -1
+    legs = [{"type": row["type"], "strike": row["strike"], "qty": qty}]
+    return probability_of_profit(legs, -qty * row["premium"], row["spot"], row["iv"], row["dte"])
 
 
 def screen_options(
@@ -194,8 +207,10 @@ def screen_options(
         rows.sort(key=lambda r: (r["leverage"] is not None, r["leverage"] or 0), reverse=True)
     else:
         rows.sort(key=lambda r: r["annualizedRoi"], reverse=True)
+    # Only for the rows returned: a combination search can rank tens of thousands.
+    results = [{**row, "pop": row_pop(row)} for row in rows[:limit]]
     return {
-        "results": rows[:limit],
+        "results": results,
         "totalMatches": len(rows),
         "errors": errors,
         "truncated": truncated,

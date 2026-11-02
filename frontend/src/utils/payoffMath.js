@@ -129,14 +129,16 @@ export function upsideSlope(legs) {
 /** Estimated chance the position finishes above zero P&L at expiration,
  *  under a driftless lognormal model at volatility `iv` (a fraction) — the
  *  same model the Strategy Builder uses (service/shared/strategy_math.py's
- *  probability_of_profit), so the two pages agree. The breakevens split the
- *  price axis into regions of constant sign; each profitable region adds its
- *  probability. Null without legs, a spot or an IV. */
+ *  probability_of_profit), so the two pages agree. The breakevens and strikes
+ *  split the price axis into regions of constant sign (strikes for a payoff
+ *  that only touches zero, which no breakeven marks); each profitable region
+ *  adds its probability. Null without legs, a spot or an IV. */
 export function probabilityOfProfit(legs, spot, iv, dte, breakevens) {
   if (legs.length === 0 || !(spot > 0) || !(iv > 0)) return null;
   const sigma = iv * Math.sqrt(Math.max(dte ?? 0, 0.5) / 365);
   const cdf = (p) => (p <= 0 ? 0 : normCdf((Math.log(p / spot) + (sigma * sigma) / 2) / sigma));
-  const edges = [0, ...[...breakevens].sort((a, b) => a - b), Infinity];
+  const edges = [...new Set([0, ...breakevens, ...legs.map((l) => l.strike)])].sort((a, b) => a - b);
+  edges.push(Infinity);
   const top = Math.max(...legs.map((l) => l.strike));
   let pop = 0;
   for (let i = 0; i < edges.length - 1; i++) {

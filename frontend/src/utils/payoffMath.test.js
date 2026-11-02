@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { findBreakevens, maxLossProfit, netCredit, probabilityOfProfit } from "./payoffMath.js";
+import { findBreakevens, maxLossProfit, netCredit, normCdf, probabilityOfProfit } from "./payoffMath.js";
 
 const fixture = JSON.parse(readFileSync(new URL("../../../tests/fixtures/payoff_cases.json", import.meta.url)));
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
@@ -30,3 +30,16 @@ for (const c of fixture.cases) {
     close(probabilityOfProfit(legs, fixture.spot, fixture.iv, fixture.dte, breakevens), c.pop, 1e-6, "pop");
   });
 }
+
+test("POP counts a profit zone when a wing only touches zero", () => {
+  // Credit 2 on a 2-wide put spread: zero below 98, so no lower breakeven.
+  const legs = [
+    { type: "PUT", side: "BUY", strike: 98, premium: 1, qty: 1 },
+    { type: "PUT", side: "SELL", strike: 100, premium: 2, qty: 1 },
+    { type: "CALL", side: "SELL", strike: 105, premium: 2, qty: 1 },
+    { type: "CALL", side: "BUY", strike: 108, premium: 1, qty: 1 },
+  ];
+  const sigma = 0.25 * Math.sqrt(30 / 365);
+  const below = (p) => normCdf((Math.log(p / 102) + (sigma * sigma) / 2) / sigma);
+  close(probabilityOfProfit(legs, 102, 0.25, 30, findBreakevens(legs)), below(107) - below(98), 1e-6, "pop");
+});

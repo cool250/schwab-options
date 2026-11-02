@@ -97,6 +97,7 @@ def _leg(contract: dict, qty: int) -> dict:
         "bid": contract["bid"],
         "ask": contract["ask"],
         "delta": contract["delta"],
+        "iv": contract["iv"],
     }
 
 

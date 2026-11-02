@@ -100,7 +100,10 @@ function rowLabel(r) {
     : formatOptionSymbol(r.underlying, r.expirationDate, r.strike, r.type) ?? r.symbol
 }
 
+const POP_COLUMN = { key: 'pop', label: 'POP', align: 'right', render: (r) => (r.pop == null ? '—' : pct(r.pop * 100, 0)) }
+
 const COLUMNS = [
+  POP_COLUMN,
   {
     key: 'symbol',
     label: 'Contract',
@@ -131,6 +134,7 @@ const COLUMNS = [
 // Multi-leg strategy rows — one row per combination. Credit, max profit,
 // breakeven and capital are per share, like the single-contract columns.
 const STRATEGY_COLUMNS = [
+  POP_COLUMN,
   {
     key: 'symbol',
     label: 'Position',
@@ -180,9 +184,9 @@ const LONG_COLUMNS = [
 
 // On a phone: the contract fixed, then the checkbox, the number it's ranked
 // by and what decides whether to take it.
-const PHONE = { pinned: 'symbol', next: ['select', 'annualizedRoi', 'dte', 'otmPct', 'bid', 'delta', 'roi', 'iv'] }
-const STRATEGY_PHONE = { pinned: 'symbol', next: ['select', 'annualizedRoi', 'dte', 'credit', 'capital', 'shortDelta', 'roi', 'maxProfit'] }
-const LONG_PHONE = { pinned: 'symbol', next: ['select', 'leverage', 'dte', 'ask', 'breakevenMovePct', 'delta', 'iv'] }
+const PHONE = { pinned: 'symbol', next: ['select', 'pop', 'annualizedRoi', 'dte', 'otmPct', 'bid', 'delta', 'roi', 'iv'] }
+const STRATEGY_PHONE = { pinned: 'symbol', next: ['select', 'pop', 'annualizedRoi', 'dte', 'credit', 'capital', 'shortDelta', 'roi', 'maxProfit'] }
+const LONG_PHONE = { pinned: 'symbol', next: ['select', 'pop', 'leverage', 'dte', 'ask', 'breakevenMovePct', 'delta', 'iv'] }
 
 export default function Screener() {
   const navigate = useNavigate()
@@ -544,6 +548,9 @@ export default function Screener() {
                     : 'ROI assumes you sell at the bid and the underlying is unchanged at expiration: (bid − '
                       + 'intrinsic) ÷ capital, where capital is the strike for a cash-secured put and the spot price '
                       + 'for a covered call. Ann. ROI scales that to a 365-day year.'}
+                  {' POP is the estimated chance of finishing above zero P&L at expiration, from a lognormal model at '
+                    + `${isMultiLeg(result.criteria?.strategy) ? "the legs' average" : "the contract's"} implied `
+                    + 'volatility: no skew, no early exit.'}
                 </p>
               </>
             ) : (

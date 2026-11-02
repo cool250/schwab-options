@@ -160,6 +160,7 @@ class _ContractFields(BaseModel):
     otmPct: float
     premium: float
     breakeven: float
+    pop: Optional[float] = None  # fraction, 0-1
 
 
 class ShortOptionRow(_ContractFields):
@@ -184,6 +185,7 @@ class ComboLeg(BaseModel):
     bid: Optional[float] = None
     ask: Optional[float] = None
     delta: Optional[float] = None
+    iv: Optional[float] = None
 
 
 class ComboRow(BaseModel):
@@ -200,6 +202,7 @@ class ComboRow(BaseModel):
     breakevens: list[float]
     lowerBreakeven: Optional[float] = None
     shortDelta: Optional[float] = None
+    pop: Optional[float] = None  # fraction, 0-1
     roi: float
     annualizedRoi: float
 

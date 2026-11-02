@@ -2,6 +2,8 @@
 service/market/screener_strategies.py): row math, filters, and per-ticker
 error isolation — through a stand-in chain provider."""
 
+import math
+
 import pytest
 
 from service.market import MarketService
@@ -16,6 +18,12 @@ def screen(strategy, symbols=("X",), screener=None, **kw):
                 min_abs_delta=None, max_abs_delta=None, limit=10_000)
     args.update(kw)
     return MarketService(chain_provider=provider).screen_options(list(symbols), **args)
+
+
+def below(price, iv, dte):
+    """Lognormal chance of finishing under `price`, as probability_of_profit."""
+    sigma = iv * math.sqrt(dte / 365)
+    return 0.5 * (1 + math.erf((math.log(price / SPOT) + sigma * sigma / 2) / sigma / math.sqrt(2)))
 
 
 def row_for(result, strike, type_):
@@ -41,6 +49,26 @@ def test_short_call_capital_is_spot():
     row = row_for(screen("CALL"), 110, "CALL")
     assert row["capital"] == SPOT
     assert row["breakeven"] == pytest.approx(SPOT - row["bid"])
+
+
+def test_pop_uses_each_rows_own_breakeven_and_iv():
+    # A short put wins above its breakeven, a long call above its own.
+    short = row_for(screen("PUT"), 95, "PUT")
+    long = row_for(screen("LONG_CALL"), 105, "CALL")
+    assert short["pop"] == pytest.approx(
+        1 - below(short["breakeven"], short["iv"], short["dte"]), abs=1e-4)
+    assert long["pop"] == pytest.approx(
+        1 - below(long["breakeven"], long["iv"], long["dte"]), abs=1e-4)
+    # Farther out of the money is likelier to keep the credit.
+    assert short["pop"] > row_for(screen("PUT"), 100, "PUT")["pop"]
+
+
+def test_pop_of_a_combination_needs_a_leg_iv():
+    iron_condor = screen("IRON_CONDOR")["results"]
+    assert iron_condor and all(0 < r["pop"] < 1 for r in iron_condor)
+    no_iv = [{**c, "iv": None} for c in CONTRACTS]
+    assert screen("PUT", screener={"X": no_iv})["results"][0]["pop"] is None
+    assert screen("IRON_CONDOR", screener={"X": no_iv})["results"][0]["pop"] is None
 
 
 def test_results_rank_by_annualized_roi():

@@ -95,9 +95,10 @@ def probability_of_profit(
             return 0.0
         return _norm_cdf((math.log(price / spot) + sigma * sigma / 2) / sigma)
 
-    # The breakevens split the price axis into regions of constant sign;
-    # test each region's sign at an interior point.
-    edges = [0.0, *sorted(profile["breakevens"]), math.inf]
+    # The breakevens and strikes split the price axis into regions of constant
+    # sign; test each at an interior point. Strikes matter when the payoff only
+    # touches zero (a wing as wide as the credit): no breakeven marks that.
+    edges = sorted({*profile["points"], *profile["breakevens"]}) + [math.inf]
     top = profile["points"][-1]
     pop = 0.0
     for lo, hi in zip(edges, edges[1:]):
