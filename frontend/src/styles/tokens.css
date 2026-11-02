@@ -3,7 +3,7 @@
    listed here and used as literals):
      max-width: 480px   small phones — the tightest spacing
      max-width: 768px   phones and tablets in portrait — the mobile layout,
-                        hamburger nav, and DataTable's cards
+                        hamburger nav, and DataTable's fixed column
                         (components/DataTable.jsx, PHONE_QUERY)
      max-width: 1024px  tablets in landscape and small laptops — two-column
                         grids stack

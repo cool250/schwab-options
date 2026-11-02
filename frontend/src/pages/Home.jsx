@@ -28,8 +28,7 @@ import {
  */
 
 const ROOTS = ['ES', 'NQ']
-// On a phone these stay tables, with the left column fixed and the others
-// scrolling sideways beneath it.
+// On a phone the left column stays fixed, the others scrolling beneath it.
 const SYMBOL_PINNED = { pinned: 'symbol' }
 const CONTRACT_PINNED = { pinned: 'key' }
 const DATE_PINNED = { pinned: 'date' }
@@ -495,7 +494,7 @@ export default function Home() {
                 <DataTable
                   data={eventsShown}
                   paginate={false}
-                  cards={DATE_PINNED}
+                  phone={DATE_PINNED}
                   columns={[
                     {
                       key: 'date', label: 'Date',
@@ -533,7 +532,7 @@ export default function Home() {
               <DataTable
                 data={watch.rows}
                 paginate={false}
-                cards={SYMBOL_PINNED}
+                phone={SYMBOL_PINNED}
                 columns={[
                   {
                     key: 'symbol', label: 'Symbol',
@@ -610,7 +609,7 @@ export default function Home() {
         {ideas.error && <div className="alert error">{ideas.error}</div>}
         {!ideas.loading && !ideas.error && (
           ideaRows.length
-            ? <div className="home-ideas-table"><DataTable data={ideaRows} paginate={false} columns={ideaCols} cards={SYMBOL_PINNED} /></div>
+            ? <div className="home-ideas-table"><DataTable data={ideaRows} paginate={false} columns={ideaCols} phone={SYMBOL_PINNED} /></div>
             : <p className="summary-line">No /ES or /NQ {ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.</p>
         )}
       </div>
@@ -642,7 +641,7 @@ export default function Home() {
               <DataTable
                 data={derived.takeProfit}
                 paginate={false}
-                cards={CONTRACT_PINNED}
+                phone={CONTRACT_PINNED}
                 columns={[
                   {
                     key: 'key', label: 'Contract',

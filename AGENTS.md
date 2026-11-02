@@ -314,18 +314,12 @@ manually inside the handler — follow that same pattern for any new WS route.
   stays unsortable). Don't reintroduce the old "any `render` column is
   unsortable" rule; that silently broke sorting on several columns once
   before it was fixed.
-- **On a phone, `DataTable` rows are cards** (`PHONE_QUERY`, ≤768px): a
-  heading line (the row's name, with its P&L or ranking number at the right),
-  a grid of labelled fields, and the rest behind "More", with a "Sort by"
-  menu in place of the column headers. Give any table with more than a few
-  columns a `cards={{ title, fields, hide }}` placement (column keys — see
-  Screener); a table already built to fit a phone
-  passes `cards={false}`, and Positions', Transactions' and Home's tables stay tables with
-  `cards={{ pinned, next, hide }}` (that column fixed, `next` beside it, the rest
-  scrolling sideways).
-  It's a table-level prop, not a column property,
-  because several pages rebuild their columns on the fly. Desktop never sees
-  the cards.
+- **On a phone, every `DataTable` is the same table** (`PHONE_QUERY`, ≤768px):
+  one column fixed, the rest scrolling sideways. By default that's the first
+  labelled column; place them with `phone={{ pinned, next, hide }}` (column
+  keys: `pinned` fixed, `next` beside it, `hide` left out — see Screener). It's
+  a table-level prop, not a column property, because several pages rebuild
+  their columns on the fly. Desktop ignores it.
 - **Mobile basics:** three breakpoints, 480 / 768 / 1024 (listed at the top
   of `tokens.css` — don't add new ones). Touch-only styles go in
   `styles/touch.css` under `(pointer: coarse)` / `(hover: none)` — never a

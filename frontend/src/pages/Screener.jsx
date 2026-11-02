@@ -178,11 +178,11 @@ const LONG_COLUMNS = [
   },
 ]
 
-// On a phone (DataTable's cards): the contract and the number it's ranked by
-// on top, what decides whether to take it beneath.
-const CARDS = { title: ['symbol', 'annualizedRoi'], fields: ['dte', 'otmPct', 'bid', 'delta', 'roi', 'iv'] }
-const STRATEGY_CARDS = { title: ['symbol', 'annualizedRoi'], fields: ['dte', 'credit', 'capital', 'shortDelta', 'roi', 'maxProfit'] }
-const LONG_CARDS = { title: ['symbol', 'leverage'], fields: ['dte', 'ask', 'breakevenMovePct', 'delta', 'iv'] }
+// On a phone: the contract fixed, then the checkbox, the number it's ranked
+// by and what decides whether to take it.
+const PHONE = { pinned: 'symbol', next: ['select', 'annualizedRoi', 'dte', 'otmPct', 'bid', 'delta', 'roi', 'iv'] }
+const STRATEGY_PHONE = { pinned: 'symbol', next: ['select', 'annualizedRoi', 'dte', 'credit', 'capital', 'shortDelta', 'roi', 'maxProfit'] }
+const LONG_PHONE = { pinned: 'symbol', next: ['select', 'leverage', 'dte', 'ask', 'breakevenMovePct', 'delta', 'iv'] }
 
 export default function Screener() {
   const navigate = useNavigate()
@@ -524,8 +524,8 @@ export default function Screener() {
                     ...(isMultiLeg(result.criteria?.strategy) ? STRATEGY_COLUMNS
                       : LONG.includes(result.criteria?.strategy) ? LONG_COLUMNS : COLUMNS),
                   ]}
-                  cards={isMultiLeg(result.criteria?.strategy) ? STRATEGY_CARDS
-                    : LONG.includes(result.criteria?.strategy) ? LONG_CARDS : CARDS}
+                  phone={isMultiLeg(result.criteria?.strategy) ? STRATEGY_PHONE
+                    : LONG.includes(result.criteria?.strategy) ? LONG_PHONE : PHONE}
                   defaultSortKey={LONG.includes(result.criteria?.strategy) ? 'leverage' : 'annualizedRoi'}
                   defaultSortDir="desc"
                   maxHeight="640px"

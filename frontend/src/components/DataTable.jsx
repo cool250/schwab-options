@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-// Phones and tablets in portrait (tokens.css breakpoints): rows render as
-// cards instead of a table that only shows three columns at a time.
+// Phones and tablets in portrait (tokens.css breakpoints): every table keeps
+// one column fixed while the others scroll sideways beneath it.
 export const PHONE_QUERY = '(max-width: 768px)'
 
 export function useMatchMedia(query) {
@@ -15,34 +15,6 @@ export function useMatchMedia(query) {
     return () => media.removeEventListener('change', onChange)
   }, [query])
   return matches
-}
-
-// Where each column goes on a card. A label-less column with no data (a
-// checkbox) leads the card unless `spec` places or hides it. With `spec` ({ title, fields, hide }:
-// column keys), the listed columns go there in the listed order and every
-// other column goes under More; without it, the first column is the title,
-// the next four are fields and the rest are under More.
-function cardLayout(columns, sample, spec) {
-  const placed = { control: [], title: [], field: [], more: [] }
-  const rest = []
-  const listed = new Set([...(spec?.title ?? []), ...(spec?.fields ?? [])])
-  for (const col of columns) {
-    if (spec?.hide?.includes(col.key)) continue
-    if (!col.label && !(col.key in (sample ?? {})) && !listed.has(col.key)) placed.control.push(col)
-    else rest.push(col)
-  }
-  if (spec) {
-    const byKey = Object.fromEntries(rest.map((c) => [c.key, c]))
-    placed.title = (spec.title ?? []).map((k) => byKey[k]).filter(Boolean)
-    placed.field = (spec.fields ?? []).map((k) => byKey[k]).filter(Boolean)
-    const used = new Set([...placed.title, ...placed.field])
-    placed.more = rest.filter((c) => !used.has(c))
-  } else {
-    placed.title = rest.slice(0, 1)
-    placed.field = rest.slice(1, 5)
-    placed.more = rest.slice(5)
-  }
-  return placed
 }
 
 function fmt(val) {
@@ -81,20 +53,14 @@ function getCellClass(key, val) {
  *                     rows-per-page) shows once a table has 10+ rows; page buttons
  *                     only when there's more than one page. Sorting applies to
  *                     all rows before paging. Rows-per-page is remembered per browser.
- *   cards           — on a phone (PHONE_QUERY) rows are cards; this places the columns, by
- *                     key: { title: [...] (the heading line — a second key sits at its
- *                     right end, e.g. P&L), fields: [...] (labelled values), hide: [...] }.
- *                     Every other column goes behind the card's More toggle. Without it,
- *                     the first column is the title and the next four are fields.
- *                     false keeps the table on a phone too — for a table already built
- *                     to fit one (a few short columns). { pinned: key, next: [...], hide: [...] } keeps the
- *                     table instead, with that column first and fixed, the `next` columns beside it and
- *                     the others after them, scrolling sideways.
+ *   phone           — on a phone (PHONE_QUERY), by key: { pinned: the column that comes first
+ *                     and stays fixed (default: the first labelled column), next: [...] the
+ *                     columns beside it, hide: [...] }. The others follow, scrolling sideways.
  *   defaultPageSize — rows per page until the user picks another size (default 25).
  *                     A table with its own default remembers its own choice, so
  *                     picking a size elsewhere doesn't override it.
  */
-export default function DataTable({ data, columns: columnsProp, defaultSortKey, defaultSortDir = 'asc', maxHeight, paginate = true, defaultPageSize = DEFAULT_PAGE_SIZE, cards: cardSpec }) {
+export default function DataTable({ data, columns: columnsProp, defaultSortKey, defaultSortDir = 'asc', maxHeight, paginate = true, defaultPageSize = DEFAULT_PAGE_SIZE, phone }) {
   const pageSizeKey = defaultPageSize === DEFAULT_PAGE_SIZE ? PAGE_SIZE_KEY : `${PAGE_SIZE_KEY}-${defaultPageSize}`
   const [sortCol, setSortCol] = useState(defaultSortKey ?? null)
   const [sortDir, setSortDir] = useState(defaultSortDir)
@@ -115,12 +81,12 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
   const allColumns = columnsProp
     ? columnsProp
     : Object.keys(data[0]).map((k) => ({ key: k, label: k.replace(/_/g, ' ') }))
-  const pinned = onPhone ? cardSpec?.pinned : undefined
+  const pinned = onPhone ? phone?.pinned ?? allColumns.find((c) => c.label)?.key : undefined
   // The pinned column leads, wherever it sits on a wider screen, then `next`.
-  const lead = pinned ? [pinned, ...(cardSpec.next ?? [])] : []
+  const lead = pinned ? [pinned, ...(phone?.next ?? [])] : []
   const leadRank = ({ key }) => (lead.includes(key) ? lead.indexOf(key) : lead.length)
   const columns = pinned
-    ? allColumns.filter((c) => !cardSpec.hide?.includes(c.key)).sort((a, b) => leadRank(a) - leadRank(b))
+    ? allColumns.filter((c) => !phone?.hide?.includes(c.key)).sort((a, b) => leadRank(a) - leadRank(b))
     : allColumns
 
   function toggleSort(key) {
@@ -170,40 +136,6 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
       onPageSize={changePageSize}
     />
   )
-
-  if (onPhone && cardSpec !== false && !pinned) {
-    const layout = cardLayout(columns, data[0], cardSpec)
-    const sortable = columns.filter(({ key, label }) => label && key != null && key in data[0])
-    return (
-      <>
-        {sortable.length > 1 && (
-          <div className="dt-sort">
-            <label>
-              Sort by
-              <select value={sortCol ?? ''} onChange={(e) => { setSortCol(e.target.value || null); setSortDir('asc') }}>
-                {sortCol == null && <option value="">As listed</option>}
-                {sortable.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
-              </select>
-            </label>
-            {sortCol != null && (
-              <button
-                type="button"
-                className="dt-sort-dir"
-                onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-                aria-label={sortDir === 'asc' ? 'Sorted ascending — switch to descending' : 'Sorted descending — switch to ascending'}
-              >
-                {sortDir === 'asc' ? '↑' : '↓'}
-              </button>
-            )}
-          </div>
-        )}
-        <ul className="dt-cards" style={maxHeight ? { maxHeight, overflowY: 'auto' } : undefined}>
-          {visible.map((row, i) => <Card key={start + i} row={row} layout={layout} />)}
-        </ul>
-        {pagination}
-      </>
-    )
-  }
 
   return (
     <>
@@ -256,51 +188,6 @@ export default function DataTable({ data, columns: columnsProp, defaultSortKey, 
     </div>
     {pagination}
     </>
-  )
-}
-
-function cellValue({ key, render }, row) {
-  return render ? render(row) : fmt(row[key])
-}
-
-function Fields({ columns, row }) {
-  return (
-    <dl className="dt-card-fields">
-      {columns.map((col) => (
-        <div key={col.key}>
-          <dt>{col.label}</dt>
-          <dd className={col.render ? '' : getCellClass(col.key, row[col.key])}>{cellValue(col, row)}</dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
-// One row as a card: control and title on the heading line (a second title
-// column sits at its right end, e.g. P&L), fields beneath, the rest behind More.
-function Card({ row, layout: { control, title, field, more } }) {
-  const [main, ...aside] = title
-  return (
-    <li className="dt-card">
-      {(control.length > 0 || main) && (
-        <div className="dt-card-head">
-          {control.map((col) => <span key={col.key} className="dt-card-control">{cellValue(col, row)}</span>)}
-          {main && <span className="dt-card-title">{cellValue(main, row)}</span>}
-          {aside.map((col) => (
-            <span key={col.key} className={`dt-card-aside ${col.render ? '' : getCellClass(col.key, row[col.key])}`}>
-              {cellValue(col, row)}
-            </span>
-          ))}
-        </div>
-      )}
-      {field.length > 0 && <Fields columns={field} row={row} />}
-      {more.length > 0 && (
-        <details className="dt-card-more">
-          <summary>More</summary>
-          <Fields columns={more} row={row} />
-        </details>
-      )}
-    </li>
   )
 }
 

@@ -81,8 +81,8 @@ const ALL_COLUMNS = [
   { key: 'total_amount', label: 'Total Gain/Loss ($)', align: 'right' },
   { key: 'status',       label: 'Status' },
 ]
-// On a phone these stay tables, with the closed date fixed and the other
-// columns scrolling sideways beneath it, the contract first.
+// On a phone the closed date stays fixed, with the other columns scrolling
+// sideways beneath it, the contract first.
 const SYMBOL_PINNED = { pinned: 'close_date', next: ['symbol'] }
 const LABEL_PINNED = { pinned: 'close_date', next: ['label'] }
 const ASSET_KIND = { EQUITY: 'Stock', FUTURE: 'Future' }
@@ -655,7 +655,7 @@ export default function Transactions() {
                     onClick={() => downloadCsv(`all-transactions_${startDate}_to_${endDate}.csv`, ALL_COLUMNS, allRows)}
                   />
                 </div>
-                <DataTable data={allRows} columns={allColumns} cards={LABEL_PINNED} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+                <DataTable data={allRows} columns={allColumns} phone={LABEL_PINNED} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
               </div>
             )
           )}
@@ -762,7 +762,7 @@ export default function Transactions() {
                       onClick={() => downloadCsv(`option-transactions_${startDate}_to_${endDate}.csv`, optionColumns, optionRows)}
                     />
                   </div>
-                  <DataTable data={optionRows} columns={optionColumns} cards={SYMBOL_PINNED} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+                  <DataTable data={optionRows} columns={optionColumns} phone={SYMBOL_PINNED} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
                 </div>
               )}
             </>
@@ -836,7 +836,7 @@ export default function Transactions() {
                       onClick={() => downloadCsv(`equity-transactions_${startDate}_to_${endDate}.csv`, EQUITY_COLUMNS, equityRows)}
                     />
                   </div>
-                  <DataTable data={equityRows} columns={EQUITY_COLUMNS} cards={SYMBOL_PINNED} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
+                  <DataTable data={equityRows} columns={EQUITY_COLUMNS} phone={SYMBOL_PINNED} defaultSortKey="close_date" defaultSortDir="desc" defaultPageSize={10} />
                 </div>
               )}
             </>

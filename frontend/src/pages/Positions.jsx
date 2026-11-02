@@ -158,8 +158,8 @@ function optionColumns(optionType, theta) {
 // it (see the futuresContractQuotes lazy-load below), so it's added as its
 // own render-based column (futuresContractCurrentPriceColumn) instead of a
 // plain key, same pattern as the futures-option tables' Current Price.
-// On a phone these stay tables, with the name fixed and the other columns
-// scrolling sideways beneath it; option tables leave out the checkbox.
+// On a phone the name stays fixed, with the other columns scrolling sideways
+// beneath it; option tables leave out the checkbox.
 const SYMBOL_PINNED = { pinned: 'symbol' }
 const OPTION_PINNED = { pinned: 'ticker', hide: ['select'] }
 
@@ -645,7 +645,7 @@ export default function Positions() {
                       &nbsp;&nbsp;|&nbsp;&nbsp;Maint. Req: {money(sumMaintReq(stocks))}
                     </span>
                   </p>
-                  <DataTable data={stocks} columns={STOCK_COLUMNS} cards={SYMBOL_PINNED} defaultSortKey="symbol" />
+                  <DataTable data={stocks} columns={STOCK_COLUMNS} phone={SYMBOL_PINNED} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No stocks found.</div>
@@ -666,7 +666,7 @@ export default function Positions() {
                       Maint. Req: {money(sumMaintReq(puts))}
                     </span>
                   </p>
-                  <DataTable data={withPremium(puts)} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} cards={OPTION_PINNED} defaultSortKey="days_to_expiry" />
+                  <DataTable data={withPremium(puts)} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} phone={OPTION_PINNED} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No PUT option positions found.</div>
@@ -684,7 +684,7 @@ export default function Positions() {
                       Maint. Req: {money(sumMaintReq(calls))}
                     </span>
                   </p>
-                  <DataTable data={withPremium(calls)} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} cards={OPTION_PINNED} defaultSortKey="days_to_expiry" />
+                  <DataTable data={withPremium(calls)} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} phone={OPTION_PINNED} defaultSortKey="days_to_expiry" />
                 </div>
               ) : (
                 <div className="alert warning">No CALL option positions found.</div>
@@ -706,7 +706,7 @@ export default function Positions() {
                 <div className="card">
                   <h3 className="section-title">Futures</h3>
                   {futuresContractSummary(futures)}
-                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} cards={SYMBOL_PINNED} defaultSortKey="symbol" />
+                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} phone={SYMBOL_PINNED} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No open futures positions found.</div>
@@ -720,7 +720,7 @@ export default function Positions() {
                   <DataTable
                     data={futuresPuts}
                     columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('PUT')], 'PUT', true)}
-                    cards={OPTION_PINNED}
+                    phone={OPTION_PINNED}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>
@@ -736,7 +736,7 @@ export default function Positions() {
                   <DataTable
                     data={futuresCalls}
                     columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('CALL')], 'CALL', true)}
-                    cards={OPTION_PINNED}
+                    phone={OPTION_PINNED}
                     defaultSortKey="days_to_expiry"
                   />
                 </div>

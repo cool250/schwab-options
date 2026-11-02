@@ -62,7 +62,7 @@
 .data-table td.cell-negative,
 .data-table td .cell-negative { color: var(--error);   font-weight: 600; }
 
-/* ─── Pinned column: a table kept on a phone (DataTable's cards.pinned) ── */
+/* ─── Pinned column: a table kept on a phone (DataTable on a phone) ── */
 .data-table--pinned { width: auto; min-width: 100%; }
 .data-table--pinned th { padding: 10px; }
 .data-table--pinned td { padding: 9px 10px; }
@@ -75,51 +75,6 @@
 .data-table td.dt-pinned * { white-space: normal; }
 .data-table tbody tr:nth-child(even) td.dt-pinned,
 .data-table tbody tr:hover td.dt-pinned { background: var(--bg); }
-
-/* ─── Cards: DataTable's rows on a phone (PHONE_QUERY in DataTable.jsx) ── */
-.dt-sort {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-  margin-bottom: 10px; font-size: 0.8rem; color: var(--text-muted);
-}
-.dt-sort label { display: inline-flex; align-items: center; gap: 8px; }
-/* 16px: iOS zooms into a smaller select on focus (see forms.css). */
-.dt-sort select {
-  font: inherit; font-size: 16px; color: var(--text); background: var(--card-bg);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; min-height: 40px;
-}
-.dt-sort-dir {
-  min-width: 40px; min-height: 40px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--card-bg); color: var(--text); font-size: 1rem; cursor: pointer;
-}
-.dt-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.dt-card {
-  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg);
-  padding: 12px 14px; font-size: 0.875rem; color: var(--text);
-}
-.dt-card-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-/* A title cell's own chips (e.g. Home's event badges) wrap inside the card. */
-.dt-card-title [class*="chip"] { white-space: normal; }
-.dt-card-control { flex: none; display: inline-flex; align-items: center; }
-.dt-card-title { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
-.dt-card-aside { flex: none; font-weight: 600; text-align: right; }
-.dt-card-fields {
-  /* Two across on a phone, a single row on a tablet. */
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px 16px; margin: 10px 0 0;
-}
-.dt-card-fields > div { min-width: 0; }
-.dt-card-fields dt {
-  font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
-}
-.dt-card-fields dd { margin: 2px 0 0; overflow-wrap: anywhere; }
-.dt-card-more { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
-.dt-card-more summary {
-  cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--primary);
-  min-height: 32px; display: flex; align-items: center;
-}
-.dt-card-more .dt-card-fields { margin-top: 4px; }
-/* P&L colors, as in the table: on the value itself, or a span a render wraps it in. */
-.dt-card .cell-positive { color: var(--success); font-weight: 600; }
-.dt-card .cell-negative { color: var(--error); font-weight: 600; }
 
 .th-sortable {
   cursor: pointer;
