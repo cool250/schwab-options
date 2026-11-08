@@ -6,6 +6,7 @@ import { formatOptionSymbol } from '../utils/optionSymbol'
 import { formatDate } from '../utils/dateFormat'
 import Spinner from '../components/Spinner'
 import DataTable from '../components/DataTable'
+import FuturesLotsDialog from '../components/FuturesLotsDialog'
 import { money, count } from '../utils/numberFormat'
 
 // Survives unmounting/remounting this page (e.g. navigating to Analyze and
@@ -163,11 +164,21 @@ function optionColumns(optionType, theta) {
 const SYMBOL_PINNED = { pinned: 'symbol' }
 const OPTION_PINNED = { pinned: 'ticker', hide: ['select'] }
 
-const FUTURES_COLUMNS = [
-  { key: 'symbol',      label: 'Symbol' },
-  quantityColumn,
-  tradePriceColumn,
-]
+// Symbol opens the lots behind the average Trade Price (FuturesLotsDialog).
+function futuresColumns(onShowLots) {
+  return [
+    {
+      key: 'symbol', label: 'Symbol',
+      render: (row) => (
+        <button type="button" className="link-button" onClick={() => onShowLots(row)} title="Trade price of each contract">
+          {row.symbol}
+        </button>
+      ),
+    },
+    quantityColumn,
+    tradePriceColumn,
+  ]
+}
 
 // Same column set, order, and labels as optionColumns() above minus
 // Exposure (Ticker, Strike, DTE, Quantity, Trade Price, [Current Price],
@@ -227,6 +238,8 @@ export default function Positions() {
   // "ES"), not a contract symbol, so it's a separate state/cache from
   // futuresQuotes above rather than sharing one dict.
   const [futuresContractQuotes, setFuturesContractQuotes] = useState({})
+  // The futures row whose lots are shown (FuturesLotsDialog), or null.
+  const [lotsRow, setLotsRow] = useState(null)
   const [futuresContractQuotesLoading, setFuturesContractQuotesLoading] = useState(false)
 
   // Options picked (across either tab) to send to StrikeLab — keyed by the
@@ -706,7 +719,7 @@ export default function Positions() {
                 <div className="card">
                   <h3 className="section-title">Futures</h3>
                   {futuresContractSummary(futures)}
-                  <DataTable data={futures} columns={[...FUTURES_COLUMNS, futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} phone={SYMBOL_PINNED} defaultSortKey="symbol" />
+                  <DataTable data={futures} columns={[...futuresColumns(setLotsRow), futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} phone={SYMBOL_PINNED} defaultSortKey="symbol" />
                 </div>
               ) : (
                 <div className="alert warning">No open futures positions found.</div>
@@ -747,6 +760,9 @@ export default function Positions() {
             </>
           )}
         </>
+      )}
+      {lotsRow && (
+        <FuturesLotsDialog row={lotsRow} price={futuresContractQuotes[lotsRow.symbol] ?? null} onClose={() => setLotsRow(null)} />
       )}
     </div>
   )

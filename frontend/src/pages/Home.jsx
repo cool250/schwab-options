@@ -13,10 +13,11 @@ import { closedTrades } from '../utils/reportStats'
 import { futuresOptionContracts, futuresOptionRowPl } from '../utils/positionPl'
 import { getMultiplier, MULTIPLIER } from '../utils/contractMultiplier'
 import {
-  ideaStress, ideaFit, worstCushion, rootLean, callsCoverLeft, takeProfitCandidates,
+  ideaStress, ideaFit, worstCushion, rootLean, takeProfitCandidates,
   equityShort, eventsBefore, uncoveredShares,
   stressBook, marginCallMove, cushionStatus, availableFundsForTrading,
 } from '../utils/homeInsights'
+import { assignedResult, freeLots, leverageAfter, putsUnderLeverage, wheelSnapshot } from '../utils/wheel'
 
 /*
  * Home: what to trade today, new income first. Account data loads fresh on
@@ -34,8 +35,25 @@ const CONTRACT_PINNED = { pinned: 'key' }
 const DATE_PINNED = { pinned: 'date' }
 const DEFAULT_RULES = {
   'home.futures_margin_pct': 11, 'home.take_profit_pct': 75,
-  'home.idea_max_dte': 7, 'home.idea_min_delta_pct': 5, 'home.idea_max_delta_pct': 20,
+  'home.idea_max_dte': 7,
   'home.stress_iv_rise': 20, 'home.idea_crash_pct': 5, 'home.event_crash_pct': 8,
+  // The options-wheel rules (wheel.* in config/app.properties, utils/wheel.js).
+  'wheel.aggressive_max_leverage_pct': 150, 'wheel.defensive_min_leverage_pct': 300,
+  'wheel.aggressive_put_delta_pct': [20, 30], 'wheel.neutral_put_delta_pct': [10, 20],
+  'wheel.aggressive_call_delta_pct': [25, 30], 'wheel.neutral_call_delta_pct': [20, 30], 'wheel.defensive_call_delta_pct': [30, 40],
+}
+const WHEEL_MODES = ['aggressive', 'neutral', 'defensive']
+const MODE_LABEL = { aggressive: 'Aggressive', neutral: 'Neutral', defensive: 'Defensive' }
+const MODE_TONE = { aggressive: 'ok', neutral: 'warning', defensive: 'error' }
+
+// The widest delta range any mode uses for a side, so the screener runs
+// once per visit, before the book (and so the mode) has loaded; the ideas
+// are then filtered to the mode's own range.
+function screenerDeltas(rules, side) {
+  const ranges = WHEEL_MODES
+    .map((mode) => rules[`wheel.${mode}_${side === 'PUT' ? 'put' : 'call'}_delta_pct`])
+    .filter(Boolean)
+  return { minDelta: Math.min(...ranges.map((r) => r[0])) / 100, maxDelta: Math.max(...ranges.map((r) => r[1])) / 100 }
 }
 const IDEAS_SHOWN = 8
 const EVENTS_DAYS = 14
@@ -222,10 +240,11 @@ export default function Home() {
       maxDte: rules['home.idea_max_dte'],
       minMoneyness: 0,
       maxMoneyness: 10,
-      minDelta: rules['home.idea_min_delta_pct'] / 100,
-      maxDelta: rules['home.idea_max_delta_pct'] / 100,
+      // Every strike in the range, not just the screener's top 200 by
+      // annualized return — the mode's own delta range is applied below.
+      limit: 1000,
     }
-    Promise.all(['PUT', 'CALL'].map((strategy) => screenOptions({ ...filters, strategy })))
+    Promise.all(['PUT', 'CALL'].map((strategy) => screenOptions({ ...filters, ...screenerDeltas(rules, strategy), strategy })))
       .then(([puts, calls]) => {
         if (!cancelled) setIdeas({ loading: false, PUT: puts.results ?? [], CALL: calls.results ?? [], errors: [...(puts.errors ?? []), ...(calls.errors ?? [])] })
       })
@@ -302,7 +321,19 @@ export default function Home() {
       stressBook: stress,
       stressOptions,
       lean: rootLean(stress.positions),
-      coverLeft: callsCoverLeft(stress.positions),
+      // The options-wheel mode, delta ranges and call cover for the ideas
+      // (utils/wheel.js — the same rules as the copilot's playbook).
+      wheel: wheelSnapshot({
+        netLiquidity: balances.net_liquidity,
+        stocks,
+        equityPuts: puts,
+        equityCalls: calls,
+        futures: (futures ?? []).map((f) => ({ ...f, current_price: prices[f.symbol] ?? null })),
+        futuresOptionPuts: futuresOptions?.puts ?? [],
+        futuresOptionCalls: futuresOptions?.calls ?? [],
+        rules,
+      }),
+      futuresByRoot: Object.fromEntries((futures ?? []).map((f) => [f.symbol.replace(/^\//, ''), f])),
       // For the alert line: the market moves that would bring a margin call.
       callDrop,
       callRally: cushion == null ? null : marginCallMove(cushion, stress, 1, stressOptions),
@@ -337,13 +368,29 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [derived, eventCrashPct],
   )
+  // The ideas follow the options-wheel rules (utils/wheel.js, the copilot's
+  // playbook): the mode's delta range for the side, no new puts in
+  // defensive mode, puts sized so leverage stays below the defensive band,
+  // calls only on roots with free cover — and a call struck below the entry
+  // of the lot it would cover ranks after those that don't lock in a loss.
+  const wheel = derived?.wheel
+  const sideBand = wheel?.deltaBands[ideaSide === 'PUT' ? 'put' : 'call'] ?? null
   const ideaRows = useMemo(() => {
+    // No mode until the book loads: show nothing rather than ideas it may rule out.
+    if (!wheel || !sideBand) return []
     const fitted = (r, maxQty) => (worstNow == null ? {} : r.eventCrash
       ? ideaFit(derived.cushion, derived.stressBook, r, eventOptions, { maxQty, base: worstEvent })
       : ideaFit(derived.cushion, derived.stressBook, r, ideaOptions, { maxQty, base: worstNow }))
-    const rank = (a, b) => (b.hedges - a.hedges) || (a.hedges ? b.credit - a.credit : (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0))
+    const rank = (a, b) => (Number(a.locksLoss ?? false) - Number(b.locksLoss ?? false))
+      || (b.hedges - a.hedges) || (a.hedges ? b.credit - a.credit : (b.returnOnRisk ?? 0) - (a.returnOnRisk ?? 0))
     const best = {}
     for (const r of ideas[ideaSide] ?? []) {
+      const deltaSize = r.delta == null ? null : Math.abs(r.delta)
+      if (deltaSize == null || deltaSize * 100 < sideBand[0] || deltaSize * 100 > sideBand[1]) continue
+      const root = r.underlying.replace(/^\//, '')
+      const mult = getMultiplier(r.underlying)
+      const coverage = wheel.coverage[`/${root}`]
+      if (r.type === 'CALL' && !(coverage?.free_cover > 0)) continue
       const crossed = eventsBefore(eventList, { ticker: r.underlying, type: r.type, expiration: r.expirationDate })
       const eventCrash = crossed.some((e) => e.major)
       const stressed = ideaStress(r, { crashPct: eventCrash ? eventCrashPct : crashPct, futuresPct: marginPct, ivRise: rules['home.stress_iv_rise'] })
@@ -351,8 +398,18 @@ export default function Home() {
       const row = {
         ...r, ...stressed, events: crossed, eventCrash,
         // Sort keys: delta by size (puts' are negative), events by the nearest.
-        deltaSize: r.delta == null ? null : Math.abs(r.delta),
+        deltaSize,
         eventDate: crossed.map((e) => e.date).sort()[0] ?? null,
+      }
+      if (r.type === 'CALL') {
+        // The futures lot this call would cover, and the result if it's
+        // assigned against it (the future delivered at the strike).
+        const lot = freeLots(derived.futuresByRoot[root], coverage)[0]
+        row.assignedLot = lot ?? null
+        row.assigned = assignedResult(r.strike, stressed.credit, lot, mult)
+        row.locksLoss = row.assigned != null && row.assigned < 0
+      } else {
+        row.leverageAfter = leverageAfter(wheel, r.strike * mult)
       }
       Object.assign(row, fitted(row, 0))
       const key = `${r.underlying}|${r.expirationDate}`
@@ -362,15 +419,19 @@ export default function Home() {
       .sort(rank)
       .slice(0, IDEAS_SHOWN)
       .map((row) => {
-        if (worstNow == null) return { ...row, maxContracts: null }
+        const mult = getMultiplier(row.underlying)
+        // Calls stay covered (free cover); puts keep leverage below the
+        // defensive band.
+        const limit = row.type === 'CALL'
+          ? wheel.coverage[`/${row.underlying.replace(/^\//, '')}`]?.free_cover ?? 0
+          : putsUnderLeverage(wheel, row.strike, mult)
+        const capReason = row.type === 'CALL' ? 'cover' : 'leverage'
+        if (worstNow == null) return { ...row, maxContracts: limit, capped: true, capReason }
         const byCushion = fitted(row, 100).maxContracts
-        // New short calls stay covered: no more than the long futures not
-        // yet sold against.
-        const cover = row.type === 'CALL' ? derived.coverLeft[row.underlying.replace(/^\//, '')] ?? 0 : null
-        return { ...row, maxContracts: cover == null ? byCushion : Math.min(byCushion, cover), capped: cover != null && cover < byCushion }
+        return { ...row, maxContracts: Math.min(byCushion, limit), capped: limit < byCushion, capReason }
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ideas, ideaSide, marginPct, crashPct, worstNow, worstEvent, eventCrashPct, eventList, rules])
+  }, [ideas, ideaSide, derived, sideBand, marginPct, crashPct, worstNow, worstEvent, eventCrashPct, eventList, rules])
 
   const cushionState = derived?.cushion == null ? null : cushionStatus(derived.callDrop, derived.callRally)
   const eventsShown = eventList
@@ -418,10 +479,34 @@ export default function Home() {
         : money(r.riskAdded, 0)),
     },
     { key: 'returnOnRisk', label: 'Return on risk', align: 'right', render: (r) => (r.hedges ? '—' : pct(r.returnOnRisk, 2)) },
+    ideaSide === 'CALL'
+      ? {
+        key: 'assigned', label: 'If assigned', align: 'right',
+        render: (r) => (r.assigned == null ? '—' : (
+          <span
+            className={signClass(r.assigned)}
+            title={`Covers the /${r.underlying.replace(/^\//, '')} lot opened ${formatDate(r.assignedLot.date)} at ${r.assignedLot.entry.toLocaleString('en-US')}: assigned, that future is delivered at the strike — (strike − entry) × point value + the credit, per contract.${r.locksLoss ? ' Below that entry, so it locks in a loss.' : ''}`}
+          >
+            {money(r.assigned, 0)}
+          </span>
+        )),
+      }
+      : {
+        key: 'leverageAfter', label: 'Leverage after', align: 'right',
+        render: (r) => (r.leverageAfter == null ? '—' : (
+          <span title="Notional ÷ net liquidity with one more contract (its strike × point value).">{pct(r.leverageAfter, 0)}</span>
+        )),
+      },
     {
       key: 'maxContracts', label: 'Max qty', align: 'right',
       render: (r) => (r.maxContracts == null ? '—' : r.capped
-        ? <span title="Capped at the long futures not yet covered by a short call">{count(r.maxContracts)} · covered</span>
+        ? (
+          <span title={r.capReason === 'cover'
+            ? 'Capped at the free cover: long futures not yet covered by a short call, so no call is naked'
+            : `Capped so leverage stays below ${wheel?.bands.defensiveFrom}% (the defensive band)`}>
+            {count(r.maxContracts)} · {r.capReason === 'cover' ? 'covered' : 'leverage'}
+          </span>
+        )
         : count(r.maxContracts)),
     },
     {
@@ -566,12 +651,17 @@ export default function Home() {
           title="New income · /ES & /NQ"
           sub={`Ranked by return on risk to your book${worstNow != null ? ` · worst cushion after a ±${crashPct}% / ±${2 * crashPct}% move: ${money(worstNow, 0)}` : ''}`}
           help={<>
-            Short options expiring within {rules['home.idea_max_dte']} days, delta {(rules['home.idea_min_delta_pct'] / 100).toFixed(2)}–{(rules['home.idea_max_delta_pct'] / 100).toFixed(2)},
-            best strike per expiration. Each is judged against your positions as if the market moves {crashPct}% or {2 * crashPct}% either
-            way at once ({eventCrashPct}% or {2 * eventCrashPct}% if it lives through CPI, jobs, PCE or an FOMC decision): Risk to book is
-            how much one contract lowers the worst cushion, and Max qty the most that keep it above zero. Trades that offset your positions
-            rank first; new calls are capped at the long futures not yet covered. Hover a contract for its own stress numbers.
-            POP is the estimated chance of expiring above zero P&amp;L, from a lognormal model at the contract&apos;s implied volatility: no skew, no early exit.
+            Picked by the options-wheel rules, the same as the copilot&apos;s: leverage (notional ÷ net liquidity) sets the mode —
+            aggressive below {rules['wheel.aggressive_max_leverage_pct']}%, defensive from {rules['wheel.defensive_min_leverage_pct']}% —
+            and the mode sets the delta range. Defensive mode sells no new puts; puts are sized so leverage stays below the defensive band,
+            and calls only against long futures not yet covered, so none is naked. If assigned is a call&apos;s result against the lot it
+            would cover (oldest first after your existing calls); one that locks in a loss ranks last.
+            Short options expiring within {rules['home.idea_max_dte']} days, best strike per expiration, each judged against your positions
+            as if the market moves {crashPct}% or {2 * crashPct}% either way at once ({eventCrashPct}% or {2 * eventCrashPct}% if it lives
+            through CPI, jobs, PCE or an FOMC decision): Risk to book is how much one contract lowers the worst cushion, and Max qty the most
+            that keep it above zero within the wheel&apos;s limits. Trades that offset your positions rank first. Hover a contract for its own
+            stress numbers. POP is the estimated chance of expiring above zero P&amp;L, from a lognormal model at the contract&apos;s implied
+            volatility: no skew, no early exit. The rules are wheel.* and home.* in config/app.properties.
           </>}
           right={(
             <div className="tab-row home-side-tabs" role="tablist" aria-label="Puts or calls">
@@ -595,7 +685,7 @@ export default function Home() {
                 {derived && (
                   <span className="summary-line">
                     {Math.abs(lean) < 0.05 ? 'book flat' : `book net ${lean > 0 ? 'long' : 'short'} ${Math.abs(lean).toFixed(1)} /${root}`}
-                    {ideaSide === 'CALL' && ` · ${derived.coverLeft[root] ?? 0} uncovered for calls`}
+                    {ideaSide === 'CALL' && ` · ${count(wheel?.coverage[`/${root}`]?.free_cover ?? 0)} free to cover calls`}
                   </span>
                 )}
               </div>
@@ -605,12 +695,34 @@ export default function Home() {
         {worstNow != null && worstNow <= 0 && (
           <p className="summary-line">Those moves would already leave no cushion — only trades that offset your risk fit.</p>
         )}
-        {ideas.loading && <Placeholder rows={5} />}
+        {wheel?.mode && (
+          <p className="summary-line home-wheel-mode">
+            <span className={`home-chip home-chip--${MODE_TONE[wheel.mode]}`}>{MODE_LABEL[wheel.mode]}</span>
+            {' '}Leverage {pct(wheel.leveragePct, 0)} · {money(wheel.notionalTotal, 0)} notional
+            {sideBand
+              ? ` · ${ideaSide === 'PUT' ? 'puts' : 'calls'} at delta ${(sideBand[0] / 100).toFixed(2)}–${(sideBand[1] / 100).toFixed(2)}`
+              : ''}
+            {Object.values(wheel.coverage).some((c) => c.naked > 0) && (
+              <> · <span className="home-chip home-chip--error">Naked calls open</span></>
+            )}
+          </p>
+        )}
+        {(ideas.loading || book.loading) && <Placeholder rows={5} />}
         {ideas.error && <div className="alert error">{ideas.error}</div>}
-        {!ideas.loading && !ideas.error && (
+        {!ideas.loading && !book.loading && !ideas.error && (
           ideaRows.length
             ? <div className="home-ideas-table"><DataTable data={ideaRows} paginate={false} columns={ideaCols} phone={SYMBOL_PINNED} /></div>
-            : <p className="summary-line">No /ES or /NQ {ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.</p>
+            : (
+              <p className="summary-line">
+                {ideaSide === 'PUT' && wheel?.mode === 'defensive'
+                  ? `Defensive mode: no new puts until leverage is below ${wheel.bands.defensiveFrom}%. Sell calls against your futures instead.`
+                  : ideaSide === 'CALL' && wheel && !ROOTS.some((r) => wheel.coverage[`/${r}`]?.free_cover > 0)
+                    ? 'No free cover: every long /ES and /NQ future already has a short call against it, so a new call would be naked.'
+                    : wheel?.mode == null
+                      ? 'No ideas: the wheel mode needs your net liquidity, which is unavailable.'
+                      : `No /ES or /NQ ${ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.`}
+              </p>
+            )
         )}
       </div>
 

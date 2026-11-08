@@ -63,10 +63,19 @@ class OptionPosition(BaseModel):
     underlying_price: Optional[float] = None
 
 
+class FuturesLot(BaseModel):
+    date: str                           # opened, "YYYY-MM-DD"
+    quantity: float                     # contracts, signed
+    trade_price: float                  # this lot's fill price
+
+
 class FuturesPosition(BaseModel):
     symbol: str                         # root, e.g. "ES"
     quantity: float                     # contracts, signed
     trade_price: float                  # average entry price
+    # The open lots behind that average, oldest first — the order FIFO
+    # matching closes them in (an assignment or a sale closes the oldest).
+    lots: list[FuturesLot] = []
 
 
 class SpreadLeg(BaseModel):

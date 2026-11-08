@@ -132,18 +132,14 @@ test("an idea is judged against the book: offsetting trades are a hedge, stackin
   assert.ok(put.riskAdded > 0 && !put.hedges, "a short put adds to a long book's drop");
   assert.ok(call.riskAdded < put.riskAdded, "a short call offsets the long futures");
   assert.ok(call.maxContracts > put.maxContracts, `calls ${call.maxContracts} vs puts ${put.maxContracts}`);
-  // A book already past a margin call at the move has no room.
+  // A book already past a margin call at the move has no room to add risk...
   assert.equal(ideaFit(10000, book, idea("PUT", 6850), opts).maxContracts, 0);
   assert.equal(ideaFit(400000, book, idea("PUT", 6850), opts, { maxQty: 0 }).maxContracts, 0);
-});
-
-test("new short calls are capped at the long futures left uncovered", async () => {
-  const { callsCoverLeft } = await import("./homeInsights.js");
-  assert.deepEqual(callsCoverLeft([
-    { kind: "future", root: "ES", qty: 6 }, { kind: "option", root: "ES", type: "CALL", qty: -4 },
-    { kind: "future", root: "NQ", qty: 4 }, { kind: "option", root: "NQ", type: "CALL", qty: -6 },
-    { kind: "option", root: "NQ", type: "PUT", qty: -2 }, { kind: "stock", qty: 100 },
-  ]), { ES: 2, NQ: 0 });
+  // ...but can still size the calls that offset it: each one raises the
+  // worst cushion, until enough of them make the rally side the worst.
+  const short = ideaFit(10000, book, idea("CALL", 7150), opts);
+  assert.ok(short.hedges && short.maxContracts > 0, `hedge sized ${short.maxContracts}`);
+  assert.ok(short.maxContracts < 100, "stops once more calls no longer help");
 });
 
 test("with relief a long book's requirement falls in a drop; by default it holds", async () => {

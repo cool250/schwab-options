@@ -38,7 +38,13 @@ a.home-alert:hover { text-decoration: underline; }
 .home-contract-name { font-weight: 600; }
 .home-idea-contract { white-space: nowrap; }
 /* Ten columns: two-word headers take two lines so the Analyze button fits. */
-@media (min-width: 769px) { .home-ideas-table .data-table th { white-space: normal; } }
+/* Twelve columns (the wheel's If assigned / Leverage after among them) fit a
+   1280px window beside the sidebar only with tighter cells. */
+@media (min-width: 769px) {
+  .home-ideas-table .data-table th { white-space: normal; padding: 10px 8px; }
+  .home-ideas-table .data-table td { padding: 10px 8px; }
+}
+.home-wheel-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .home-contract-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 0.78rem; color: var(--text-muted); }
 .home-card-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
 .home-side-tabs { flex: none; }

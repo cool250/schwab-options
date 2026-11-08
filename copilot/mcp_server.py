@@ -19,6 +19,7 @@ import json
 import sys
 
 import anyio
+import anyio.to_thread
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -62,9 +63,11 @@ def account_user(username: str | None) -> users.User:
 def call_tool(user: users.User, name: str, arguments: dict) -> str:
     """Run one tool as `user`. The broker context is set per call, as
     require_auth does per request, since a ContextVar set elsewhere may not
-    reach the task handling this call."""
+    reach the task handling this call. The user is re-read each time, so a
+    broker or account switched in the app applies without a restart."""
     if name in APP_ONLY_TOOLS or name not in TOOL_FUNCTIONS:
         return json.dumps({"error": f"Unknown tool {name!r}"})
+    user = users.get_user(user.id) or user
     set_token_owner(user.id)
     set_selected_broker(user.broker)
     set_selected_account(user.broker_account)
@@ -74,12 +77,20 @@ def call_tool(user: users.User, name: str, arguments: dict) -> str:
         return json.dumps({"error": f"Invalid arguments for {name}: {e}"})
 
 
+async def run_tool(user: users.User, name: str, arguments: dict) -> str:
+    """call_tool in a worker thread: the Tastytrade client's live quotes
+    start their own event loop (asyncio.run), which can't run inside the
+    server's — FastAPI runs the app's sync routes in a thread pool the same
+    way. call_tool sets the user's broker context itself, inside the thread."""
+    return await anyio.to_thread.run_sync(call_tool, user, name, arguments)
+
+
 def build_server(user: users.User) -> Server:
     async def list_tools(ctx, params) -> types.ListToolsResult:
         return types.ListToolsResult(tools=TOOLS)
 
     async def handle_call(ctx, params) -> types.CallToolResult:
-        result = call_tool(user, params.name, params.arguments or {})
+        result = await run_tool(user, params.name, params.arguments or {})
         return types.CallToolResult(content=[types.TextContent(type="text", text=result)])
 
     return Server(

@@ -7,6 +7,7 @@ from utils.market_time import market_today
 from service.portfolio.models import (
     Balances,
     FuturesOptionPosition,
+    FuturesLot,
     FuturesPosition,
     OptionPosition,
     SpreadLeg,
@@ -164,19 +165,25 @@ class PositionService:
 
         by_symbol: dict[str, dict] = {}
         for trade in trades:
-            if trade.get("closed"):
+            # A closing fill whose open is before the window (open_unknown)
+            # isn't a position: it has no entry price and is already closed.
+            if trade.get("closed") or trade.get("open_unknown"):
                 continue
-            entry = by_symbol.setdefault(trade["symbol"], {"quantity": 0.0, "cost": 0.0, "weighted_price": 0.0})
+            entry = by_symbol.setdefault(trade["symbol"], {"quantity": 0.0, "cost": 0.0, "weighted_price": 0.0, "lots": []})
             entry["quantity"] += trade["quantity"]
             entry["cost"] += trade["total_amount"]
             entry["weighted_price"] += trade["open_price"] * abs(trade["quantity"])
+            entry["lots"].append(FuturesLot(date=trade["date"], quantity=trade["quantity"], trade_price=trade["open_price"]))
 
         futures = []
         for symbol, entry in by_symbol.items():
             if abs(entry["quantity"]) < 1e-9:
                 continue
             avg_price = entry["weighted_price"] / abs(entry["quantity"])
-            futures.append(FuturesPosition(symbol=symbol, quantity=entry["quantity"], trade_price=avg_price))
+            futures.append(FuturesPosition(
+                symbol=symbol, quantity=entry["quantity"], trade_price=avg_price,
+                lots=sorted(entry["lots"], key=lambda lot: lot.date),
+            ))
         return futures
 
     def get_futures_option_position(self, lookback_days: Optional[int] = None) -> tuple[list[FuturesOptionPosition], list[FuturesOptionPosition]]:

@@ -99,6 +99,29 @@ def test_open_futures_ratio_spread_is_one_typed_row_with_both_legs(monkeypatch, 
     assert spread.total_value == pytest.approx(500.0)      # x $50
 
 
+def test_futures_keep_each_open_lot_behind_the_average(monkeypatch):
+    from datetime import timedelta
+
+    import service.portfolio.transactions as tx
+    from tests.conftest import FakeTransactions, equity_leg
+    from utils.market_time import market_today
+
+    day = lambda n: (market_today() - timedelta(days=n)).isoformat()
+    fills = [
+        equity_leg(day(20), "ES", 2, 7700.0, asset_type="FUTURE", multiplier=50),
+        equity_leg(day(15), "ES", 1, 7600.0, asset_type="FUTURE", multiplier=50),
+        equity_leg(day(12), "ES", -1, 7650.0, asset_type="FUTURE", multiplier=50),  # FIFO: closes one of the oldest
+        equity_leg(day(5), "ES", 2, 7500.0, asset_type="FUTURE", multiplier=50),
+    ]
+    monkeypatch.setattr(tx, "get_transaction_provider", lambda: FakeTransactions(equity_legs=fills))
+    [es] = PositionService(provider=FakePositions({})).get_futures_position()
+    assert es.quantity == 4
+    assert es.trade_price == pytest.approx((7700 + 7600 + 2 * 7500) / 4)
+    assert [(lot.date, lot.quantity, lot.trade_price) for lot in es.lots] == [
+        (day(20), 1, 7700.0), (day(15), 1, 7600.0), (day(5), 2, 7500.0),
+    ]
+
+
 def test_ratio_spread_grouping_can_be_turned_off_in_app_properties(monkeypatch, tmp_path):
     import service.portfolio.transactions as tx
     from tests.conftest import FakeTransactions, option_leg

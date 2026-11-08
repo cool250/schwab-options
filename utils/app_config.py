@@ -32,11 +32,19 @@ SETTINGS: dict[str, tuple[type, Any, Optional[tuple], Optional[int]]] = {
     "home.futures_margin_pct": (int, 11, None, 1),
     "home.take_profit_pct": (int, 75, None, 1),
     "home.idea_max_dte": (int, 7, None, 0),
-    "home.idea_min_delta_pct": (int, 5, None, 0),
-    "home.idea_max_delta_pct": (int, 20, None, 1),
     "home.stress_iv_rise": (int, 20, None, 0),
     "home.idea_crash_pct": (int, 5, None, 1),
     "home.event_crash_pct": (int, 8, None, 1),
+    "wheel.aggressive_max_leverage_pct": (int, 150, None, 1),
+    "wheel.defensive_min_leverage_pct": (int, 300, None, 1),
+    "wheel.loss_budget_pct": (int, 25, None, 0),
+    # Delta ranges for new short options per mode, in hundredths ("20-30"
+    # = 0.20-0.30). Defensive mode sells no new puts, so it has no put range.
+    "wheel.aggressive_put_delta_pct": (list, [20, 30], None, 0),
+    "wheel.neutral_put_delta_pct": (list, [10, 20], None, 0),
+    "wheel.aggressive_call_delta_pct": (list, [25, 30], None, 0),
+    "wheel.neutral_call_delta_pct": (list, [20, 30], None, 0),
+    "wheel.defensive_call_delta_pct": (list, [30, 40], None, 0),
     # FOMC decision days (the meeting's second day), comma-separated.
     "events.fomc_dates": (str, "2026-10-28,2026-12-09,2027-01-27,2027-03-17,2027-04-28,2027-06-09,2027-07-28,2027-09-15,2027-10-27,2027-12-08", None, None),
 }
@@ -47,8 +55,12 @@ PUBLIC_SETTINGS = (
     "trades.group_ratio_spreads", "transactions.default_view",
     # The Home page's rules (all applied in the browser).
     "home.futures_margin_pct", "home.take_profit_pct",
-    "home.idea_max_dte", "home.idea_min_delta_pct", "home.idea_max_delta_pct",
+    "home.idea_max_dte",
     "home.stress_iv_rise", "home.idea_crash_pct", "home.event_crash_pct",
+    # The options-wheel rules, for Home's New Income ideas (utils/wheel.js).
+    "wheel.aggressive_max_leverage_pct", "wheel.defensive_min_leverage_pct",
+    "wheel.aggressive_put_delta_pct", "wheel.neutral_put_delta_pct",
+    "wheel.aggressive_call_delta_pct", "wheel.neutral_call_delta_pct", "wheel.defensive_call_delta_pct",
 )
 
 _TRUE, _FALSE = ("true", "yes", "1", "on"), ("false", "no", "0", "off")
@@ -78,6 +90,15 @@ def _convert(key: str, raw: str) -> Any:
             raise AppConfigError(f"{key}: expected a whole number, got {raw!r}") from None
         if minimum is not None and value < minimum:
             raise AppConfigError(f"{key}: must be at least {minimum}, got {value}")
+    elif type_ is list:
+        # A range of whole numbers, "low-high" -> [low, high].
+        try:
+            low, high = (int(part) for part in raw.split("-"))
+        except ValueError:
+            raise AppConfigError(f"{key}: expected a range like 20-30, got {raw!r}") from None
+        if low > high or (minimum is not None and low < minimum):
+            raise AppConfigError(f"{key}: expected low-high with low at least {minimum or 0} and not above high, got {raw!r}")
+        value = [low, high]
     else:
         value = raw
     if allowed is not None and value not in allowed:

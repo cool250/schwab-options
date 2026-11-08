@@ -1,0 +1,88 @@
+{
+  "_about": "Options-wheel cases checked against copilot/wheel.py (tests/test_copilot_wheel.py) and frontend/src/utils/wheel.js (wheel.test.js), so the copilot and Home's New Income ideas can't drift apart. Rows use the API's shapes.",
+  "notional": [
+    {
+      "name": "stock, futures and short puts count; calls and long puts don't",
+      "stocks": [{"symbol": "QQQ", "quantity": 200, "current_price": 500}],
+      "equity_puts": [{"ticker": "SPY", "strike_price": 700, "quantity": -2}, {"ticker": "SPY", "strike_price": 650, "quantity": 1}],
+      "futures": [{"symbol": "ES", "quantity": 2, "current_price": 7400}, {"symbol": "NQ", "quantity": -1, "current_price": 29000}],
+      "futures_option_puts": [
+        {"ticker": "ES", "strike_price": 7000, "quantity": -1, "expiration_date": "2026-11-13", "multiplier": 50},
+        {"ticker": "NQ", "strike_price": 27000, "quantity": -2, "expiration_date": "2026-11-13"}
+      ],
+      "expected": {
+        "QQQ": {"stock": 100000, "futures": 0, "short_puts": 0, "total": 100000, "unpriced": 0},
+        "SPY": {"stock": 0, "futures": 0, "short_puts": 140000, "total": 140000, "unpriced": 0},
+        "/ES": {"stock": 0, "futures": 740000, "short_puts": 350000, "total": 1090000, "unpriced": 0},
+        "/NQ": {"stock": 0, "futures": 580000, "short_puts": 1080000, "total": 1660000, "unpriced": 0}
+      }
+    },
+    {
+      "name": "an unpriced future is counted as unpriced, not zero",
+      "stocks": [], "equity_puts": [], "futures": [{"symbol": "ES", "quantity": 1, "current_price": null}], "futures_option_puts": [],
+      "expected": {"/ES": {"stock": 0, "futures": 0, "short_puts": 0, "total": 0, "unpriced": 1}}
+    }
+  ],
+  "coverage": [
+    {
+      "name": "the 11/8/2026 futures book: 5 short calls per root, all covered, 1 free",
+      "stocks": [], "equity_calls": [],
+      "futures": [{"symbol": "ES", "quantity": 5}, {"symbol": "NQ", "quantity": 5}],
+      "futures_option_calls": [
+        {"ticker": "ES", "strike_price": 7600, "quantity": -2, "expiration_date": "2026-11-10"},
+        {"ticker": "ES", "strike_price": 7500, "quantity": 1, "expiration_date": "2026-11-13"},
+        {"ticker": "ES", "strike_price": 7590, "quantity": -3, "expiration_date": "2026-11-13"},
+        {"ticker": "NQ", "strike_price": 29000, "quantity": -1, "expiration_date": "2026-11-09"},
+        {"ticker": "NQ", "strike_price": 28500, "quantity": -2, "expiration_date": "2026-11-13"},
+        {"ticker": "NQ", "strike_price": 27575, "quantity": -2, "expiration_date": "2026-11-13"},
+        {"ticker": "NQ", "strike_price": 27050, "quantity": 1, "expiration_date": "2026-11-13"}
+      ],
+      "expected": {
+        "/ES": {"short_calls": 5, "covered_by": {"share_lots": 0, "long_futures": 5, "long_calls": 1}, "free_cover": 1, "naked": 0},
+        "/NQ": {"short_calls": 5, "covered_by": {"share_lots": 0, "long_futures": 5, "long_calls": 1}, "free_cover": 1, "naked": 0}
+      }
+    },
+    {
+      "name": "a long call expiring before a short call is not cover",
+      "stocks": [], "equity_calls": [], "futures": [],
+      "futures_option_calls": [
+        {"ticker": "ES", "strike_price": 7600, "quantity": -1, "expiration_date": "2026-11-20"},
+        {"ticker": "ES", "strike_price": 7500, "quantity": 1, "expiration_date": "2026-11-13"}
+      ],
+      "expected": {"/ES": {"short_calls": 1, "covered_by": {"share_lots": 0, "long_futures": 0, "long_calls": 0}, "free_cover": 0, "naked": 1}}
+    },
+    {
+      "name": "shares cover one call per full hundred",
+      "stocks": [{"symbol": "AAPL", "quantity": 250}],
+      "equity_calls": [{"ticker": "AAPL", "strike_price": 300, "quantity": -2, "expiration_date": "2026-11-20"}],
+      "futures": [], "futures_option_calls": [],
+      "expected": {"AAPL": {"short_calls": 2, "covered_by": {"share_lots": 2, "long_futures": 0, "long_calls": 0}, "free_cover": 0, "naked": 0}}
+    },
+    {
+      "name": "a grouped ratio spread counts both legs",
+      "stocks": [], "equity_calls": [], "futures": [{"symbol": "ES", "quantity": 1}],
+      "futures_option_calls": [
+        {"ticker": "ES", "expiration_date": "2026-11-13", "long_leg": {"strike_price": 7500, "amount": 1}, "short_leg": {"strike_price": 7600, "amount": 2}}
+      ],
+      "expected": {"/ES": {"short_calls": 2, "covered_by": {"share_lots": 0, "long_futures": 1, "long_calls": 1}, "free_cover": 0, "naked": 0}}
+    }
+  ],
+  "modes": [
+    {"leverage": 149.9, "mode": "aggressive"},
+    {"leverage": 150, "mode": "neutral"},
+    {"leverage": 299.9, "mode": "neutral"},
+    {"leverage": 300, "mode": "defensive"},
+    {"leverage": null, "mode": null}
+  ],
+  "settings": {
+    "wheel.aggressive_max_leverage_pct": 150, "wheel.defensive_min_leverage_pct": 300,
+    "wheel.aggressive_put_delta_pct": [20, 30], "wheel.neutral_put_delta_pct": [10, 20],
+    "wheel.aggressive_call_delta_pct": [25, 30], "wheel.neutral_call_delta_pct": [20, 30], "wheel.defensive_call_delta_pct": [30, 40]
+  },
+  "delta_bands": [
+    {"mode": "aggressive", "expected": {"put": [20, 30], "call": [25, 30]}},
+    {"mode": "neutral", "expected": {"put": [10, 20], "call": [20, 30]}},
+    {"mode": "defensive", "expected": {"put": null, "call": [30, 40]}},
+    {"mode": null, "expected": {"put": null, "call": null}}
+  ]
+}

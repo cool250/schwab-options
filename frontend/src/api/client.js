@@ -72,7 +72,7 @@ export function getExpirationList(symbol, daysAhead = 60) {
   return request(`/market/options/expiration-list?${p}`)
 }
 
-export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyness, minDelta, maxDelta, strategy }) {
+export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyness, minDelta, maxDelta, strategy, limit }) {
   const p = new URLSearchParams({
     symbols: symbols.join(','),
     min_dte: minDte,
@@ -81,9 +81,10 @@ export function screenOptions({ symbols, minDte, maxDte, minMoneyness, maxMoneyn
     max_moneyness: maxMoneyness,
     strategy,
   })
-  // Delta bounds are optional — null means "no limit on that side", so
-  // leave the param off entirely rather than sending "null".
-  for (const [key, value] of Object.entries({ min_delta: minDelta, max_delta: maxDelta })) {
+  // Delta bounds and the result limit are optional — null means "no limit
+  // on that side" / the server's default, so leave the param off entirely
+  // rather than sending "null".
+  for (const [key, value] of Object.entries({ min_delta: minDelta, max_delta: maxDelta, limit })) {
     if (value != null) p.set(key, value)
   }
   return request(`/market/options/screener?${p}`)

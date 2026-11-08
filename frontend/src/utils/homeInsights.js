@@ -284,7 +284,10 @@ export function worstCushion(cushion, book, extra, { crashPct, futuresPct, ivRis
  *    hedges       riskAdded <= 0
  *    returnOnRisk credit / riskAdded (%), null for a hedge
  *    maxContracts the most contracts that keep the worst cushion above
- *                 zero (capped at maxQty; with maxQty 0 it isn't searched)
+ *                 zero — or, for a trade that offsets risk, the most that
+ *                 keep raising it, so a book already short of cushion can
+ *                 still size the trades that help (capped at maxQty; with
+ *                 maxQty 0 it isn't searched)
  *  idea: an ideaStress row plus { underlying, type, strike, dte, spot, iv }.
  *  base: worstCushion(cushion, book, [], options), when already known. */
 export function ideaFit(cushion, book, idea, options, { maxQty = 100, base } = {}) {
@@ -298,11 +301,21 @@ export function ideaFit(cushion, book, idea, options, { maxQty = 100, base } = {
   // what it was sold for, so net liq is unchanged by the sale.
   const worstWith = (n) => worstCushion(cushion, book, [leg(-n)], options)
   const riskAdded = base - worstWith(1)
+  const hedges = riskAdded <= 0
+  // One more contract fits if the worst cushion stays above zero — or, for
+  // a hedge, if it still rises (past some size, more short calls against
+  // long futures turn the book short and the rally side becomes the worst).
   let maxContracts = 0
-  while (maxContracts < maxQty && worstWith(maxContracts + 1) > 0) maxContracts++
+  let worst = base
+  while (maxContracts < maxQty) {
+    const next = worstWith(maxContracts + 1)
+    if (!(next > 0 || (hedges && next > worst))) break
+    worst = next
+    maxContracts++
+  }
   return {
     riskAdded,
-    hedges: riskAdded <= 0,
+    hedges,
     returnOnRisk: riskAdded > 0 ? (idea.credit / riskAdded) * 100 : null,
     maxContracts,
   }
@@ -319,20 +332,6 @@ export function rootLean(positions) {
     lean[p.root] = (lean[p.root] ?? 0) + delta * p.qty
   }
   return lean
-}
-
-/** Long futures per root not yet covered by a short call (long calls
- *  count back as cover): how many new short calls stay covered.
- *  -> { ES: 2, NQ: 0 }, never negative. */
-export function callsCoverLeft(positions) {
-  const left = {}
-  for (const p of positions) {
-    if (!p.root) continue
-    if (p.kind === 'future') left[p.root] = (left[p.root] ?? 0) + p.qty
-    else if (p.type === 'CALL') left[p.root] = (left[p.root] ?? 0) + p.qty
-  }
-  for (const root of Object.keys(left)) left[root] = Math.max(0, Math.floor(left[root]))
-  return left
 }
 
 /** How close the account is to a margin call, from the market-wide move

@@ -22,8 +22,11 @@ from pathlib import Path
 from broker.exceptions import BrokerError
 from pydantic_core import to_jsonable_python
 
+from copilot import wheel
 from service.market import MarketService
 from service.market.errors import MarketDataError, SymbolNotFound
+from service.market.quotes import QuoteService
+from service.shared.contracts import get_contract_multiplier
 from service.portfolio import PositionService, TransactionService
 from service.portfolio.ratio_spreads import group_ratio_spreads
 from utils.app_config import get_config
@@ -66,20 +69,111 @@ def get_option_positions() -> str:
     return json.dumps({"puts": puts, "calls": calls}, default=to_jsonable_python)
 
 
+# Schwab can't quote futures or futures options, so — as the Positions page
+# does — these two tools add live Tastytrade prices (QuoteService) to the
+# Portfolio rows here, and the same P&L math as frontend/src/utils/positionPl.js:
+# futures (price - entry) x quantity x point value; futures options valued at
+# the bid, entry value (total_value, credit positive) minus that. A row that
+# can't be priced keeps current_price / unrealized_pl as None.
+
+
+def with_futures_marks(rows: list[dict], prices: dict[str, float]) -> list[dict]:
+    """Prices each row and each of its open lots (oldest first, the order
+    FIFO closes them), so a plan can use every lot's own entry."""
+    def pl(price, entry, quantity, point_value):
+        return None if price is None else (price - entry) * quantity * point_value
+
+    for row in rows:
+        price = prices.get(row["symbol"])
+        point_value = get_contract_multiplier(row["symbol"].lstrip("/").upper())
+        row["current_price"] = price
+        row["unrealized_pl"] = pl(price, row["trade_price"], row["quantity"], point_value)
+        for lot in row.get("lots") or []:
+            lot["unrealized_pl"] = pl(price, lot["trade_price"], lot["quantity"], point_value)
+    return rows
+
+
+def futures_option_contracts(puts: list[dict], calls: list[dict]) -> list[dict]:
+    """Quote requests for every real contract — both legs of a grouped ratio spread."""
+    return [
+        {"key": leg["symbol"], "underlying": f"/{row['ticker']}", "expiration": row["expiration_date"],
+         "strike": leg["strike_price"], "type": option_type}
+        for rows, option_type in ((puts, "PUT"), (calls, "CALL"))
+        for row in rows
+        for leg in ((row["long_leg"], row["short_leg"]) if row.get("long_leg") else (row,))
+    ]
+
+
+def with_futures_option_marks(rows: list[dict], bids: dict[str, float]) -> list[dict]:
+    for row in rows:
+        multiplier = row.get("multiplier") or 100
+        if row.get("long_leg") and row.get("short_leg"):
+            long_bid, short_bid = bids.get(row["long_leg"]["symbol"]), bids.get(row["short_leg"]["symbol"])
+            price = (
+                None if long_bid is None or short_bid is None
+                else row["short_leg"]["amount"] * short_bid - row["long_leg"]["amount"] * long_bid
+            )
+            value = None if price is None else price * multiplier
+        else:
+            price = bids.get(row["symbol"])
+            value = None if price is None else price * -(row.get("quantity") or 0) * multiplier
+        row["current_price"] = price
+        row["unrealized_pl"] = None if value is None else (row.get("total_value") or 0) - value
+    return rows
+
+
 def get_futures_positions(lookback_days: int = 30) -> str:
-    return _safe(PositionService().get_futures_position, lookback_days=lookback_days)
+    def _fetch(lookback_days: int):
+        rows = to_jsonable_python(PositionService().get_futures_position(lookback_days=lookback_days))
+        return with_futures_marks(rows, QuoteService().quote_futures([r["symbol"] for r in rows]))
+
+    return _safe(_fetch, lookback_days)
 
 
 def get_futures_option_positions(lookback_days: int = 30) -> str:
     def _fetch(lookback_days: int):
-        puts, calls = PositionService().get_futures_option_position(lookback_days=lookback_days)
-        return {"puts": puts, "calls": calls}
+        puts, calls = to_jsonable_python(PositionService().get_futures_option_position(lookback_days=lookback_days))
+        quotes = QuoteService().quote_options(futures_option_contracts(puts, calls))
+        bids = {key: q["bid"] for key, q in quotes.items() if q.get("bid") is not None}
+        return {"puts": with_futures_option_marks(puts, bids), "calls": with_futures_option_marks(calls, bids)}
 
     return _safe(_fetch, lookback_days)
 
 
 def get_total_exposure() -> str:
     return _safe(PositionService().get_total_exposure)
+
+
+def get_wheel_snapshot() -> str:
+    """The numbers the options-wheel playbook starts from (copilot/wheel.py)."""
+    def _fetch():
+        positions = PositionService()
+        stocks = to_jsonable_python(positions.get_stock_position())
+        puts, calls = to_jsonable_python(positions.get_option_position())
+        futures = to_jsonable_python(positions.get_futures_position())
+        futures = with_futures_marks(futures, QuoteService().quote_futures([f["symbol"] for f in futures]))
+        fo_puts, fo_calls = to_jsonable_python(positions.get_futures_option_position())
+
+        today = market_today()
+        end = (today + timedelta(days=2)).isoformat()  # evening/overnight futures fills, as _default_date_range
+        transactions = TransactionService()
+
+        def realized(start: str) -> float:
+            return wheel.realized_pl(
+                to_jsonable_python(transactions.get_option_transactions("", start, end, "ALL", realized_gains_only=True)),
+                to_jsonable_python(transactions.get_equity_transactions("", start, end, "ALL", realized_gains_only=True)),
+            )
+
+        return wheel.snapshot(
+            net_liquidity=to_jsonable_python(positions.get_balances()).get("net_liquidity"),
+            notional=wheel.notional_by_underlying(stocks, puts, futures, fo_puts),
+            coverage=wheel.call_coverage(stocks, calls, futures, fo_calls),
+            ytd_realized=realized(today.replace(month=1, day=1).isoformat()),
+            mtd_realized=realized(today.replace(day=1).isoformat()),
+            settings=get_config(),
+        )
+
+    return _safe(_fetch)
 
 
 def get_option_trade_history(
@@ -234,6 +328,7 @@ TOOL_FUNCTIONS = {
     "get_futures_positions": get_futures_positions,
     "get_futures_option_positions": get_futures_option_positions,
     "get_total_exposure": get_total_exposure,
+    "get_wheel_snapshot": get_wheel_snapshot,
     "get_option_trade_history": get_option_trade_history,
     "get_equity_trade_history": get_equity_trade_history,
     "get_price_history": get_price_history,
@@ -278,7 +373,11 @@ TOOL_SCHEMAS = [
         "description": "Get the user's currently open futures positions (e.g. /ES, /NQ). "
         "Reconstructed from transaction history since Schwab doesn't expose futures in its "
         "positions endpoint, so this only sees trades within lookback_days — a position "
-        "opened earlier than that won't show up here.",
+        "opened earlier than that won't show up here. Each row has current_price (live "
+        "futures price) and unrealized_pl in dollars, None when it couldn't be priced. "
+        "trade_price is the blended average; `lots` lists each open lot oldest first "
+        "(date, quantity, its own trade_price and unrealized_pl) — the order FIFO closes "
+        "them in when futures are sold or called away. Plan with the lots, not the average.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -296,7 +395,9 @@ TOOL_SCHEMAS = [
         "name": "get_futures_option_positions",
         "description": "Get the user's currently open futures-option positions (options on "
         "/ES, /NQ, etc.), split into puts and calls. Same transaction-history reconstruction "
-        "and lookback_days caveat as get_futures_positions.",
+        "and lookback_days caveat as get_futures_positions. Each row has current_price (live "
+        "bid per point; for a grouped ratio spread, its net) and unrealized_pl in dollars, "
+        "priced as the app's Positions page does; None when it couldn't be priced.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -314,6 +415,20 @@ TOOL_SCHEMAS = [
         "name": "get_total_exposure",
         "description": "Get the user's total short-put dollar exposure, grouped by underlying "
         "ticker — how much capital would be required if every open short put were assigned.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "type": "function",
+        "name": "get_wheel_snapshot",
+        "description": "The starting point for any options-wheel recommendation (read the "
+        "options_wheel strategy doc with it). Returns, computed in code: net liquidity; total "
+        "notional (stock, futures at price x point value, short puts at strike x multiplier — "
+        "equity and futures) by underlying; leverage_pct = notional / net liquidity; the risk "
+        "mode it sets (aggressive / neutral / defensive) and the bands; call_coverage per "
+        "underlying (short calls, what covers them, free_cover = how many more short calls "
+        "can be sold without any being naked, naked = uncovered short calls already open); "
+        "month- and year-to-date realized P&L as the Reports page totals it; and the loss "
+        "budget — the most a close or roll at a loss may give up.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {

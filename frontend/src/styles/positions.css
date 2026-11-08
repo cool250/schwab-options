@@ -55,3 +55,8 @@
   .selection-bar-inner .btn { margin-left: auto; }
   .page--with-selection-bar { padding-bottom: 120px; }
 }
+
+/* Futures lots window (components/FuturesLotsDialog.jsx): the Strategy
+   Builder's dialog (sb-* in strategy-builder.css), narrower — four columns.
+   Full screen on a phone, like that dialog. */
+.lots-dialog { max-width: 560px; }
