@@ -247,14 +247,38 @@ manually inside the handler — follow that same pattern for any new WS route.
   `strategy_builder.TEMPLATES`, so it can't drift.
 - `agent.py` — builds the system prompt (identity, hard read-only + hard
   net-credit-only constraints, concatenated skill docs) and drives OpenAI's
-  tool-calling loop manually (`while` over `chat.completions.create`, since
-  there's no built-in agentic-loop helper in the plain SDK). Model is
-  `OPENAI_MODEL` env var, default `gpt-4o` — check what's actually current
-  before assuming that default is still right; it's been bumped before.
-- `skills/*.md` — options-strategy reference docs, loaded in full into the
-  system prompt (no RAG — the set is small enough that retrieval would be
-  pure overhead for an app this size). Adding a new strategy = adding a new
-  `.md` file here; nothing else needs to change to pick it up.
+  **Responses API** tool-calling loop manually (`for` over
+  `responses.create`, since there's no built-in agentic-loop helper in the
+  plain SDK) — not chat completions, which rejects tools on reasoning
+  models unless reasoning is off. `store=False` (account data isn't kept
+  at OpenAI), so each call resends the turn, with the model's reasoning
+  carried as encrypted items (`include=["reasoning.encrypted_content"]`).
+  Tool schemas are the Responses format (flat `name`/`parameters`, sent
+  with `strict: False`); tested with a stand-in client in
+  `tests/test_copilot_agent.py`. Model is `OPENAI_MODEL` env var, default
+  `gpt-6.1-terra`, reasoning effort `REASONING_EFFORT` (`low`) — check
+  what's actually current before assuming that default is still right;
+  it's been bumped before.
+- `rules.py` — the trading rules (read-only, net-credit-only, how to use
+  `build_strategy`, read the strategy docs first) plus the strategy-doc
+  catalog. Shared by `agent.py`'s system prompt and `mcp_server.py`'s
+  instructions, so the app's copilot and Claude Code follow the same rules —
+  change them here, not in either one. App-only instructions (markdown,
+  `propose_legs`, page context) stay in `agent.py`.
+- `mcp_server.py` — the same tools as a local, read-only MCP server for
+  Claude Code (stdio; registered in `.mcp.json`, so Claude Code starts it in
+  this repo). Runs as one admin (`--user NAME`, default user 1) with that
+  user's Schwab token, broker and account, set per call like `require_auth`,
+  and `require_token_owner()` on. Leaves out `propose_legs` (the app's Apply
+  Trade button). `mcp` is a dev dependency, so it's not in the production
+  image. Tested in `tests/test_copilot_mcp.py`.
+- `skills/*.md` — options-strategy reference docs, **read on demand**: the
+  system prompt lists only each doc's name and title (`strategy_doc_catalog()`
+  in `tools.py`), and the model calls `read_strategy_docs(names)` before
+  recommending, building or evaluating a strategy — so the ~46 KB of docs
+  isn't resent with every request. Each doc's first line is its `# Title`,
+  which is what the catalog shows. Adding a new strategy = adding a new
+  `.md` file here; the catalog and the tool's name enum pick it up.
 - `group_ratio_spreads()` (closed/historical trades) and
   `group_open_ratio_spreads()` (currently-open legs, used by the Positions
   page's futures-option tables) both merge matched trade legs that form a

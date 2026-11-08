@@ -17,6 +17,7 @@ kept in sync with the matching function's signature.
 import json
 import logging
 from datetime import timedelta
+from pathlib import Path
 
 from broker.exceptions import BrokerError
 from pydantic_core import to_jsonable_python
@@ -203,6 +204,29 @@ def propose_legs(legs: list[dict]) -> str:
     return json.dumps({"status": "proposed", "count": len(legs)})
 
 
+# Options-strategy reference docs (copilot/skills/*.md). The system prompt
+# lists them by title only; the model reads the ones a question needs, so
+# ~46 KB of docs isn't resent with every request. A new .md file here is
+# picked up by the catalog and this tool's schema automatically.
+SKILLS_DIR = Path(__file__).parent / "skills"
+STRATEGY_DOCS = {path.stem: path for path in sorted(SKILLS_DIR.glob("*.md"))}
+
+
+def strategy_doc_catalog() -> str:
+    """One line per doc: its name (what read_strategy_docs takes) and title."""
+    return "\n".join(
+        f"- {name}: {path.read_text().splitlines()[0].lstrip('# ').strip()}"
+        for name, path in STRATEGY_DOCS.items()
+    )
+
+
+def read_strategy_docs(names: list[str]) -> str:
+    unknown = [name for name in names if name not in STRATEGY_DOCS]
+    if unknown:
+        return json.dumps({"error": f"Unknown strategy docs {unknown}; available: {list(STRATEGY_DOCS)}"})
+    return "\n\n---\n\n".join(STRATEGY_DOCS[name].read_text() for name in names)
+
+
 TOOL_FUNCTIONS = {
     "get_account_balances": get_account_balances,
     "get_stock_positions": get_stock_positions,
@@ -217,364 +241,360 @@ TOOL_FUNCTIONS = {
     "get_expirations": get_expirations,
     "build_strategy": build_strategy,
     "propose_legs": propose_legs,
+    "read_strategy_docs": read_strategy_docs,
 }
 
 # Read once, when the schemas below are built; the tools read it per call.
 _HISTORY_DAYS = get_config()["copilot.history_days"]
 
-# OpenAI chat-completions "tools" format: one {"type": "function", "function": {...}}
-# entry per tool, JSON-schema parameters.
+# OpenAI Responses API "tools" format: one {"type": "function", "name": ...,
+# "description": ..., "parameters": {...}} entry per tool, JSON-schema parameters.
 TOOL_SCHEMAS = [
     {
         "type": "function",
-        "function": {
-            "name": "get_account_balances",
-            "description": "Get the user's Schwab account balances: cash balance, total account "
-            "(liquidation) value, and mutual fund value.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
+        "name": "get_account_balances",
+        "description": "Get the user's Schwab account balances: cash balance, total account "
+        "(liquidation) value, and mutual fund value.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_stock_positions",
-            "description": "Get the user's currently open equity/ETF stock positions, each with "
-            "symbol, quantity, average trade price, and current price.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
+        "name": "get_stock_positions",
+        "description": "Get the user's currently open equity/ETF stock positions, each with "
+        "symbol, quantity, average trade price, and current price.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_option_positions",
-            "description": "Get the user's currently open equity option positions (calls and "
-            "puts), each with ticker, strike, expiration, days-to-expiry, quantity, trade price, "
-            "current price, and dollar exposure (puts only).",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
+        "name": "get_option_positions",
+        "description": "Get the user's currently open equity option positions (calls and "
+        "puts), each with ticker, strike, expiration, days-to-expiry, quantity, trade price, "
+        "current price, and dollar exposure (puts only).",
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_futures_positions",
-            "description": "Get the user's currently open futures positions (e.g. /ES, /NQ). "
-            "Reconstructed from transaction history since Schwab doesn't expose futures in its "
-            "positions endpoint, so this only sees trades within lookback_days — a position "
-            "opened earlier than that won't show up here.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "lookback_days": {
-                        "type": "integer",
-                        "description": "How many days of transaction history to scan for still-open futures trades.",
-                        "default": 30,
-                    }
-                },
-                "required": [],
+        "name": "get_futures_positions",
+        "description": "Get the user's currently open futures positions (e.g. /ES, /NQ). "
+        "Reconstructed from transaction history since Schwab doesn't expose futures in its "
+        "positions endpoint, so this only sees trades within lookback_days — a position "
+        "opened earlier than that won't show up here.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lookback_days": {
+                    "type": "integer",
+                    "description": "How many days of transaction history to scan for still-open futures trades.",
+                    "default": 30,
+                }
             },
+            "required": [],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_futures_option_positions",
-            "description": "Get the user's currently open futures-option positions (options on "
-            "/ES, /NQ, etc.), split into puts and calls. Same transaction-history reconstruction "
-            "and lookback_days caveat as get_futures_positions.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "lookback_days": {
-                        "type": "integer",
-                        "description": "How many days of transaction history to scan for still-open futures-option trades.",
-                        "default": 30,
-                    }
-                },
-                "required": [],
+        "name": "get_futures_option_positions",
+        "description": "Get the user's currently open futures-option positions (options on "
+        "/ES, /NQ, etc.), split into puts and calls. Same transaction-history reconstruction "
+        "and lookback_days caveat as get_futures_positions.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lookback_days": {
+                    "type": "integer",
+                    "description": "How many days of transaction history to scan for still-open futures-option trades.",
+                    "default": 30,
+                }
             },
+            "required": [],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_total_exposure",
-            "description": "Get the user's total short-put dollar exposure, grouped by underlying "
-            "ticker — how much capital would be required if every open short put were assigned.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
+        "name": "get_total_exposure",
+        "description": "Get the user's total short-put dollar exposure, grouped by underlying "
+        "ticker — how much capital would be required if every open short put were assigned.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_option_trade_history",
-            "description": "Get the user's equity-option trade history with matched open/close "
-            f"legs and realized P&L. Defaults to the last {_HISTORY_DAYS} days across all tickers if no dates "
-            "are given. Legs that form a ratio spread (buy 1 / sell 2+ at a different strike, "
-            "same underlying/expiration/type, opened together) are already merged into a single "
-            "record with \"strategy\": \"RATIO_SPREAD\" (its \"type\" still holds the normal "
-            "CLOSED/EXPIRED/ASSIGNED status), a \"ratio\" like \"1:2\", \"long_leg\"/\"short_leg\" "
-            "strikes, and one combined total_amount — report those as one position, don't "
-            "re-derive the grouping yourself from individual legs. type \"EXERCISED\" marks a "
-            "futures option that was exercised/assigned into its future: its total_amount is the "
-            "option premium only (positive if it was sold, negative if bought), and the delivered "
-            "future's P&L is separate (get_equity_trade_history / get_futures_positions), so don't "
-            "describe an exercised short as a clean win. type \"ASSIGNED\" is the same for an "
-            "equity option: total_amount is its premium, and the assigned shares' P&L (booked at "
-            "the strike) is in get_equity_trade_history.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "ticker": {
-                        "type": "string",
-                        "description": 'Ticker symbol to filter by, e.g. "AAPL" — empty string means all tickers.',
-                        "default": "",
-                    },
-                    "start_date": {
-                        "type": "string",
-                        "description": f"Start date as YYYY-MM-DD — defaults to {_HISTORY_DAYS} days ago if omitted.",
-                        "default": "",
-                    },
-                    "end_date": {
-                        "type": "string",
-                        "description": "End date as YYYY-MM-DD — defaults to today if omitted.",
-                        "default": "",
-                    },
-                    "realized_gains_only": {
-                        "type": "boolean",
-                        "description": "If true (default), only return closed trades; if false, include still-open ones too.",
-                        "default": True,
-                    },
+        "name": "get_option_trade_history",
+        "description": "Get the user's equity-option trade history with matched open/close "
+        f"legs and realized P&L. Defaults to the last {_HISTORY_DAYS} days across all tickers if no dates "
+        "are given. Legs that form a ratio spread (buy 1 / sell 2+ at a different strike, "
+        "same underlying/expiration/type, opened together) are already merged into a single "
+        "record with \"strategy\": \"RATIO_SPREAD\" (its \"type\" still holds the normal "
+        "CLOSED/EXPIRED/ASSIGNED status), a \"ratio\" like \"1:2\", \"long_leg\"/\"short_leg\" "
+        "strikes, and one combined total_amount — report those as one position, don't "
+        "re-derive the grouping yourself from individual legs. type \"EXERCISED\" marks a "
+        "futures option that was exercised/assigned into its future: its total_amount is the "
+        "option premium only (positive if it was sold, negative if bought), and the delivered "
+        "future's P&L is separate (get_equity_trade_history / get_futures_positions), so don't "
+        "describe an exercised short as a clean win. type \"ASSIGNED\" is the same for an "
+        "equity option: total_amount is its premium, and the assigned shares' P&L (booked at "
+        "the strike) is in get_equity_trade_history.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": 'Ticker symbol to filter by, e.g. "AAPL" — empty string means all tickers.',
+                    "default": "",
                 },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_equity_trade_history",
-            "description": "Get the user's equity/futures trade history, FIFO-matched into round "
-            f"trips with realized P&L. Defaults to the last {_HISTORY_DAYS} days across all tickers if no dates "
-            "are given.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "ticker": {
-                        "type": "string",
-                        "description": 'Ticker symbol to filter by, e.g. "AAPL" — empty string means all tickers.',
-                        "default": "",
-                    },
-                    "start_date": {
-                        "type": "string",
-                        "description": f"Start date as YYYY-MM-DD — defaults to {_HISTORY_DAYS} days ago if omitted.",
-                        "default": "",
-                    },
-                    "end_date": {
-                        "type": "string",
-                        "description": "End date as YYYY-MM-DD — defaults to today if omitted.",
-                        "default": "",
-                    },
+                "start_date": {
+                    "type": "string",
+                    "description": f"Start date as YYYY-MM-DD — defaults to {_HISTORY_DAYS} days ago if omitted.",
+                    "default": "",
                 },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_price_history",
-            "description": "Get OHLC price candles covering at least the last N days, plus "
-            "computed support and resistance levels from recent swing highs/lows. Bar size grows "
-            "with the window: intraday up to 7 days, daily up to a year, monthly beyond.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string", "description": 'Ticker symbol, e.g. "AAPL" or "/ES" for a futures root.'},
-                    "days": {
-                        "type": "integer",
-                        "description": "How many calendar days of history to return.",
-                        "default": 30,
-                    },
+                "end_date": {
+                    "type": "string",
+                    "description": "End date as YYYY-MM-DD — defaults to today if omitted.",
+                    "default": "",
                 },
-                "required": ["symbol"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_option_chain",
-            "description": "Get a normalized options chain (calls and puts merged by strike, "
-            "with bid/ask/delta) for the expiration closest to dte days out. The default "
-            "strike_count (20) can fail to reach a strike with the delta you're actually looking "
-            "for — the broker returns the N strikes closest to spot in total, not a guaranteed "
-            "count on each side, so the window can be lopsided, and a short-DTE contract's delta "
-            "can still be well above your target many strikes out. If you don't find a strike "
-            "matching what you need (a delta ceiling, a strike below/above another leg, etc.) in "
-            "the returned chain, call again with a larger strike_count (e.g. double it) before "
-            "concluding no such strike exists — don't declare 'no valid configuration is "
-            "available' off a single default-sized fetch.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string", "description": 'Ticker symbol, e.g. "AAPL" or "/ES" for a futures root.'},
-                    "dte": {
-                        "type": "integer",
-                        "description": "Target days-to-expiration — the closest actual expiration is used.",
-                        "default": 7,
-                    },
-                    "strike_count": {
-                        "type": "integer",
-                        "description": "Number of strikes above/below the current price to request — not a "
-                        "guaranteed count on each side (see the tool description). Increase this and call "
-                        "again if the first response doesn't include a strike matching what you need.",
-                        "default": 20,
-                    },
+                "realized_gains_only": {
+                    "type": "boolean",
+                    "description": "If true (default), only return closed trades; if false, include still-open ones too.",
+                    "default": True,
                 },
-                "required": ["symbol"],
             },
+            "required": [],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "get_expirations",
-            "description": "Get every listed option expiration date for a symbol within the next "
-            "days_ahead days, each with its days-to-expiration.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string", "description": 'Ticker symbol, e.g. "AAPL" or "/ES" for a futures root.'},
-                    "days_ahead": {
-                        "type": "integer",
-                        "description": "Only include expirations within this many days from today.",
-                        "default": 60,
-                    },
+        "name": "get_equity_trade_history",
+        "description": "Get the user's equity/futures trade history, FIFO-matched into round "
+        f"trips with realized P&L. Defaults to the last {_HISTORY_DAYS} days across all tickers if no dates "
+        "are given.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": 'Ticker symbol to filter by, e.g. "AAPL" — empty string means all tickers.',
+                    "default": "",
                 },
-                "required": ["symbol"],
+                "start_date": {
+                    "type": "string",
+                    "description": f"Start date as YYYY-MM-DD — defaults to {_HISTORY_DAYS} days ago if omitted.",
+                    "default": "",
+                },
+                "end_date": {
+                    "type": "string",
+                    "description": "End date as YYYY-MM-DD — defaults to today if omitted.",
+                    "default": "",
+                },
             },
+            "required": [],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "build_strategy",
-            "description": "Place a named multi-leg (or single-leg) credit strategy on the live option "
-            "chain for one expiration: finds the strikes matching the requested placement (delta, "
-            "% OTM, expected move, strike, wing width), searches up to 5 strikes either way when "
-            "the strategy's structure or min_credit isn't met, and returns the best match plus "
-            "alternatives with legs (bid/ask/mid/delta/iv), netPremium (credit at mid, per share), "
-            "naturalPremium (credit selling at the bid and buying at the ask, per share), maxProfit, "
-            "maxLoss (null = unlimited), breakevens, pop (estimated probability of profit) and "
-            "returnOnRisk (maxProfit / |maxLoss|). best is null when nothing qualifies, with "
-            "`reasons` saying why. It only places strikes and enforces each strategy's structure "
-            "(strike order, net credit, a jade lizard's credit covering its call spread); the "
-            "strategy reference's own rules (covering checks, delta ceilings, ratio floors) still "
-            "apply and must be checked against the result. Strategies and their leg keys:\n"
-            + _strategy_legs_doc(),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string", "description": 'Ticker symbol, e.g. "AAPL" or "/ES" for a futures root.'},
-                    "strategy": {"type": "string", "enum": COPILOT_STRATEGIES},
-                    "dte": {
-                        "type": "integer",
-                        "description": "Days to expiration of the chosen expiration (the closest listed "
-                        "expiration is used).",
-                    },
-                    "expiration_date": {
-                        "type": "string",
-                        "description": "The chosen expiration as YYYY-MM-DD, if known — the result's reasons "
-                        "flag it if the chain resolved to a different date.",
-                    },
-                    "params": {
+        "name": "get_price_history",
+        "description": "Get OHLC price candles covering at least the last N days, plus "
+        "computed support and resistance levels from recent swing highs/lows. Bar size grows "
+        "with the window: intraday up to 7 days, daily up to a year, monthly beyond.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": 'Ticker symbol, e.g. "AAPL" or "/ES" for a futures root.'},
+                "days": {
+                    "type": "integer",
+                    "description": "How many calendar days of history to return.",
+                    "default": 30,
+                },
+            },
+            "required": ["symbol"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_option_chain",
+        "description": "Get a normalized options chain (calls and puts merged by strike, "
+        "with bid/ask/delta) for the expiration closest to dte days out. The default "
+        "strike_count (20) can fail to reach a strike with the delta you're actually looking "
+        "for — the broker returns the N strikes closest to spot in total, not a guaranteed "
+        "count on each side, so the window can be lopsided, and a short-DTE contract's delta "
+        "can still be well above your target many strikes out. If you don't find a strike "
+        "matching what you need (a delta ceiling, a strike below/above another leg, etc.) in "
+        "the returned chain, call again with a larger strike_count (e.g. double it) before "
+        "concluding no such strike exists — don't declare 'no valid configuration is "
+        "available' off a single default-sized fetch.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": 'Ticker symbol, e.g. "AAPL" or "/ES" for a futures root.'},
+                "dte": {
+                    "type": "integer",
+                    "description": "Target days-to-expiration — the closest actual expiration is used.",
+                    "default": 7,
+                },
+                "strike_count": {
+                    "type": "integer",
+                    "description": "Number of strikes above/below the current price to request — not a "
+                    "guaranteed count on each side (see the tool description). Increase this and call "
+                    "again if the first response doesn't include a strike matching what you need.",
+                    "default": 20,
+                },
+            },
+            "required": ["symbol"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_expirations",
+        "description": "Get every listed option expiration date for a symbol within the next "
+        "days_ahead days, each with its days-to-expiration.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": 'Ticker symbol, e.g. "AAPL" or "/ES" for a futures root.'},
+                "days_ahead": {
+                    "type": "integer",
+                    "description": "Only include expirations within this many days from today.",
+                    "default": 60,
+                },
+            },
+            "required": ["symbol"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "build_strategy",
+        "description": "Place a named multi-leg (or single-leg) credit strategy on the live option "
+        "chain for one expiration: finds the strikes matching the requested placement (delta, "
+        "% OTM, expected move, strike, wing width), searches up to 5 strikes either way when "
+        "the strategy's structure or min_credit isn't met, and returns the best match plus "
+        "alternatives with legs (bid/ask/mid/delta/iv), netPremium (credit at mid, per share), "
+        "naturalPremium (credit selling at the bid and buying at the ask, per share), maxProfit, "
+        "maxLoss (null = unlimited), breakevens, pop (estimated probability of profit) and "
+        "returnOnRisk (maxProfit / |maxLoss|). best is null when nothing qualifies, with "
+        "`reasons` saying why. It only places strikes and enforces each strategy's structure "
+        "(strike order, net credit, a jade lizard's credit covering its call spread); the "
+        "strategy reference's own rules (covering checks, delta ceilings, ratio floors) still "
+        "apply and must be checked against the result. Strategies and their leg keys:\n"
+        + _strategy_legs_doc(),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": 'Ticker symbol, e.g. "AAPL" or "/ES" for a futures root.'},
+                "strategy": {"type": "string", "enum": COPILOT_STRATEGIES},
+                "dte": {
+                    "type": "integer",
+                    "description": "Days to expiration of the chosen expiration (the closest listed "
+                    "expiration is used).",
+                },
+                "expiration_date": {
+                    "type": "string",
+                    "description": "The chosen expiration as YYYY-MM-DD, if known — the result's reasons "
+                    "flag it if the chain resolved to a different date.",
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Optional placement per leg key (see the strategy list above); legs "
+                    "left out use their default. Anchor legs take mode "
+                    f"{'/'.join(ANCHOR_MODES)}; wing legs take mode {'/'.join(WING_MODES)}. Delta is a "
+                    "fraction (0.16, not 16); otm_pct is percent out of the money; sigma is a multiple "
+                    "of the expected move from the chain's IV; width is in dollars; steps is a count of "
+                    "listed strikes; atm takes no value.",
+                    "additionalProperties": {
                         "type": "object",
-                        "description": "Optional placement per leg key (see the strategy list above); legs "
-                        "left out use their default. Anchor legs take mode "
-                        f"{'/'.join(ANCHOR_MODES)}; wing legs take mode {'/'.join(WING_MODES)}. Delta is a "
-                        "fraction (0.16, not 16); otm_pct is percent out of the money; sigma is a multiple "
-                        "of the expected move from the chain's IV; width is in dollars; steps is a count of "
-                        "listed strikes; atm takes no value.",
-                        "additionalProperties": {
-                            "type": "object",
-                            "properties": {
-                                "mode": {"type": "string", "enum": sorted(set(ANCHOR_MODES) | set(WING_MODES))},
-                                "value": {"type": "number"},
-                            },
-                            "required": ["mode"],
+                        "properties": {
+                            "mode": {"type": "string", "enum": sorted(set(ANCHOR_MODES) | set(WING_MODES))},
+                            "value": {"type": "number"},
                         },
-                    },
-                    "min_credit": {
-                        "type": "number",
-                        "description": "Optional minimum net credit per share at mid (e.g. 1.50).",
-                    },
-                    "max_dte": {
-                        "type": "integer",
-                        "description": "Optional end of an expiration range: builds on every listed "
-                        "expiration with days-to-expiration from dte through max_dte (at most 10 "
-                        "expirations) and ranks them together — each candidate then carries its own "
-                        "expirationDate/dte, and the alternatives include the best match on each other "
-                        "expiration. Omit to build on a single expiration (and always omit it when the "
-                        "page context gives a selectedExpirationDte).",
+                        "required": ["mode"],
                     },
                 },
-                "required": ["symbol", "strategy", "dte"],
+                "min_credit": {
+                    "type": "number",
+                    "description": "Optional minimum net credit per share at mid (e.g. 1.50).",
+                },
+                "max_dte": {
+                    "type": "integer",
+                    "description": "Optional end of an expiration range: builds on every listed "
+                    "expiration with days-to-expiration from dte through max_dte (at most 10 "
+                    "expirations) and ranks them together — each candidate then carries its own "
+                    "expirationDate/dte, and the alternatives include the best match on each other "
+                    "expiration. Omit to build on a single expiration (and always omit it when the "
+                    "page context gives a selectedExpirationDte).",
+                },
             },
+            "required": ["symbol", "strategy", "dte"],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "propose_legs",
-            "description": "Record one or more concrete option legs you're recommending, so the "
-            "user can apply them to the StrikeLab chart with one click instead of re-entering "
-            "them by hand. Call this whenever you give a specific, actionable strike/expiration "
-            "recommendation — in addition to explaining your reasoning in your normal reply, not "
-            "instead of it. Don't call it for purely educational or hypothetical discussion (e.g. "
-            "\"what is a put ratio spread\") where no real strikes were actually chosen. This "
-            "does not place, modify, or preview any real order — it only stages a position in "
-            "the app's own analysis tool, and the user still has to click Apply.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "legs": {
-                        "type": "array",
-                        "description": "One or more legs forming the recommended position, same "
-                        "underlying and expiration unless the strategy genuinely spans more than one.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "symbol": {
-                                    "type": "string",
-                                    "description": 'Underlying ticker, e.g. "AAPL" or "/ES" for a futures root.',
-                                },
-                                "side": {"type": "string", "enum": ["BUY", "SELL"]},
-                                "optionType": {"type": "string", "enum": ["CALL", "PUT"]},
-                                "strike": {"type": "number"},
-                                "quantity": {
-                                    "type": "integer",
-                                    "description": "Number of contracts, always positive — side conveys direction.",
-                                    "minimum": 1,
-                                },
-                                "premium": {
-                                    "type": "number",
-                                    "description": "Estimated entry price per contract (e.g. the chain's mid price).",
-                                },
-                                "dte": {
-                                    "type": "integer",
-                                    "description": "Days to expiration, matching the chosen expiration.",
-                                },
-                                "expirationDate": {
-                                    "type": "string",
-                                    "description": "Expiration date as YYYY-MM-DD.",
-                                },
+        "name": "propose_legs",
+        "description": "Record one or more concrete option legs you're recommending, so the "
+        "user can apply them to the StrikeLab chart with one click instead of re-entering "
+        "them by hand. Call this whenever you give a specific, actionable strike/expiration "
+        "recommendation — in addition to explaining your reasoning in your normal reply, not "
+        "instead of it. Don't call it for purely educational or hypothetical discussion (e.g. "
+        "\"what is a put ratio spread\") where no real strikes were actually chosen. This "
+        "does not place, modify, or preview any real order — it only stages a position in "
+        "the app's own analysis tool, and the user still has to click Apply.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "legs": {
+                    "type": "array",
+                    "description": "One or more legs forming the recommended position, same "
+                    "underlying and expiration unless the strategy genuinely spans more than one.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": 'Underlying ticker, e.g. "AAPL" or "/ES" for a futures root.',
                             },
-                            "required": ["symbol", "side", "optionType", "strike", "quantity", "premium", "dte", "expirationDate"],
+                            "side": {"type": "string", "enum": ["BUY", "SELL"]},
+                            "optionType": {"type": "string", "enum": ["CALL", "PUT"]},
+                            "strike": {"type": "number"},
+                            "quantity": {
+                                "type": "integer",
+                                "description": "Number of contracts, always positive — side conveys direction.",
+                                "minimum": 1,
+                            },
+                            "premium": {
+                                "type": "number",
+                                "description": "Estimated entry price per contract (e.g. the chain's mid price).",
+                            },
+                            "dte": {
+                                "type": "integer",
+                                "description": "Days to expiration, matching the chosen expiration.",
+                            },
+                            "expirationDate": {
+                                "type": "string",
+                                "description": "Expiration date as YYYY-MM-DD.",
+                            },
                         },
+                        "required": ["symbol", "side", "optionType", "strike", "quantity", "premium", "dte", "expirationDate"],
                     },
                 },
-                "required": ["legs"],
             },
+            "required": ["legs"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "read_strategy_docs",
+        "description": "Read the app's reference docs for one or more options strategies: "
+        "structure, entry rules (covering checks, delta ceilings, ratio floors), management "
+        "and risks. Read a strategy's doc before recommending, building or evaluating it, "
+        "and when a doc points to another (\"see iron_condor.md\"), read that one too if it "
+        "matters to the answer.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "names": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": list(STRATEGY_DOCS)},
+                    "description": "Doc names from the strategy reference list in your instructions.",
+                    "minItems": 1,
+                },
+            },
+            "required": ["names"],
         },
     },
 ]

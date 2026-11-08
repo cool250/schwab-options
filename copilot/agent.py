@@ -1,10 +1,15 @@
 """The copilot agent: system prompt assembly + the OpenAI tool-calling loop.
 
 The core `openai` package has no built-in agentic-loop helper (unlike
-Anthropic's Tool Runner), so this drives the standard chat-completions
-tool-calling loop by hand: call the model, execute any requested tool
-calls, feed the results back as "tool" messages, and repeat until it
-answers with plain text instead of more tool calls.
+Anthropic's Tool Runner), so this drives the Responses API's tool-calling
+loop by hand: call the model, execute any requested function calls, feed
+the results back as "function_call_output" items, and repeat until it
+answers with plain text instead of more calls.
+
+Stateless on OpenAI's side (`store=False`, so account data isn't kept
+there): each call resends the whole turn, including the model's reasoning
+items, which come back encrypted (`reasoning.encrypted_content`) so its
+thinking carries across tool steps.
 """
 
 import json
@@ -15,6 +20,7 @@ from pathlib import Path
 
 from openai import OpenAI
 
+from copilot.rules import trading_rules
 from copilot.tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
 
 logger = logging.getLogger(__name__)
@@ -37,50 +43,19 @@ if not _usage_logger.handlers:
     _handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     _usage_logger.addHandler(_handler)
 
-MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
+MODEL = os.environ.get("OPENAI_MODEL", "gpt-6.1-terra")
+REASONING_EFFORT = "low"
 MAX_TOOL_ITERATIONS = 8  # hard cap so a confused loop can't run away
 
-_SKILLS_DIR = Path(__file__).parent / "skills"
+# The Responses API defaults function tools to strict schemas (every property
+# required, no extras), which these hand-written schemas aren't written for.
+_TOOLS = [{**schema, "strict": False} for schema in TOOL_SCHEMAS]
 
-_BASE_SYSTEM_PROMPT = """You are a financial copilot embedded in the user's own options-wheel \
+_APP_PROMPT = """You are a financial copilot embedded in the user's own options-wheel \
 trading app. You have read-only access to their real Schwab brokerage account (positions, \
 balances, transaction history) and to live market data (quotes, option chains, price history) \
 via Schwab and Tastytrade — always call the appropriate tool to look up real numbers rather \
 than estimating or guessing them.
-
-You are strictly read-only. You cannot place, modify, or cancel any trade, and no tool \
-available to you can either — but the DEFAULT interpretation of any "sell/buy/open/close a \
-[strategy]" request is that the user wants a specific, actionable suggestion (strikes, \
-expiration, structure), not that they're asking you to actually execute anything. This app has \
-no order-entry capability at all, so there is nothing to distinguish from — treat every such \
-request as a request for analysis unless it does one of two things: (a) explicitly uses an \
-execution-specific verb like "place", "submit", "execute", "confirm", or "go ahead and [do it]", \
-or (b) references order mechanics that only make sense for a real order (a specific quantity \
-placed "now"/"today" with urgency, a broker/order confirmation, "did that go through"). A bare \
-strategy request with no such signal — "sell a put for Sept 8", "sell a call on NVDA", "find me \
-a good put ratio spread on QQQ", "close my SPY position" (read as "what would closing look \
-like", not a literal instruction) — always gets a direct, specific answer: pull whatever live \
-data is needed and give the actual strikes/structure/reasoning. Reserve the "I can't place \
-trades" disclaimer for the rare case that actually matches (a) or (b), state it once briefly, \
-and still offer the equivalent analysis. Never claim to have placed, submitted, or executed \
-anything.
-
-HARD CONSTRAINT, not a preference: when recommending a specific options structure to enter \
-(strikes, expiration, ratio — anything you'd present as "sell/buy this"), it MUST price out as \
-a net credit (or at worst zero-cost) using the actual bid/ask from the tool data. Never \
-recommend a structure that would be entered as a net debit. A net credit is never a negative \
-number — if your own arithmetic for "net credit" comes out negative, that IS a net debit by \
-definition, not a small or negative credit, and presenting it while still calling it a credit is \
-exactly the mistake this constraint exists to prevent; catch that before presenting the number, \
-don't rely on the label alone. If every reasonable configuration \
-in the requested range prices as a debit, say so plainly and don't present one anyway — adjust \
-strikes/ratio to find a credit version, or state that none exists in range. This rule overrides \
-strategy-specific preferences (e.g. "closer to ATM" guidance) whenever they'd conflict with it. \
-It does not apply to purely educational questions ("what is a calendar spread") — only to an \
-actual entry recommendation, and it doesn't apply to strategies that are inherently debit-based \
-(e.g. a calendar spread, or buying a protective put) unless the user is asking specifically for \
-a credit-only approach — for those, just don't recommend entering one as though it must be a \
-credit.
 
 Your responses are rendered as markdown (GitHub-flavored, tables included). When a tool \
 returns a list of items with the same shape — positions, trade history, chain rows, price \
@@ -94,45 +69,17 @@ lets the app offer an "Apply to StrikeLab" button so the user doesn't have to re
 just recommended by hand. Call it in addition to your normal written explanation, never instead \
 of it, and only with real strikes/prices pulled from a tool in this same turn, not invented \
 numbers. If the current page context includes a StrikeLab selectedExpirationDte, use that \
-expiration for the recommendation rather than picking or asking about a different one.
+expiration for the recommendation rather than picking or asking about a different one. For a \
+build_strategy candidate: side SELL for negative qty and BUY for positive, quantity = |qty|, \
+premium = mid, and dte/expirationDate from the result.
 
-For a strategy build_strategy supports (short put/call, credit spreads, strangle, straddle, \
-iron condor, iron butterfly, jade lizard, put ratio spread), call it to place the strikes \
-rather than hand-assembling legs from get_option_chain — it searches the live chain, enforces \
-the strategy's structure, and returns max profit/loss, breakevens and an estimated probability \
-of profit. It does not know the strategy reference's own rules below (covering checks, delta \
-ceilings, ratio floors): pick params that satisfy them, check the returned candidate against \
-them, and if it fails, try an alternative it returned or call again with adjusted params. \
-Judge the net-credit constraint above by its naturalPremium (bid/ask), not netPremium (mid). \
-Then call propose_legs with the chosen candidate's legs: side SELL for negative qty and BUY \
-for positive, quantity = |qty|, premium = mid, and dte/expirationDate from the result.
-
-You are knowledgeable about options strategies via the reference material below. When \
-discussing a strategy or suggesting one, keep in mind this is not licensed financial advice — \
-a brief, natural acknowledgment of that is appropriate when giving specific suggestions, but \
-don't repeat a disclaimer on every message.
-
-# Options strategy reference
 """
 
 
-def _load_skill_docs() -> tuple[str, list[str]]:
-    """Concatenate every skill markdown file into one reference block. Full
-    inclusion rather than retrieval — the doc set is small enough (a handful
-    of short strategy write-ups) that RAG/embeddings would be pure overhead
-    for a single-user app.
-
-    Returns (concatenated_text, [skill names]) so callers can log which
-    skills were loaded into a given turn's system prompt."""
-    paths = sorted(_SKILLS_DIR.glob("*.md"))
-    docs = [path.read_text() for path in paths]
-    names = [path.stem for path in paths]
-    return "\n\n---\n\n".join(docs), names
-
-
-def _build_system_prompt() -> tuple[str, list[str]]:
-    skill_docs, skill_names = _load_skill_docs()
-    return _BASE_SYSTEM_PROMPT + "\n\n" + skill_docs, skill_names
+def _build_system_prompt() -> str:
+    # The trading rules (copilot/rules.py) are shared with the MCP server
+    # Claude Code uses; they end with the strategy-doc catalog.
+    return _APP_PROMPT + trading_rules()
 
 
 _client: OpenAI | None = None
@@ -174,41 +121,40 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
     to StrikeLab" button rather than making the user re-enter what was just
     recommended by hand.
     """
-    system_prompt, skill_names = _build_system_prompt()
+    system_prompt = _build_system_prompt()
     if page_context:
         system_prompt += _format_page_context(page_context)
-    conversation = [{"role": "system", "content": system_prompt}] + list(messages)
+    conversation = list(messages)
     tools_used: list[str] = []
     proposed_legs: list[dict] | None = None
-    _usage_logger.info("Copilot turn started; skills loaded: %s", skill_names)
+    _usage_logger.info("Copilot turn started")
 
     for _ in range(MAX_TOOL_ITERATIONS):
-        response = _get_client().chat.completions.create(
+        response = _get_client().responses.create(
             model=MODEL,
-            messages=conversation,
-            tools=TOOL_SCHEMAS,
-            # Reasoning-tier models (e.g. gpt-5.6-terra) reject function
-            # tools on /v1/chat/completions unless reasoning is turned off —
-            # the alternative is the separate /v1/responses API, which has a
-            # different request/response shape this loop isn't built for.
-            reasoning_effort="none",
+            instructions=system_prompt,
+            input=conversation,
+            tools=_TOOLS,
+            reasoning={"effort": REASONING_EFFORT},
+            store=False,
+            include=["reasoning.encrypted_content"],
         )
-        message = response.choices[0].message
-        conversation.append(message.model_dump(exclude_none=True))
+        conversation += response.output
+        calls = [item for item in response.output if item.type == "function_call"]
 
-        if not message.tool_calls:
+        if not calls:
             _usage_logger.info("Copilot turn finished; tools used: %s", tools_used)
-            return {"reply": message.content or "", "tools_used": tools_used, "proposed_legs": proposed_legs}
+            return {"reply": response.output_text, "tools_used": tools_used, "proposed_legs": proposed_legs}
 
-        for tool_call in message.tool_calls:
-            name = tool_call.function.name
+        for call in calls:
+            name = call.name
             tools_used.append(name)
             fn = TOOL_FUNCTIONS.get(name)
             if fn is None:
                 result = json.dumps({"error": f"Unknown tool {name!r}"})
             else:
                 try:
-                    args = json.loads(tool_call.function.arguments or "{}")
+                    args = json.loads(call.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
                 # propose_legs carries no broker call and nothing the model
@@ -218,6 +164,8 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
                 # for the frontend to offer as an "Apply to StrikeLab" button.
                 if name == "propose_legs":
                     proposed_legs = args.get("legs")
+                elif name == "read_strategy_docs":
+                    _usage_logger.info("Copilot read strategy docs: %s", args.get("names"))
                 try:
                     result = fn(**args)
                 except TypeError as e:
@@ -227,7 +175,7 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
                     logger.error("Copilot tool %s called with bad args %r: %s", name, args, e)
                     result = json.dumps({"error": f"Invalid arguments for {name}: {e}"})
             conversation.append(
-                {"role": "tool", "tool_call_id": tool_call.id, "content": result}
+                {"type": "function_call_output", "call_id": call.call_id, "output": result}
             )
 
     _usage_logger.info("Copilot turn hit MAX_TOOL_ITERATIONS; tools used: %s", tools_used)

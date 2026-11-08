@@ -104,7 +104,7 @@ ADMIN_PASSWORD=pick-a-password
 
 # --- Optional ---
 OPENAI_API_KEY=sk-...           # only needed for the Copilot chat feature
-OPENAI_MODEL=gpt-4o             # defaults to gpt-4o if unset
+OPENAI_MODEL=gpt-6.1-terra      # defaults to gpt-6.1-terra if unset; must support the Responses API with reasoning
 FRED_API_KEY=...                # Home's Upcoming events: CPI / jobs / PCE dates (free key from fred.stlouisfed.org)
 TOKEN_ENCRYPTION_KEY=...        # encrypts Schwab token files at rest — set it in production (see Token Storage)
 ```
