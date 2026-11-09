@@ -108,6 +108,24 @@ def call_coverage(stocks: list[dict], equity_calls: list[dict], futures: list[di
     return result
 
 
+def ratio_call_floors(futures: list[dict], max_below_entry_pct: int) -> dict[str, dict]:
+    """Per futures root held long: the cheapest open lot's trade price and
+    the lowest strike a wind-down call ratio's short calls may use —
+    max_below_entry_pct below it. Positions without lots fall back to the
+    blended trade price."""
+    floors = {}
+    for f in futures:
+        if f["quantity"] <= 0:
+            continue
+        entries = [lot["trade_price"] for lot in f.get("lots") or [] if lot["quantity"] > 0] or [f["trade_price"]]
+        cheapest = min(entries)
+        floors[f"/{_root(f['symbol'])}"] = {
+            "cheapest_lot_entry": cheapest,
+            "lowest_short_strike": round(cheapest * (1 - max_below_entry_pct / 100), 2),
+        }
+    return floors
+
+
 def risk_mode(leverage_pct: Optional[float], aggressive_max_pct: int, defensive_min_pct: int) -> Optional[str]:
     if leverage_pct is None:
         return None
@@ -142,7 +160,7 @@ def realized_pl(option_rows: list[dict], equity_rows: list[dict]) -> float:
 
 
 def snapshot(*, net_liquidity: Optional[float], notional: dict[str, dict], coverage: dict[str, dict],
-             ytd_realized: float, mtd_realized: float, settings: dict) -> dict:
+             ytd_realized: float, mtd_realized: float, settings: dict, futures: Optional[list[dict]] = None) -> dict:
     total = sum(n["total"] for n in notional.values())
     leverage = None if not net_liquidity or net_liquidity <= 0 else round(total / net_liquidity * 100, 1)
     aggressive_max = settings["wheel.aggressive_max_leverage_pct"]
@@ -159,6 +177,11 @@ def snapshot(*, net_liquidity: Optional[float], notional: dict[str, dict], cover
         # Delta ranges for new short options in this mode (hundredths).
         "new_trade_delta_pct": delta_bands(mode, settings),
         "call_coverage": coverage,
+        # Wind-down call ratios: the lowest short strike per futures root.
+        "ratio_call_floors": {
+            "max_below_entry_pct": settings["wheel.ratio_call_max_below_entry_pct"],
+            "by_root": ratio_call_floors(futures or [], settings["wheel.ratio_call_max_below_entry_pct"]),
+        },
         "realized_pl": {"month_to_date": round(mtd_realized, 2), "year_to_date": round(ytd_realized, 2)},
         "loss_budget": {"pct_of_ytd": budget_pct, "dollars": round(max(0.0, ytd_realized) * budget_pct / 100, 2)},
         # A short option that has kept this percent of its premium is a

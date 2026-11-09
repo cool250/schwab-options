@@ -171,6 +171,7 @@ def get_wheel_snapshot() -> str:
             ytd_realized=realized(today.replace(month=1, day=1).isoformat()),
             mtd_realized=realized(today.replace(day=1).isoformat()),
             settings=get_config(),
+            futures=futures,
         )
 
     return _safe(_fetch)
@@ -428,7 +429,9 @@ TOOL_SCHEMAS = [
         "underlying (short calls, what covers them, free_cover = how many more short calls "
         "can be sold without any being naked, naked = uncovered short calls already open); "
         "month- and year-to-date realized P&L as the Reports page totals it; and the loss "
-        "budget — the most a close or roll at a loss may give up.",
+        "budget — the most a close or roll at a loss may give up; and ratio_call_floors: per "
+        "futures root held long, the cheapest open lot's trade price and the lowest short strike "
+        "a wind-down call ratio may use.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {

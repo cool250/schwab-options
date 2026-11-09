@@ -89,18 +89,18 @@ check coverage as above. `COVERED_CALL`'s max profit / loss assume the
 shares or future are bought at spot today; for one already held, work the
 outcome from the user's own entry — per lot (section 4b), not the average.
 
-## 4a. Winding down long futures with far-OTM call ratios
+## 4a. Winding down long futures with call ratios (1×2 to 1×3)
 
 The way out of long futures with little or no loss, without waiting for a
 full recovery or closing at the bottom: **buy 1 call nearer the money and
-sell 2 (or 3) calls far out of the money, at or above the entry of the lots
-they'd close (4b),
+sell 2 (or 3) calls out of the money, at or above the entry of the lots
+they'd close (4b) — or, if needed, a little below it,
 for a net credit** — every short call beyond the long one covered by a long
 future. If the market rallies through the short strike, the futures are
-called away at that strike (at or above those lots' entries, so no loss on
-them) and the
-long call adds the gap between the strikes; if it doesn't, the credit is
-kept and the futures are still held for the next cycle.
+called away at that strike (at or above those lots' entries: no loss on
+them; a little below: a small loss, within the loss budget) and the long
+call adds the gap between the strikes; if it doesn't, the credit is kept
+and the futures are still held for the next cycle.
 
 **Expiration:** look **3–6 weeks out** first (`build_strategy` with a
 `max_dte` range). Calls that far out of the money pay almost nothing within
@@ -108,15 +108,34 @@ a week, so a short-dated ratio rarely clears a credit; if no expiration in
 that window does, say so rather than settling for a token premium.
 
 **Structure (same expiration, net credit at natural prices):**
-- Long call: near the money, around 0.30–0.45 delta, or at spot.
-- Short calls: **at or above the entry of every lot they'd close** (4b), and far out of the
-  money — around **0.15 delta or lower** for a 1×2, **0.10 or lower** for a
-  1×3. Prefer a strike at or above a resistance level (see the
-  `call_ratio_spread` doc).
-- Ratio: 1×2 needs 1 free cover, 1×3 needs 2 (`free_cover` in the snapshot,
-  per root — /ES futures cover /ES calls only). Go beyond 1×2 only when the
-  extra calls are that far out and covered; never widen the ratio to reach
-  a credit.
+- Long call: at the money (`long_call` mode `atm`) — a long call just below
+  the short strike leaves almost no gap for the outcome below.
+- Ratio: **1×2 (buy 1, sell 2) or, more aggressively, 1×3 (buy 1, sell 3)
+  — never wider.** Every short beyond the long call needs a long future of
+  the same root: 1×2 needs 1 `free_cover`, 1×3 needs 2. Try the 1×2 first;
+  go to 1×3 when it's what clears the credit, or winds down two futures in
+  one cycle.
+- Short calls, in this order:
+  1. **At or above the entry of every lot they'd close** (4b) — assignment
+     then loses nothing on the futures.
+  2. If nothing there clears a credit, step the short strike down — **never
+     below `ratio_call_floors.by_root[root].lowest_short_strike`** in the
+     snapshot: the cheapest open lot's trade price less
+     `max_below_entry_pct` (a setting, 2% by default). Below a lot's entry,
+     assignment locks in a loss on that lot — work it out on the lots FIFO
+     would actually close (4b), not on the cheapest one, and show it. What
+     counts against the loss budget is the whole trade's result at or above
+     the short strike (below), not the futures term alone: the credit and
+     the long call's gain are realized in the same assignment.
+- The short calls must be out of the money (strike above spot). There's no
+  delta ceiling here: being called away at or near the entry is the point
+  of a wind-down, and the floor and the loss budget are what limit it — but
+  show the short calls' delta as the rough chance that happens. Prefer a
+  strike at or above a resistance level (see the `call_ratio_spread` doc).
+- **Check the strikes `build_strategy` returns**: when nothing at the
+  requested strike clears a credit it moves the short strike — reject any
+  candidate whose short strike is below the floor, or whose long strike
+  isn't below the short strike.
 
 **Outcome at expiration, per structure — show this in points and dollars
 (× point value: /ES 50, /NQ 20):**
@@ -124,16 +143,17 @@ that window does, say so rather than settling for a token premium.
 - At or above the short strike: (short strike − long strike) + net credit
   + Σ (short strike − entry) over the lots the covered shorts would close
   (4b). With the short strike at or above each of those entries that sum
-  is never a loss; if a lower short strike is
-  the right trade, that term is a locked-in loss and counts against the
-  loss budget.
+  is never a loss. With a lower short strike that term is negative, and
+  if the **whole** result is a loss, that net loss counts against the loss
+  budget — a candidate whose net loss is more than the budget left is out.
 - In between: the long call gains as the futures recover; nothing is
   called away.
 
 **Building it:** `build_strategy` with `RATIO_CALL` and params
 `short_call` mode `strike` at the chosen strike (and `long_call` by delta
-or strike). A 1×3 is that 1×2 plus one `COVERED_CALL` / `SHORT_CALL` at the
-same short strike and expiration — check the combined credit and the
+or strike). A 1×3 is that 1×2 plus one `COVERED_CALL` at the same short
+strike and expiration (its short call only — the builder's shares aren't
+part of the trade) — check the combined credit at natural prices and the
 coverage for all three shorts.
 
 **Say plainly:** these calls cushion the futures by the credit only — a
@@ -151,8 +171,12 @@ app matches futures; check the broker's statement if a lot's realized
 result matters for taxes), so:
 
 - The result of an assignment at strike K that closes k futures is
-  Σ (K − entry) × point value over the **k oldest lots** — not
-  k × (K − average). Show that per lot.
+  Σ (K − entry) × point value over the **k oldest lots still open** — not
+  k × (K − average), and not the lot a call was sized against for coverage
+  (below): coverage is counting, but an assignment realizes P&L on the
+  oldest lots. If earlier calls may expire first, those oldest lots are
+  still open then — use them. That realized figure is what counts against
+  the loss budget. Show it per lot.
 - The strike that loses nothing on assignment is at or above the highest
   entry among the lots it would close. Covering more futures reaches into
   newer lots, with their own entries — work out each step.

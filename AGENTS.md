@@ -254,7 +254,7 @@ manually inside the handler — follow that same pattern for any new WS route.
   per-underlying call coverage (a long call covers only if it expires on or
   after the latest short call, so cover is never overstated — keep it that
   way, it's the no-naked-calls check), realized P&L totalled as Reports
-  does, and the loss budget.
+  does, the loss budget, and `ratio_call_floors` (per futures root, the lowest short strike a wind-down call ratio — 1×2 up to 1×3 — may use: the cheapest lot's price less `wheel.ratio_call_max_below_entry_pct`).
   `build_strategy` wraps the Analyze page's Strategy Builder solver
   (`MarketService.build_strategy`) and is limited to credit templates
   (`COPILOT_STRATEGY_DIRECTIONS`), matching the net-credit rule in

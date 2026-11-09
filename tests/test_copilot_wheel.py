@@ -12,7 +12,8 @@ import pytest
 from copilot import wheel
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "wheel_cases.json").read_text())
-SETTINGS = {**FIXTURE["settings"], "wheel.loss_budget_pct": 25, "home.take_profit_pct": 75}
+SETTINGS = {**FIXTURE["settings"], "wheel.loss_budget_pct": 25, "home.take_profit_pct": 75,
+            "wheel.ratio_call_max_below_entry_pct": 2}
 
 
 @pytest.mark.parametrize("case", FIXTURE["notional"], ids=lambda c: c["name"])
@@ -36,6 +37,22 @@ def test_mode_bands(case):
 @pytest.mark.parametrize("case", FIXTURE["delta_bands"], ids=lambda c: str(c["mode"]))
 def test_delta_bands(case):
     assert wheel.delta_bands(case["mode"], FIXTURE["settings"]) == case["expected"]
+
+
+def test_ratio_call_floor_is_2pct_below_the_cheapest_lot():
+    futures = [
+        {"symbol": "ES", "quantity": 5, "trade_price": 7680,
+         "lots": [{"date": "2026-10-30", "quantity": 2, "trade_price": 7700}, {"date": "2026-11-03", "quantity": 3, "trade_price": 7650}]},
+        {"symbol": "NQ", "quantity": 1, "trade_price": 29_000, "lots": []},  # no lots: the blended price
+        {"symbol": "RTY", "quantity": -1, "trade_price": 2400, "lots": []},  # short: nothing to wind down with calls
+    ]
+    assert wheel.ratio_call_floors(futures, 2) == {
+        "/ES": {"cheapest_lot_entry": 7650, "lowest_short_strike": 7497.0},
+        "/NQ": {"cheapest_lot_entry": 29_000, "lowest_short_strike": 28_420.0},
+    }
+    snap = wheel.snapshot(net_liquidity=1, notional={}, coverage={}, ytd_realized=0, mtd_realized=0, settings=SETTINGS, futures=futures)
+    assert snap["ratio_call_floors"]["max_below_entry_pct"] == 2
+    assert snap["ratio_call_floors"]["by_root"]["/ES"]["lowest_short_strike"] == 7497.0
 
 
 def test_realized_pl_matches_the_reports_page():
