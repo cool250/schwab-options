@@ -274,6 +274,17 @@ manually inside the handler — follow that same pattern for any new WS route.
   `gpt-6.1-terra`, reasoning effort `REASONING_EFFORT` (`low`) — check
   what's actually current before assuming that default is still right;
   it's been bumped before.
+- `feedback.py` — thumbs up / down on recommended trades: the widget's
+  buttons under a `propose_legs` recommendation (`POST /api/copilot/feedback`,
+  with the reason list from `GET /api/copilot/feedback/reasons`) and the
+  `record_trade_feedback` tool when the user says so in chat. Stored per
+  user in the users DB (`trade_feedback` table; the user comes from
+  `broker.request_context.get_request_user()`, set by `require_auth` and the
+  MCP server) — the copilot's only write, never a broker call. The copilot
+  reads it back with `get_trade_feedback_summary` before recommending
+  (`summarize` is pure, tested in `tests/test_copilot_feedback.py`); a
+  reason repeated `PATTERN_MIN` times on one underlying comes back as a
+  *suggested* setting change — rules change only by reviewed edits.
 - `rules.py` — the trading rules (read-only, net-credit-only, how to use
   `build_strategy`, read the strategy docs first) plus the strategy-doc
   catalog. Shared by `agent.py`'s system prompt and `mcp_server.py`'s

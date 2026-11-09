@@ -17,7 +17,7 @@ from api import users
 from api.users import User
 from api.login_limits import limiter as login_limiter
 from broker.schwab.auth.authenticate import build_authorize_url, exchange_authorization_code
-from broker.request_context import set_selected_account, set_selected_broker
+from broker.request_context import set_request_user, set_selected_account, set_selected_broker
 from broker.schwab.auth.token_provider import create_token_provider, set_token_owner
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,7 @@ async def require_auth(credentials: HTTPAuthorizationCredentials = Depends(_bear
             headers={"WWW-Authenticate": "Bearer"},
         )
     set_token_owner(user.id)
+    set_request_user(user.id)
     # Which broker (Settings) and which of its accounts (account picker)
     # this request's Portfolio data comes from.
     set_selected_broker(user.broker)

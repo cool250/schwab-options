@@ -358,9 +358,98 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
 }
 /* Layout only — the button itself uses the standard .btn.btn-primary look
    used everywhere else in the app, not a one-off style. */
+.copilot-trade-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+}
 .copilot-apply-legs {
   display: block;
-  margin-top: 8px;
+}
+/* Thumbs up / down on a recommended trade (TradeFeedback). */
+.copilot-feedback {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.copilot-feedback-thumbs {
+  display: flex;
+  gap: 4px;
+}
+.copilot-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.copilot-thumb:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.copilot-thumb:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.copilot-feedback-why {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.copilot-feedback-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.copilot-feedback-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.copilot-reason {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.copilot-reason.selected {
+  color: var(--primary);
+  background: var(--primary-light);
+  border-color: var(--primary);
+}
+.copilot-feedback-note {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text);
+}
+.copilot-feedback-actions {
+  display: flex;
+  gap: 6px;
+}
+.copilot-feedback-done,
+.copilot-feedback-error {
+  font-size: 0.8rem;
+  align-self: center;
+}
+.copilot-feedback-done {
+  color: var(--text-muted);
+}
+.copilot-feedback-error {
+  color: var(--error);
+  margin-top: 4px;
 }
 .copilot-input-row {
   display: flex;

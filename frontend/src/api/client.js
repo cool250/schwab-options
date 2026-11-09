@@ -325,6 +325,20 @@ export function sendCopilotMessage(messages, context) {
   })
 }
 
+// Thumbs up / down on a trade the copilot recommended (copilot/feedback.py):
+// { verdict: 'accepted' | 'rejected', legs, reason, note, strategy, context }.
+export function sendTradeFeedback(feedback) {
+  return request('/copilot/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(feedback),
+  })
+}
+
+export function getFeedbackReasons() {
+  return request('/copilot/feedback/reasons')
+}
+
 export function getAllocations(startDate, endDate, realizedGainsOnly) {
   const p = new URLSearchParams({
     stock_ticker: '',

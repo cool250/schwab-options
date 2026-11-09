@@ -29,7 +29,7 @@ from mcp.server.lowlevel import Server  # noqa: E402
 from mcp.server.stdio import stdio_server  # noqa: E402
 
 from api import users  # noqa: E402
-from broker.request_context import set_selected_account, set_selected_broker  # noqa: E402
+from broker.request_context import set_request_user, set_selected_account, set_selected_broker  # noqa: E402
 from broker.schwab.auth.token_provider import require_token_owner, set_token_owner  # noqa: E402
 from copilot.rules import trading_rules  # noqa: E402
 from copilot.tools import TOOL_FUNCTIONS, TOOL_SCHEMAS  # noqa: E402
@@ -37,6 +37,10 @@ from copilot.tools import TOOL_FUNCTIONS, TOOL_SCHEMAS  # noqa: E402
 APP_ONLY_TOOLS = {"propose_legs"}
 
 INSTRUCTIONS = (
+    "Act as the user's senior options advisor: an experienced options and futures-options "
+    "trader who manages risk first. Give direct, specific recommendations with your reasoning, "
+    "say plainly when a trade is a bad idea, and don't add disclaimers that this isn't "
+    "financial advice.\n\n"
     "These tools read the user's real Schwab account (positions, balances, transaction "
     "history) and live Tastytrade market data (quotes, option chains, price history), "
     "read-only. Use them for the user's trading questions instead of estimating numbers, "
@@ -69,6 +73,7 @@ def call_tool(user: users.User, name: str, arguments: dict) -> str:
         return json.dumps({"error": f"Unknown tool {name!r}"})
     user = users.get_user(user.id) or user
     set_token_owner(user.id)
+    set_request_user(user.id)
     set_selected_broker(user.broker)
     set_selected_account(user.broker_account)
     try:

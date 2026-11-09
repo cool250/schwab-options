@@ -5,7 +5,8 @@ service-layer method (service/portfolio/positions.py, service/portfolio/transact
 service/market/market.py) — no new broker calls are written for this feature.
 
 This agent is read-only — it must never gain the ability to place, modify,
-or cancel a real trade. The brokers' clients have no order methods to wrap
+or cancel a real trade. Its one write is record_trade_feedback, a note in
+this app's own database (copilot/feedback.py), never a broker call. The brokers' clients have no order methods to wrap
 (TastytradeClient's were deleted, and it defaults to the PRODUCTION
 endpoint), and none should be added for this.
 
@@ -22,7 +23,8 @@ from pathlib import Path
 from broker.exceptions import BrokerError
 from pydantic_core import to_jsonable_python
 
-from copilot import wheel
+from broker.request_context import get_request_user
+from copilot import feedback, wheel
 from service.market import MarketService
 from service.market.errors import MarketDataError, SymbolNotFound
 from service.market.quotes import QuoteService
@@ -288,15 +290,37 @@ def _strategy_legs_doc() -> str:
     return "\n".join(lines)
 
 
-def propose_legs(legs: list[dict]) -> str:
+def propose_legs(legs: list[dict], strategy: str | None = None, context: dict | None = None) -> str:
     """Not a data fetch like every other tool here — this one has no broker
     call at all. Calling it is how the model hands a concrete, actionable
     recommendation to the frontend: agent.chat() intercepts this call by
     name and returns `legs` to the caller as `proposed_legs`, which
     CopilotWidget renders as an "Apply to StrikeLab" button. The return
     value here only goes back into the model's own conversation (so the
-    tool-calling loop has something to continue on), not to the user."""
+    tool-calling loop has something to continue on), not to the user.
+    `strategy` and `context` go with the legs to the widget's Accept /
+    Reject buttons, so the feedback records what was recommended and why."""
     return json.dumps({"status": "proposed", "count": len(legs)})
+
+
+def record_trade_feedback(verdict: str, legs: list[dict], reason: str | None = None, note: str | None = None,
+                          strategy: str | None = None, context: dict | None = None) -> str:
+    user_id = get_request_user()
+    if user_id is None:
+        return json.dumps({"error": "No signed-in user to record feedback for."})
+    try:
+        feedback.record(user_id, verdict=verdict, legs=legs, source="assistant", reason=reason,
+                        note=note, strategy=strategy, context=context)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+    return json.dumps({"status": "recorded", "verdict": verdict})
+
+
+def get_trade_feedback_summary(days: int = 180) -> str:
+    user_id = get_request_user()
+    if user_id is None:
+        return json.dumps({"error": "No signed-in user to read feedback for."})
+    return json.dumps({"days": days, **feedback.summarize(feedback.recent(user_id, days))})
 
 
 # Options-strategy reference docs (copilot/skills/*.md). The system prompt
@@ -337,6 +361,8 @@ TOOL_FUNCTIONS = {
     "get_expirations": get_expirations,
     "build_strategy": build_strategy,
     "propose_legs": propose_legs,
+    "record_trade_feedback": record_trade_feedback,
+    "get_trade_feedback_summary": get_trade_feedback_summary,
     "read_strategy_docs": read_strategy_docs,
 }
 
@@ -690,8 +716,69 @@ TOOL_SCHEMAS = [
                         "required": ["symbol", "side", "optionType", "strike", "quantity", "premium", "dte", "expirationDate"],
                     },
                 },
+                "strategy": {
+                    "type": "string",
+                    "description": 'The strategy, e.g. "1x3 call ratio", "covered call", "put roll".',
+                },
+                "context": {
+                    "type": "object",
+                    "description": "The numbers behind the recommendation, kept with the user's "
+                    "Accept / Reject feedback: e.g. mode, leverage_pct, the short legs' delta, "
+                    "net credit, assignment_result and root_result in dollars.",
+                },
             },
             "required": ["legs"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "record_trade_feedback",
+        "description": "Record that the user accepted or turned down a trade you recommended, "
+        "and why — when they say so in the conversation (\"no, the strike's too close\", "
+        "\"I'll take that one\"). Saved in this app's own database for future "
+        "recommendations (get_trade_feedback_summary); it places and changes nothing at any "
+        "broker. Use the legs you recommended, the closest reason, and the user's own words "
+        "as the note.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "enum": list(feedback.VERDICTS)},
+                "legs": {
+                    "type": "array",
+                    "description": "The recommended legs, in propose_legs' leg format.",
+                    "items": {"type": "object"},
+                    "minItems": 1,
+                },
+                "reason": {
+                    "type": "string",
+                    "enum": list(feedback.REASONS),
+                    "description": "Required for a rejection: "
+                    + "; ".join(f"{code} = {label}" for code, label in feedback.REASONS.items()) + ".",
+                },
+                "note": {"type": "string", "description": "The user's words, briefly."},
+                "strategy": {"type": "string", "description": 'e.g. "1x3 call ratio", "covered call".'},
+                "context": {
+                    "type": "object",
+                    "description": "The recommendation's numbers, as in propose_legs' context.",
+                },
+            },
+            "required": ["verdict", "legs"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_trade_feedback_summary",
+        "description": "What the user accepted and turned down of past recommended trades: "
+        "counts per underlying and strategy, rejection reasons, the latest rejections with "
+        "their legs, notes and numbers, and suggested_rule_changes — a reason repeated often "
+        "enough on one underlying to suggest changing a setting. Call it with "
+        "get_wheel_snapshot before recommending trades.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Look-back window in days (default 180).", "minimum": 1},
+            },
+            "required": [],
         },
     },
     {

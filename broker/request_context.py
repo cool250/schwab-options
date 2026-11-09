@@ -10,6 +10,10 @@ accounts, api/auth.require_auth sets the one they chose (the full account
 number from PositionProvider.list_accounts, saved per user), and each
 broker's client reads it when resolving which account to call. None = the
 broker's first account.
+
+The user a request runs as (their id): set alongside the two above, for
+code that keeps per-user records outside the broker — the copilot's trade
+feedback (copilot/feedback.py). None = no signed-in user.
 """
 
 from contextvars import ContextVar, Token
@@ -17,6 +21,15 @@ from typing import Optional
 
 _selected_broker: ContextVar[Optional[str]] = ContextVar("selected_broker", default=None)
 _selected_account: ContextVar[Optional[str]] = ContextVar("selected_account", default=None)
+_request_user: ContextVar[Optional[int]] = ContextVar("request_user", default=None)
+
+
+def set_request_user(user_id: Optional[int]) -> Token:
+    return _request_user.set(user_id)
+
+
+def get_request_user() -> Optional[int]:
+    return _request_user.get()
 
 
 def set_selected_broker(name: Optional[str]) -> Token:

@@ -50,7 +50,7 @@ def test_runs_tools_and_feeds_results_back_with_the_reasoning(responses, monkeyp
 
     result = agent.chat([{"role": "user", "content": "What stock do I hold?"}])
 
-    assert result == {"reply": "You hold no stock.", "tools_used": ["get_stock_positions"], "proposed_legs": None}
+    assert result == {"reply": "You hold no stock.", "tools_used": ["get_stock_positions"], "proposed_legs": None, "proposal": None}
     first, second = stand_in.requests
     assert first["reasoning"] == {"effort": agent.REASONING_EFFORT}
     assert first["store"] is False
@@ -72,13 +72,15 @@ def test_tools_are_flat_and_not_strict():
 def test_propose_legs_is_returned_for_the_apply_button(responses):
     legs = [{"symbol": "SPY", "side": "SELL", "optionType": "PUT", "strike": 500, "quantity": 1}]
     responses(
-        SimpleNamespace(output=[_call("propose_legs", {"legs": legs}, "c1")], output_text=""),
+        SimpleNamespace(output=[_call("propose_legs", {"legs": legs, "strategy": "short put", "context": {"delta": 0.2}}, "c1")], output_text=""),
         _reply("Sell the 500 put."),
     )
 
     result = agent.chat([{"role": "user", "content": "Sell a put on SPY"}])
 
     assert result["proposed_legs"] == legs
+    # Kept with the thumbs up / down feedback on this recommendation.
+    assert result["proposal"] == {"strategy": "short put", "context": {"delta": 0.2}}
     assert result["tools_used"] == ["propose_legs"]
 
 

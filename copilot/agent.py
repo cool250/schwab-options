@@ -71,7 +71,14 @@ of it, and only with real strikes/prices pulled from a tool in this same turn, n
 numbers. If the current page context includes a StrikeLab selectedExpirationDte, use that \
 expiration for the recommendation rather than picking or asking about a different one. For a \
 build_strategy candidate: side SELL for negative qty and BUY for positive, quantity = |qty|, \
-premium = mid, and dte/expirationDate from the result.
+premium = mid, and dte/expirationDate from the result. Pass the strategy and its key numbers \
+(mode, leverage, the shorts' delta, net credit, and for a wind-down the assignment and root \
+results) as propose_legs' strategy and context: the user's thumbs up / down on it is recorded \
+with them.
+
+When discussing a strategy or suggesting one, keep in mind this is not licensed financial \
+advice — a brief, natural acknowledgment of that is appropriate when giving specific \
+suggestions, but don't repeat a disclaimer on every message.
 
 """
 
@@ -115,11 +122,13 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
     position — see frontend/src/utils/copilotContext.js) — folded into this
     turn's system prompt so the agent can answer questions about it directly.
 
-    Returns {"reply": str, "tools_used": [str, ...], "proposed_legs": [dict, ...] | None}.
+    Returns {"reply": str, "tools_used": [str, ...], "proposed_legs": [dict, ...] | None,
+    "proposal": {"strategy": str | None, "context": dict | None} | None}.
     proposed_legs is populated when the model called the propose_legs tool
     this turn (see copilot/tools.py) — the frontend renders it as an "Apply
     to StrikeLab" button rather than making the user re-enter what was just
-    recommended by hand.
+    recommended by hand, with thumbs up / down feedback that records the
+    legs and `proposal` (copilot/feedback.py).
     """
     system_prompt = _build_system_prompt()
     if page_context:
@@ -127,6 +136,7 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
     conversation = list(messages)
     tools_used: list[str] = []
     proposed_legs: list[dict] | None = None
+    proposal: dict | None = None
     _usage_logger.info("Copilot turn started")
 
     for _ in range(MAX_TOOL_ITERATIONS):
@@ -144,7 +154,8 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
 
         if not calls:
             _usage_logger.info("Copilot turn finished; tools used: %s", tools_used)
-            return {"reply": response.output_text, "tools_used": tools_used, "proposed_legs": proposed_legs}
+            return {"reply": response.output_text, "tools_used": tools_used,
+                    "proposed_legs": proposed_legs, "proposal": proposal}
 
         for call in calls:
             name = call.name
@@ -164,6 +175,7 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
                 # for the frontend to offer as an "Apply to StrikeLab" button.
                 if name == "propose_legs":
                     proposed_legs = args.get("legs")
+                    proposal = {"strategy": args.get("strategy"), "context": args.get("context")}
                 elif name == "read_strategy_docs":
                     _usage_logger.info("Copilot read strategy docs: %s", args.get("names"))
                 try:
@@ -184,4 +196,5 @@ def chat(messages: list[dict], page_context: dict | None = None) -> dict:
         "try rephrasing or narrowing the question.",
         "tools_used": tools_used,
         "proposed_legs": proposed_legs,
+        "proposal": proposal,
     }

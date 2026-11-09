@@ -7,12 +7,18 @@ their options). **Recommendations only — nothing here is ever placed.**
 
 ## 1. Start from the snapshot
 
-Call `get_wheel_snapshot` first, then the position tools for the details
+Call `get_wheel_snapshot` and `get_trade_feedback_summary` first, then the
+position tools for the details
 (`get_stock_positions`, `get_option_positions`,
 `get_futures_positions`, `get_futures_option_positions` — the futures ones
 carry live prices and unrealized P&L). Lead the answer with a short table:
 net liquidity, notional, leverage, mode, MTD / YTD realized P&L, loss
 budget. Use the snapshot's numbers as given; don't recompute them.
+
+The feedback summary is what the user turned down before, and why. Shape
+this answer by it: if they've rejected /NQ ratios for too much assignment
+loss, lead with the milder structure there; if credits were too small,
+don't offer a token premium. The rules below still win over a preference.
 
 ## 2. The mode sets how much risk to add
 
@@ -91,16 +97,21 @@ outcome from the user's own entry — per lot (section 4b), not the average.
 
 ## 4a. Winding down long futures with call ratios (1×2 to 1×3)
 
-The way out of long futures with little or no loss, without waiting for a
-full recovery or closing at the bottom: **buy 1 call nearer the money and
-sell 2 (or 3) calls out of the money, at or above the entry of the lots
-they'd close (4b) — or, if needed, a little below it,
-for a net credit** — every short call beyond the long one covered by a long
-future. If the market rallies through the short strike, the futures are
-called away at that strike (at or above those lots' entries: no loss on
-them; a little below: a small loss, within the loss budget) and the long
-call adds the gap between the strikes; if it doesn't, the credit is kept
-and the futures are still held for the next cycle.
+The way out of long futures without waiting for a full recovery or closing
+at the bottom: **buy 1 call nearer the money and sell 2 (or 3) calls out of
+the money, for a net credit** — every short call beyond the long one
+covered by a long future. If the market rallies through the short strike,
+a few futures are called away at that strike and the long call adds the gap
+between the strikes; if it doesn't, the credit is kept and the futures are
+still held for the next cycle.
+
+**Be aggressive here: having a few lots called away at a small loss is an
+acceptable outcome, not a failure.** The rally that assigns them also lifts
+every lot that stays open, so judge the trade on the whole root's result
+in that rally (below), not on the assigned lots alone. Prefer the
+structure that winds down the most futures for the best credit — the 1×3
+when two lots are free — over a token-premium 1×2 struck far above the
+entries.
 
 **Expiration:** look **3–6 weeks out** first (`build_strategy` with a
 `max_dte` range). Calls that far out of the money pay almost nothing within
@@ -112,21 +123,18 @@ that window does, say so rather than settling for a token premium.
   the short strike leaves almost no gap for the outcome below.
 - Ratio: **1×2 (buy 1, sell 2) or, more aggressively, 1×3 (buy 1, sell 3)
   — never wider.** Every short beyond the long call needs a long future of
-  the same root: 1×2 needs 1 `free_cover`, 1×3 needs 2. Try the 1×2 first;
-  go to 1×3 when it's what clears the credit, or winds down two futures in
-  one cycle.
-- Short calls, in this order:
-  1. **At or above the entry of every lot they'd close** (4b) — assignment
-     then loses nothing on the futures.
-  2. If nothing there clears a credit, step the short strike down — **never
-     below `ratio_call_floors.by_root[root].lowest_short_strike`** in the
-     snapshot: the cheapest open lot's trade price less
-     `max_below_entry_pct` (a setting, 2% by default). Below a lot's entry,
-     assignment locks in a loss on that lot — work it out on the lots FIFO
-     would actually close (4b), not on the cheapest one, and show it. What
-     counts against the loss budget is the whole trade's result at or above
-     the short strike (below), not the futures term alone: the credit and
-     the long call's gain are realized in the same assignment.
+  the same root: 1×2 needs 1 `free_cover`, 1×3 needs 2. With 2 free, lead
+  with the 1×3 and show the 1×2 as the milder alternative.
+- Short calls: anywhere from just out of the money up to the lots' entries,
+  **never below `ratio_call_floors.by_root[root].lowest_short_strike`** in
+  the snapshot (the cheapest open lot's trade price less
+  `max_below_entry_pct`, a setting, 5% by default). Try a few strikes
+  between the floor and the oldest lots' entry and pick the one with the
+  best root result at assignment (below) that fits the loss budget —
+  usually a strike near the next resistance, not the highest one that
+  clears a credit. Below a lot's entry, assignment realizes a loss on that
+  lot — work it out on the lots FIFO would actually close (4b), not on the
+  cheapest one, and show it.
 - The short calls must be out of the money (strike above spot). There's no
   delta ceiling here: being called away at or near the entry is the point
   of a wind-down, and the floor and the loss budget are what limit it — but
@@ -140,12 +148,17 @@ that window does, say so rather than settling for a token premium.
 **Outcome at expiration, per structure — show this in points and dollars
 (× point value: /ES 50, /NQ 20):**
 - Below the long strike: + net credit; the futures are still held.
-- At or above the short strike: (short strike − long strike) + net credit
-  + Σ (short strike − entry) over the lots the covered shorts would close
-  (4b). With the short strike at or above each of those entries that sum
-  is never a loss. With a lower short strike that term is negative, and
-  if the **whole** result is a loss, that net loss counts against the loss
-  budget — a candidate whose net loss is more than the budget left is out.
+- At or above the short strike, two figures — show both:
+  1. **Assignment result** (realized): (short strike − long strike) + net
+     credit + Σ (short strike − entry) over the lots the covered shorts
+     would close (4b).
+  2. **Rally offset** (unrealized): (short strike − spot) × each long lot
+     of that root that stays open — not called away by this trade or by
+     calls already sold that the same move would assign.
+  **Root result = assignment result + rally offset.** That's what counts
+  against the loss budget: a candidate is in when the root result is a gain,
+  or a loss within the budget left. Say plainly that the offset is a paper
+  gain on lots still held — it's real only as long as the rally holds.
 - In between: the long call gains as the futures recover; nothing is
   called away.
 
@@ -175,8 +188,9 @@ result matters for taxes), so:
   k × (K − average), and not the lot a call was sized against for coverage
   (below): coverage is counting, but an assignment realizes P&L on the
   oldest lots. If earlier calls may expire first, those oldest lots are
-  still open then — use them. That realized figure is what counts against
-  the loss budget. Show it per lot.
+  still open then — use them. Show it per lot. For a covered call that
+  realized figure is what counts against the loss budget; for a wind-down
+  ratio it's the root result in 4a (net of the rally offset).
 - The strike that loses nothing on assignment is at or above the highest
   entry among the lots it would close. Covering more futures reaches into
   newer lots, with their own entries — work out each step.
@@ -217,4 +231,4 @@ A table of recommendations, best first: action, contract
 POP, added notional, leverage after, and what covers each short call. Then
 one or two sentences on why this mode leads to these trades. In the app,
 call `propose_legs` for the top new trade only (the Apply button stages one
-position). Keep the "not licensed financial advice" note brief.
+position).

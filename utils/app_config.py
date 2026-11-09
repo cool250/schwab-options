@@ -40,7 +40,7 @@ SETTINGS: dict[str, tuple[type, Any, Optional[tuple], Optional[int]]] = {
     "wheel.loss_budget_pct": (int, 25, None, 0),
     # Wind-down call ratios on long futures may strike their short calls up
     # to this percent below the cheapest open lot's trade price.
-    "wheel.ratio_call_max_below_entry_pct": (int, 2, None, 0),
+    "wheel.ratio_call_max_below_entry_pct": (int, 5, None, 0),
     # Delta ranges for new short options per mode, in hundredths ("20-30"
     # = 0.20-0.30). Defensive mode sells no new puts, so it has no put range.
     "wheel.aggressive_put_delta_pct": (list, [20, 30], None, 0),

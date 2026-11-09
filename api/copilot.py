@@ -2,9 +2,12 @@ import logging
 from typing import Any, Optional
 
 import openai
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from api.auth import require_auth
+from api.users import User
+from copilot import feedback
 from copilot.agent import chat
 
 logger = logging.getLogger(__name__)
@@ -64,3 +67,26 @@ def post_chat(req: ChatRequest):
     except Exception as e:
         logger.error("Copilot chat failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Copilot request failed: {e}")
+
+
+class FeedbackRequest(BaseModel):
+    verdict: str  # "accepted" (thumbs up) | "rejected" (thumbs down)
+    legs: list[dict[str, Any]]
+    reason: Optional[str] = None  # one of copilot.feedback.REASONS; required for "rejected"
+    note: Optional[str] = None
+    strategy: Optional[str] = None
+    context: Optional[dict[str, Any]] = None
+
+
+@router.get("/feedback/reasons", summary="Reasons a recommended trade can be turned down for")
+def get_feedback_reasons():
+    return [{"code": code, "label": label} for code, label in feedback.REASONS.items()]
+
+
+@router.post("/feedback", summary="Thumbs up / down on a trade the copilot recommended")
+def post_feedback(req: FeedbackRequest, user: User = Depends(require_auth)):
+    try:
+        feedback_id = feedback.record(user.id, source="app", **req.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"id": feedback_id}

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { sendCopilotMessage, friendlyErrorMessage, isSystemError } from "../api/client";
+import { sendCopilotMessage, sendTradeFeedback, getFeedbackReasons, friendlyErrorMessage, isSystemError } from "../api/client";
 import { copilotContext } from "../utils/copilotContext";
 import { applyProposedLegs } from "../utils/copilotProposedLegs";
 
@@ -30,6 +30,115 @@ function UserIcon() {
       <path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" />
     </svg>
   )
+}
+
+function ThumbIcon({ down = false }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"
+      style={down ? { transform: "rotate(180deg)" } : undefined}>
+      <path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3z" />
+      <path d="M7 10l4-8a3 3 0 0 1 3 3v4h5.5a2 2 0 0 1 2 2.3l-1.4 8A2 2 0 0 1 18.1 21H7" />
+    </svg>
+  )
+}
+
+// Thumbs up / down on a recommended trade (the legs from propose_legs).
+// Saved with the recommendation's strategy and numbers (copilot/feedback.py);
+// the copilot reads it back before its next recommendation. A thumbs down
+// asks why — the reasons come from the server, so the list lives in one place.
+function TradeFeedback({ legs, proposal }) {
+  const [status, setStatus] = useState("idle"); // idle | choosing | sending | accepted | rejected
+  const [reasons, setReasons] = useState([]);
+  const [reason, setReason] = useState(null);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState(null);
+
+  const submit = async (verdict) => {
+    setStatus("sending");
+    setError(null);
+    try {
+      await sendTradeFeedback({
+        verdict,
+        legs,
+        reason: verdict === "rejected" ? reason : null,
+        note: note.trim() || null,
+        strategy: proposal?.strategy ?? null,
+        context: proposal?.context ?? null,
+      });
+      setStatus(verdict);
+    } catch (err) {
+      setError(friendlyErrorMessage(err, "Couldn't save your feedback."));
+      setStatus(verdict === "rejected" ? "choosing" : "idle");
+    }
+  };
+
+  const thumbsDown = async () => {
+    setStatus("choosing");
+    if (reasons.length) return;
+    try {
+      setReasons(await getFeedbackReasons());
+    } catch (err) {
+      setError(friendlyErrorMessage(err, "Couldn't load the reasons."));
+    }
+  };
+
+  if (status === "accepted" || status === "rejected") {
+    return (
+      <div className="copilot-feedback-done">
+        {status === "accepted" ? "Thanks — noted that you liked this trade." : "Thanks — the copilot will take this into account next time."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="copilot-feedback">
+      {status !== "choosing" ? (
+        <div className="copilot-feedback-thumbs">
+          <button type="button" className="copilot-thumb" aria-label="Good trade" disabled={status === "sending"} onClick={() => submit("accepted")}>
+            <ThumbIcon />
+          </button>
+          <button type="button" className="copilot-thumb" aria-label="Not this trade" disabled={status === "sending"} onClick={thumbsDown}>
+            <ThumbIcon down />
+          </button>
+        </div>
+      ) : (
+        <div className="copilot-feedback-why">
+          <div className="copilot-feedback-label">What's wrong with it?</div>
+          <div className="copilot-feedback-reasons">
+            {reasons.map((r) => (
+              <button
+                key={r.code}
+                type="button"
+                className={`copilot-reason${reason === r.code ? " selected" : ""}`}
+                aria-pressed={reason === r.code}
+                onClick={() => setReason(r.code)}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            className="copilot-feedback-note"
+            value={note}
+            maxLength={500}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Anything else? (optional)"
+            aria-label="Feedback note"
+          />
+          <div className="copilot-feedback-actions">
+            <button type="button" className="btn btn-primary" disabled={!reason || status === "sending"} onClick={() => submit("rejected")}>
+              Send
+            </button>
+            <button type="button" className="btn btn-secondary" disabled={status === "sending"} onClick={() => { setStatus("idle"); setReason(null); setError(null); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {error && <div className="copilot-feedback-error">{error}</div>}
+    </div>
+  );
 }
 
 // Mounted once at the App level (see App.jsx), outside the routed <main> —
@@ -147,6 +256,7 @@ export default function CopilotWidget() {
           content: result.reply,
           toolsUsed: result.tools_used,
           proposedLegs: result.proposed_legs,
+          proposal: result.proposal,
         },
       ]);
     } catch (err) {
@@ -274,13 +384,16 @@ export default function CopilotWidget() {
                     </div>
                   )}
                   {m.proposedLegs?.length > 0 && (
-                    <button
-                      type="button"
-                      className="btn btn-primary copilot-apply-legs"
-                      onClick={() => handleApplyLegs(m.proposedLegs)}
-                    >
-                      Apply Trade
-                    </button>
+                    <div className="copilot-trade-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary copilot-apply-legs"
+                        onClick={() => handleApplyLegs(m.proposedLegs)}
+                      >
+                        Apply Trade
+                      </button>
+                      <TradeFeedback legs={m.proposedLegs} proposal={m.proposal} />
+                    </div>
                   )}
                 </div>
               ))
