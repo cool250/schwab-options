@@ -238,6 +238,11 @@ body.copilot-resizing, body.copilot-resizing * { user-select: none !important; }
   font-size: 0.978rem; /* 0.85rem + 15% */
   line-height: 1.5;
   white-space: pre-wrap;
+  /* A flex item is otherwise as wide as its widest content (a table, a long
+     symbol), which pushed the whole panel sideways on phones. Text wraps;
+     a wide table or code block scrolls inside its own box. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .copilot-msg.user .copilot-bubble {
   background: var(--primary);
