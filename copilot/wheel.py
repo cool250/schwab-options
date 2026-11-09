@@ -187,4 +187,7 @@ def snapshot(*, net_liquidity: Optional[float], notional: dict[str, dict], cover
         # A short option that has kept this percent of its premium is a
         # take-profit candidate — the Home page's rule.
         "take_profit_pct": settings["home.take_profit_pct"],
+        # New trades mostly expire within this many days — the Home page's
+        # New Income window.
+        "max_dte": settings["home.idea_max_dte"],
     }

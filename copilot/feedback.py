@@ -45,7 +45,7 @@ RULE_HINTS = {
     "credit_too_small": "a minimum credit per trade (no setting yet — add one to config/app.properties)",
     "strike_too_close": "the delta ranges (wheel.*_delta_pct); for ratio calls, wheel.ratio_call_max_below_entry_pct",
     "strike_too_far": "the delta ranges (wheel.*_delta_pct)",
-    "wrong_expiration": "the expiration window in the strategy doc (options_wheel.md 4a: 3–6 weeks)",
+    "wrong_expiration": "home.idea_max_dte (the wheel's expiration window, 7 days by default)",
     "assignment_loss": "wheel.ratio_call_max_below_entry_pct or wheel.loss_budget_pct",
     "not_this_underlying": None,
     "other": None,

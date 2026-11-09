@@ -49,6 +49,17 @@ the Home page's New Income ideas — quote them, don't invent others:
      down in strike **for a net credit**.
   4. Only then close or trim at a loss — within the loss budget (see 5).
 
+**Expiration — mostly under a week.** New trades and rolls go to an
+expiration within `max_dte` days (in the snapshot, 7 by default — the same
+window as the Home page's New Income ideas): weekly premium decays fastest,
+and a short trade re-sets the book every week against the current mode.
+Search with `build_strategy`'s `max_dte` / `get_expirations` inside that
+window first. Go longer only when nothing inside it does the job — a roll
+of a tested put that can't be done for a credit within the week, or a
+wind-down ratio that clears no credit (4a) — and then to the nearest
+expiration that does, saying why it's longer. Most of an answer's trades
+should be inside the window.
+
 Leverage after a new trade: (`notional_total` + added notional) ÷
 `net_liquidity`. A short put adds strike × contracts × multiplier (100 for
 equity, the point value for /ES 50, /NQ 20); a covered call adds nothing.
@@ -113,10 +124,13 @@ structure that winds down the most futures for the best credit — the 1×3
 when two lots are free — over a token-premium 1×2 struck far above the
 entries.
 
-**Expiration:** look **3–6 weeks out** first (`build_strategy` with a
-`max_dte` range). Calls that far out of the money pay almost nothing within
-a week, so a short-dated ratio rarely clears a credit; if no expiration in
-that window does, say so rather than settling for a token premium.
+**Expiration:** within `max_dte` first, like every trade (section 2) —
+with the short strikes near the money (down to the floor), a weekly ratio
+can clear a credit. If none does, step out one or two weeks at a time to
+the nearest expiration that clears a real credit, at most 6 weeks; if none
+in that range does, say so rather than settling for a token premium. A
+weekly ratio winds down fewer lots per cycle at a time, but repeats every
+week — ladder it.
 
 **Structure (same expiration, net credit at natural prices):**
 - Long call: at the money (`long_call` mode `atm`) — a long call just below

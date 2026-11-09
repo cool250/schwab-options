@@ -12,7 +12,7 @@ import pytest
 from copilot import wheel
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "wheel_cases.json").read_text())
-SETTINGS = {**FIXTURE["settings"], "wheel.loss_budget_pct": 25, "home.take_profit_pct": 75,
+SETTINGS = {**FIXTURE["settings"], "wheel.loss_budget_pct": 25, "home.take_profit_pct": 75, "home.idea_max_dte": 7,
             "wheel.ratio_call_max_below_entry_pct": 2}
 
 
@@ -76,6 +76,7 @@ def test_snapshot_leverage_mode_delta_ranges_and_loss_budget():
     assert snap["new_trade_delta_pct"] == {"put": None, "call": [30, 40]}
     assert snap["loss_budget"] == {"pct_of_ytd": 25, "dollars": 20_000}
     assert snap["realized_pl"] == {"month_to_date": -5_000, "year_to_date": 80_000}
+    assert snap["max_dte"] == 7
     losing_year = wheel.snapshot(net_liquidity=1_000_000, notional=notional, coverage={}, ytd_realized=-1, mtd_realized=0, settings=SETTINGS)
     assert losing_year["loss_budget"]["dollars"] == 0
     assert wheel.snapshot(net_liquidity=None, notional=notional, coverage={}, ytd_realized=0, mtd_realized=0, settings=SETTINGS)["mode"] is None

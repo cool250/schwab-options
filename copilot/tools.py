@@ -457,7 +457,8 @@ TOOL_SCHEMAS = [
         "month- and year-to-date realized P&L as the Reports page totals it; and the loss "
         "budget — the most a close or roll at a loss may give up; and ratio_call_floors: per "
         "futures root held long, the cheapest open lot's trade price and the lowest short strike "
-        "a wind-down call ratio may use.",
+        "a wind-down call ratio may use; and max_dte: new trades mostly expire within this "
+        "many days.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
