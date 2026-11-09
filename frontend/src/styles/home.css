@@ -131,3 +131,12 @@ a.home-alert:hover { text-decoration: underline; }
   .home-compact-table .data-table th,
   .home-compact-table .data-table td { padding-left: 6px; padding-right: 6px; font-size: 0.85rem; text-overflow: clip; }
 }
+
+/* A screener failure on the ideas card: the message and its Retry. */
+.home-ideas-failed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}

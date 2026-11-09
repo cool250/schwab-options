@@ -139,11 +139,19 @@ def screen_options(
     """
     option_types = STRATEGY_OPTION_TYPES[strategy]
 
+    def contracts(symbol: str):
+        try:
+            return provider.get_screener_contracts(symbol, min_dte, max_dte, option_types, min_otm_pct, max_otm_pct)
+        except MarketDataError:
+            # Usually a DXLink session that timed out while connecting —
+            # several screens at once (the Home page runs puts and calls
+            # together) can crowd the handshake. One retry clears most.
+            logger.warning("Screener chain for %s failed; retrying once", symbol)
+            return provider.get_screener_contracts(symbol, min_dte, max_dte, option_types, min_otm_pct, max_otm_pct)
+
     def fetch(symbol: str):
         try:
-            return symbol, provider.get_screener_contracts(
-                symbol, min_dte, max_dte, option_types, min_otm_pct, max_otm_pct
-            ), None
+            return symbol, contracts(symbol), None
         except SymbolNotFound:
             return symbol, None, "Symbol not found, or it has no listed options"
         except MarketDataError as e:

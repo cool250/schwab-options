@@ -19,6 +19,10 @@
   input[type="radio"] { width: 20px; height: 20px; }
 
   /* The "?" stays a small circle; an invisible ring around it takes the tap. */
+  /* A link in a table cell (Positions' futures Symbol) keeps the row's
+     height: the same invisible ring takes the tap instead of a 44px box. */
+  .data-table td .link-button { min-height: 0; position: relative; }
+  .data-table td .link-button::after { content: ''; position: absolute; inset: -12px -10px; }
   .help-tip-button { position: relative; }
   .help-tip-button::after { content: ''; position: absolute; inset: -14px; }
 }

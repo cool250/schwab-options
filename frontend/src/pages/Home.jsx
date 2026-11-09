@@ -126,7 +126,11 @@ export default function Home() {
   const [book, setBook] = useState({ loading: true }) // positions + futures + quotes
   const [month, setMonth] = useState({ loading: true }) // month-to-date realized
   const [ideas, setIdeas] = useState({ loading: true })
-  const [ideaSide, setIdeaSide] = useState('PUT')
+  // null until the user picks a tab: then the side the wheel mode allows
+  // (calls in defensive mode, which sells no puts) — see ideaSide below.
+  const [ideaSideChoice, setIdeaSide] = useState(null)
+  // Bumped by the ideas card's Retry, to run the screener again.
+  const [ideasRun, setIdeasRun] = useState(0)
   const [events, setEvents] = useState({ loading: true }) // upcoming releases, FOMC, earnings
   const [watch, setWatch] = useState({ loading: true }) // prices for the positions' tickers
 
@@ -246,11 +250,11 @@ export default function Home() {
     }
     Promise.all(['PUT', 'CALL'].map((strategy) => screenOptions({ ...filters, ...screenerDeltas(rules, strategy), strategy })))
       .then(([puts, calls]) => {
-        if (!cancelled) setIdeas({ loading: false, PUT: puts.results ?? [], CALL: calls.results ?? [], errors: [...(puts.errors ?? []), ...(calls.errors ?? [])] })
+        if (!cancelled) setIdeas({ loading: false, PUT: puts.results ?? [], CALL: calls.results ?? [], errors: { PUT: puts.errors ?? [], CALL: calls.errors ?? [] } })
       })
       .catch((err) => !cancelled && setIdeas({ loading: false, error: friendlyErrorMessage(err, 'Could not load /ES and /NQ ideas.') }))
     return () => { cancelled = true }
-  }, [rules, rulesLoaded])
+  }, [rules, rulesLoaded, ideasRun])
 
   const derived = useMemo(() => {
     if (book.loading || book.error) return null
@@ -374,6 +378,10 @@ export default function Home() {
   // calls only on roots with free cover — and a call struck below the entry
   // of the lot it would cover ranks after those that don't lock in a loss.
   const wheel = derived?.wheel
+  const ideaSide = ideaSideChoice ?? (wheel?.mode === 'defensive' ? 'CALL' : 'PUT')
+  // Roots whose chain couldn't be loaded (a Tastytrade timeout) — not the
+  // screener's "No contracts …" notes, which just mean nothing qualified.
+  const failedRoots = (ideas.errors?.[ideaSide] ?? []).filter((e) => !e.message.startsWith('No ')).map((e) => e.symbol)
   const sideBand = wheel?.deltaBands[ideaSide === 'PUT' ? 'put' : 'call'] ?? null
   const ideaRows = useMemo(() => {
     // No mode until the book loads: show nothing rather than ideas it may rule out.
@@ -709,6 +717,12 @@ export default function Home() {
         )}
         {(ideas.loading || book.loading) && <Placeholder rows={5} />}
         {ideas.error && <div className="alert error">{ideas.error}</div>}
+        {!ideas.loading && failedRoots.length > 0 && (
+          <div className="alert error home-ideas-failed">
+            <span>Couldn&apos;t load {failedRoots.join(' and ')} {ideaSide === 'PUT' ? 'puts' : 'calls'} from Tastytrade, so they&apos;re missing below.</span>
+            <button type="button" className="btn btn-secondary" onClick={() => setIdeasRun((n) => n + 1)}>Retry</button>
+          </div>
+        )}
         {!ideas.loading && !book.loading && !ideas.error && (
           ideaRows.length
             ? <div className="home-ideas-table"><DataTable data={ideaRows} paginate={false} columns={ideaCols} phone={SYMBOL_PINNED} /></div>
@@ -720,7 +734,9 @@ export default function Home() {
                     ? 'No free cover: every long /ES and /NQ future already has a short call against it, so a new call would be naked.'
                     : wheel?.mode == null
                       ? 'No ideas: the wheel mode needs your net liquidity, which is unavailable.'
-                      : `No /ES or /NQ ${ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.`}
+                      : failedRoots.length === ROOTS.length
+                        ? 'No ideas: the option chains couldn\'t be loaded.'
+                        : `No /ES or /NQ ${ideaSide === 'PUT' ? 'puts' : 'calls'} match the rules right now.`}
               </p>
             )
         )}

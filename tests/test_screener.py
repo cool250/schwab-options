@@ -7,6 +7,7 @@ import math
 import pytest
 
 from service.market import MarketService
+from service.market.errors import MarketDataError
 from tests.market_helpers import SPOT, FakeChainProvider, contract
 
 CONTRACTS = [contract(k, t) for k in range(90, 121) for t in ("PUT", "CALL")]
@@ -100,6 +101,23 @@ def test_one_bad_ticker_does_not_sink_the_screen():
     errors = {e["symbol"]: e["message"] for e in result["errors"]}
     assert set(errors) == {"BAD", "EMPTY"}
     assert "boom" not in errors["BAD"]  # internal error text stays in the logs
+
+
+def test_a_ticker_whose_chain_times_out_once_is_retried():
+    class FlakyProvider(FakeChainProvider):
+        failed = False
+
+        def get_screener_contracts(self, symbol, *args):
+            if not self.failed:
+                self.failed = True
+                raise MarketDataError()
+            return super().get_screener_contracts(symbol, *args)
+
+    provider = FlakyProvider(screener={"X": CONTRACTS})
+    result = MarketService(chain_provider=provider).screen_options(
+        ["X"], min_dte=0, max_dte=60, min_otm_pct=-50, max_otm_pct=50, strategy="PUT",
+        min_abs_delta=None, max_abs_delta=None, limit=10_000)
+    assert result["results"] and not result["errors"]
 
 
 def test_ratio_put_rows():
