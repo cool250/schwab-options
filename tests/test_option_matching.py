@@ -57,6 +57,23 @@ def test_assigned_equity_option_keeps_its_premium(make_service):
     assert trade["total_amount"] == pytest.approx(200.0)
 
 
+def test_per_contract_pl_has_the_same_sign_as_the_total_for_either_side(make_service):
+    # The 11/6 /NQ 27050 call: bought at 550, sold at 1015.50 — a gain, so
+    # its per-contract figure is positive too (it once came out -465.50).
+    long_win = [
+        option_leg("2026-10-06", "OPENING", 1, 550.0, underlying="NQ", strike=27050.0, option_type="CALL"),
+        option_leg("2026-10-09", "CLOSING", -1, 1015.5, underlying="NQ", strike=27050.0, option_type="CALL"),
+    ]
+    [trade] = realized(make_service(long_win))
+    assert trade["price"] == pytest.approx(465.5)
+    assert trade["total_amount"] == pytest.approx(9310.0)
+
+    short_loss = [option_leg("2026-10-01", "OPENING", -1, 2.00), option_leg("2026-10-10", "CLOSING", 1, 3.50)]
+    [trade] = realized(make_service(short_loss))
+    assert trade["price"] == pytest.approx(-1.5)
+    assert trade["total_amount"] == pytest.approx(-150.0)
+
+
 def test_open_leg_is_not_realized_but_is_returned_as_unrealized(make_service):
     legs = [option_leg("2026-10-05", "OPENING", -1, 2.00)]
     assert realized(make_service(legs)) == []

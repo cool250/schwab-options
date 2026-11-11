@@ -169,8 +169,13 @@ def match_open_close(contract_trades: Dict) -> List[Dict]:
             # Identify the type of closing trade (normal close, expiration, assignment)
             trade_type = identify_trade_type(close_trade)
 
-            # Calculate P/L (open price - close price)
+            # P/L per contract, in the option's own price units, for the
+            # side that was opened: sold to open (amount < 0) gains as the
+            # price falls (open - close), bought to open gains as it rises
+            # (close - open). total_amount is built from the same figure, so
+            # the two always agree in sign.
             price_difference = float(open_trade.get("price", 0)) - float(close_trade.get("price", 0))
+            pl_per_contract = price_difference if amount < 0 else -price_difference
 
             # ASSIGNED (an equity option) and EXERCISED (a futures option)
             # keep their premium as P&L: the delivered shares / future are
@@ -193,14 +198,14 @@ def match_open_close(contract_trades: Dict) -> List[Dict]:
                 expirationDate=open_trade.get("expirationDate"),
                 strike_price=open_trade.get("strike_price"),
                 symbol=open_trade.get("symbol"),
-                price=price_difference,  # P/L per contract
+                price=pl_per_contract,  # P/L per contract (before the multiplier)
                 open_price=open_trade.get("price"),  # Original entry price
                 close_price=close_trade.get("price"),  # Exit price
                 amount=abs(amount),
                 position_effect="MATCHED",
                 option_type=open_trade.get("option_type"),
                 type=trade_type,
-                total_amount=price_difference * -amount * get_contract_multiplier(open_trade.get("underlying_symbol", "")),
+                total_amount=pl_per_contract * abs(amount) * get_contract_multiplier(open_trade.get("underlying_symbol", "")),
                 open_type=open_trade.get("open_type"),
             ).model_dump())
 
