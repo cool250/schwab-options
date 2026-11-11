@@ -51,7 +51,8 @@ def get_futures_position(service: PositionService = Depends(get_service)):
     response_model=FuturesOptionPositions,
 )
 def get_futures_option_position(service: PositionService = Depends(get_service)):
-    puts, calls = service.get_futures_option_position()
+    # Always merged: the page shows ratio spreads in their own tables.
+    puts, calls = service.get_futures_option_position(group_ratio_spreads=True)
     return FuturesOptionPositions(puts=puts, calls=calls)
 
 

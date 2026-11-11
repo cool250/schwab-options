@@ -186,7 +186,8 @@ class PositionService:
             ))
         return futures
 
-    def get_futures_option_position(self, lookback_days: Optional[int] = None) -> tuple[list[FuturesOptionPosition], list[FuturesOptionPosition]]:
+    def get_futures_option_position(self, lookback_days: Optional[int] = None,
+                                    group_ratio_spreads: Optional[bool] = None) -> tuple[list[FuturesOptionPosition], list[FuturesOptionPosition]]:
         """Currently-open futures-option positions (options on /ES, /NQ, etc.).
 
         Reconstructed from Schwab transaction history (Schwab's positions
@@ -202,6 +203,10 @@ class PositionService:
         prices each contract (both legs of a grouped row) through the Market
         quotes endpoint (POST /api/market/quotes).
 
+        group_ratio_spreads: None follows trades.group_ratio_spreads in
+        config/app.properties; the Positions page passes True, since its
+        Ratio Puts / Ratio Calls tables are made of the merged rows.
+
         Returns:
             tuple: (puts, calls), each a list of
                 {"ticker", "symbol", "strike_price", "expiration_date",
@@ -216,7 +221,10 @@ class PositionService:
                 reprice the position at the live quote and show P&L as
                 total_value minus that live-priced value.
         """
-        return self._get_futures_option_position_from_transactions(lookback_days or open_position_lookback_days())
+        if group_ratio_spreads is None:
+            group_ratio_spreads = get_config()["trades.group_ratio_spreads"]
+        return self._get_futures_option_position_from_transactions(lookback_days or open_position_lookback_days(),
+                                                                   group_ratio_spreads)
 
     def _get_open_futures_option_legs_from_transactions(self, lookback_days: int) -> list:
         """See get_futures_option_position(): reconstructed from transaction
@@ -228,13 +236,13 @@ class PositionService:
         # A failure propagates: this is the position list, not a quote layer.
         return TransactionService().get_open_futures_options(lookback_days=lookback_days)
 
-    def _get_futures_option_position_from_transactions(self, lookback_days: int):
+    def _get_futures_option_position_from_transactions(self, lookback_days: int, group_ratio_spreads: bool):
         """See get_futures_option_position(). Ratio-spread legs (opened
-        together) are merged into one row via group_open_ratio_spreads, unless
-        trades.group_ratio_spreads is off in config/app.properties — see
+        together) are merged into one row via group_open_ratio_spreads when
+        group_ratio_spreads — see
         _get_open_futures_option_legs_from_transactions() for the raw fetch."""
         legs = self._get_open_futures_option_legs_from_transactions(lookback_days)
-        if get_config()["trades.group_ratio_spreads"]:
+        if group_ratio_spreads:
             legs = group_open_ratio_spreads(legs)
 
         puts, calls = [], []

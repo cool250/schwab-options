@@ -203,6 +203,25 @@ function futuresSymbolColumn(optionType) {
   return { key: 'symbol', label: 'Symbol', render: (row) => positionOptionSymbol(row, optionType) }
 }
 
+const isRatioRow = (row) => Boolean(row.long_leg && row.short_leg)
+
+// One option table split by underlying: a heading and table per ticker,
+// alphabetical. Each gets its own subtotal line when there's more than one —
+// the card's summary above still totals them all.
+function TickerGroups({ rows, summary, table }) {
+  const tickers = [...new Set(rows.map((row) => row.ticker))].sort()
+  return tickers.map((ticker) => {
+    const group = rows.filter((row) => row.ticker === ticker)
+    return (
+      <div className="ticker-group" key={ticker}>
+        <h4 className="ticker-group-title">{ticker}</h4>
+        {tickers.length > 1 && summary(group)}
+        {table(group)}
+      </div>
+    )
+  })
+}
+
 
 export default function Positions() {
   const navigate = useNavigate()
@@ -343,12 +362,12 @@ export default function Positions() {
   const calls = data?.calls ?? []
   const stocks = data?.stocks ?? []
   const futures = futuresData?.futures ?? []
-  const futuresPuts = futuresData?.puts ?? []
-  const futuresCalls = futuresData?.calls ?? []
+  // Single contracts and ratio spreads (merged rows) get separate tables.
+  const futuresPuts = (futuresData?.puts ?? []).filter((row) => !isRatioRow(row))
+  const futuresCalls = (futuresData?.calls ?? []).filter((row) => !isRatioRow(row))
+  const ratioPuts = (futuresData?.puts ?? []).filter(isRatioRow)
+  const ratioCalls = (futuresData?.calls ?? []).filter(isRatioRow)
 
-  const totalPutExposure = puts.reduce((sum, p) => sum + (p.exposure ?? 0), 0)
-  const totalPutValue = puts.reduce((sum, p) => sum + (p.total_value ?? 0), 0)
-  const totalCallValue = calls.reduce((sum, c) => sum + (c.total_value ?? 0), 0)
   // Rows with no live quote have no P&L (null) — say so beside the total
   // rather than letting it silently cover fewer positions.
   const unpricedNote = (rows) => {
@@ -580,6 +599,65 @@ export default function Positions() {
   const futuresThetaColumn = thetaColumn(futuresThetas, futuresQuotesLoading, futuresMultiplier)
   const equityThetaTotal = (rows) => thetaTotalText(rows, equityThetas, equityThetasLoading, equityMultiplier)
 
+  // "Total: N | P&L: $X | ..." over equity option rows (a whole table or one
+  // ticker's group). Exposure is a short put's figure, so only Puts show it.
+  function equityOptionSummary(rows, showExposure) {
+    const sum = (key) => rows.reduce((s, r) => s + (r[key] ?? 0), 0)
+    return (
+      <p className="summary-line">
+        Total: {rows.length}&nbsp;&nbsp;|&nbsp;&nbsp;
+        {showExposure && (
+          <span className="summary-extra">
+            Exposure: {money(sum('exposure'))}&nbsp;&nbsp;|&nbsp;&nbsp;
+          </span>
+        )}
+        P&amp;L: {money(sum('total_value'))}{unpricedNote(rows)}
+        <span className="summary-extra">
+          &nbsp;&nbsp;|&nbsp;&nbsp;Theta: {equityThetaTotal(rows)}&nbsp;&nbsp;|&nbsp;&nbsp;
+          Maint. Req: {money(sumMaintReq(rows))}
+        </span>
+      </p>
+    )
+  }
+
+  function equityOptionCard(title, rows, optionType) {
+    const summary = (group) => equityOptionSummary(group, optionType === 'PUT')
+    return (
+      <div className="card">
+        <h3 className="section-title">{title}</h3>
+        {summary(rows)}
+        <TickerGroups
+          rows={rows}
+          summary={summary}
+          table={(group) => (
+            <DataTable data={withPremium(group)} columns={withSelectCheckbox(optionColumns(optionType, equityThetaColumn), optionType)} phone={OPTION_PINNED} defaultSortKey="days_to_expiry" />
+          )}
+        />
+      </div>
+    )
+  }
+
+  function futuresOptionCard(title, rows, optionType) {
+    return (
+      <div className="card">
+        <h3 className="section-title">{title}</h3>
+        {futuresSummary(rows)}
+        <TickerGroups
+          rows={rows}
+          summary={futuresSummary}
+          table={(group) => (
+            <DataTable
+              data={group}
+              columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn(optionType)], optionType, true)}
+              phone={OPTION_PINNED}
+              defaultSortKey="days_to_expiry"
+            />
+          )}
+        />
+      </div>
+    )
+  }
+
   // StrikeLab's payoff graph prices one spot for one underlying at one point
   // in time — legs from different tickers or different expirations can't be
   // combined into a single meaningful graph, so the selection bar says so
@@ -665,43 +743,14 @@ export default function Positions() {
               )}
 
               {/* Puts */}
-              {puts.length > 0 ? (
-                <div className="card">
-                  <h3 className="section-title">Puts</h3>
-                  <p className="summary-line">
-                    Total: {puts.length}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    <span className="summary-extra">
-                      Exposure: ${totalPutExposure.toLocaleString('en-US', { minimumFractionDigits: 2 })}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    </span>
-                    P&amp;L: ${totalPutValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(puts)}
-                    <span className="summary-extra">
-                      &nbsp;&nbsp;|&nbsp;&nbsp;Theta: {equityThetaTotal(puts)}&nbsp;&nbsp;|&nbsp;&nbsp;
-                      Maint. Req: {money(sumMaintReq(puts))}
-                    </span>
-                  </p>
-                  <DataTable data={withPremium(puts)} columns={withSelectCheckbox(optionColumns('PUT', equityThetaColumn), 'PUT')} phone={OPTION_PINNED} defaultSortKey="days_to_expiry" />
-                </div>
-              ) : (
-                <div className="alert warning">No PUT option positions found.</div>
-              )}
+              {puts.length > 0
+                ? equityOptionCard('Puts', puts, 'PUT')
+                : <div className="alert warning">No PUT option positions found.</div>}
 
               {/* Calls */}
-              {calls.length > 0 ? (
-                <div className="card">
-                  <h3 className="section-title">Calls</h3>
-                  <p className="summary-line">
-                    Total: {calls.length}&nbsp;&nbsp;|&nbsp;&nbsp;
-                    P&amp;L: ${totalCallValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}{unpricedNote(calls)}
-                    <span className="summary-extra">
-                      &nbsp;&nbsp;|&nbsp;&nbsp;Theta: {equityThetaTotal(calls)}&nbsp;&nbsp;|&nbsp;&nbsp;
-                      Maint. Req: {money(sumMaintReq(calls))}
-                    </span>
-                  </p>
-                  <DataTable data={withPremium(calls)} columns={withSelectCheckbox(optionColumns('CALL', equityThetaColumn), 'CALL')} phone={OPTION_PINNED} defaultSortKey="days_to_expiry" />
-                </div>
-              ) : (
-                <div className="alert warning">No CALL option positions found.</div>
-              )}
+              {calls.length > 0
+                ? equityOptionCard('Calls', calls, 'CALL')
+                : <div className="alert warning">No CALL option positions found.</div>}
             </>
           )}
         </>
@@ -726,36 +775,18 @@ export default function Positions() {
               )}
 
               {/* Futures Puts */}
-              {futuresPuts.length > 0 ? (
-                <div className="card">
-                  <h3 className="section-title">Puts</h3>
-                  {futuresSummary(futuresPuts)}
-                  <DataTable
-                    data={futuresPuts}
-                    columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('PUT')], 'PUT', true)}
-                    phone={OPTION_PINNED}
-                    defaultSortKey="days_to_expiry"
-                  />
-                </div>
-              ) : (
-                <div className="alert warning">No open futures PUT positions found.</div>
-              )}
+              {futuresPuts.length > 0
+                ? futuresOptionCard('Puts', futuresPuts, 'PUT')
+                : <div className="alert warning">No open futures PUT positions found.</div>}
 
               {/* Futures Calls */}
-              {futuresCalls.length > 0 ? (
-                <div className="card">
-                  <h3 className="section-title">Calls</h3>
-                  {futuresSummary(futuresCalls)}
-                  <DataTable
-                    data={futuresCalls}
-                    columns={withSelectCheckbox([...futuresOptionColumns(), futuresCurrentPriceColumn(), futuresPnLColumn(), futuresThetaColumn, futuresSymbolColumn('CALL')], 'CALL', true)}
-                    phone={OPTION_PINNED}
-                    defaultSortKey="days_to_expiry"
-                  />
-                </div>
-              ) : (
-                <div className="alert warning">No open futures CALL positions found.</div>
-              )}
+              {futuresCalls.length > 0
+                ? futuresOptionCard('Calls', futuresCalls, 'CALL')
+                : <div className="alert warning">No open futures CALL positions found.</div>}
+
+              {/* Ratio spreads — only when there are some, unlike the tables above */}
+              {ratioPuts.length > 0 && futuresOptionCard('Ratio Puts', ratioPuts, 'PUT')}
+              {ratioCalls.length > 0 && futuresOptionCard('Ratio Calls', ratioCalls, 'CALL')}
 
             </>
           )}

@@ -60,3 +60,8 @@
    Builder's dialog (sb-* in strategy-builder.css), narrower — four columns.
    Full screen on a phone, like that dialog. */
 .lots-dialog { max-width: 560px; }
+
+/* One ticker's rows inside an option table's card (TickerGroups). */
+.ticker-group { display: flex; flex-direction: column; gap: 8px; }
+.ticker-group + .ticker-group { padding-top: 16px; border-top: 1px solid var(--border); }
+.ticker-group-title { margin: 0; font-size: 0.9rem; font-weight: 700; color: var(--text); }

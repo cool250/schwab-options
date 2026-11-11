@@ -135,6 +135,9 @@ def test_ratio_spread_grouping_can_be_turned_off_in_app_properties(monkeypatch, 
     puts, _ = PositionService(provider=FakePositions({})).get_futures_option_position()
     assert sorted(p.strike_price for p in puts) == [7600.0, 7700.0]
     assert all(p.ratio is None for p in puts)
+    # The Positions page asks for them merged whatever the setting.
+    [spread], _ = PositionService(provider=FakePositions({})).get_futures_option_position(group_ratio_spreads=True)
+    assert spread.ratio == "1:2"
 
 
 def test_maintenance_requirement_is_passed_through():
