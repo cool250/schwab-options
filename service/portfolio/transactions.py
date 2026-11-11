@@ -119,12 +119,14 @@ class TransactionService:
             elif realized_gains_only and transaction["type"] not in ["EXPIRED", "CLOSED", "ASSIGNED", "EXERCISED"]:
                 continue
 
-            # Only include transactions that closed within our original date range
+            # Only include transactions that closed within our original date
+            # range. A still-open leg's close_date is its expiration, so it's
+            # also included when it was opened within the range — otherwise
+            # a trade opened this month that expires next month never shows.
             close_date_str = transaction.get("close_date", "")
-            if close_date_str:
-                close_date = get_date_object(close_date_str)
-                if get_date_object(start_date) <= close_date <= get_date_object(end_date):
-                    result_transactions.append(transaction)
+            open_date_str = transaction.get("date", "") if transaction["type"] == "TRADE" else ""
+            if any(d and self._in_range(d, start_date, end_date) for d in (close_date_str, open_date_str)):
+                result_transactions.append(transaction)
 
         return result_transactions
 

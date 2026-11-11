@@ -65,6 +65,17 @@ def test_open_leg_is_not_realized_but_is_returned_as_unrealized(make_service):
     assert open_leg["total_amount"] == pytest.approx(200.0)  # entry credit, not a gain
 
 
+def test_open_leg_opened_in_range_shows_even_when_it_expires_after_it(make_service):
+    legs = [
+        option_leg("2026-10-20", "OPENING", -1, 2.00, expiration="2026-11-20"),  # opened in range
+        option_leg("2026-09-10", "OPENING", -1, 3.00, expiration="2026-11-20", strike=650.0),  # opened before it
+    ]
+    rows = make_service(legs).get_option_transactions("", *OCT, "ALL", realized_gains_only=False, unrealized_only=True)
+    assert [r["date"] for r in rows] == ["2026-10-20"]
+    both = make_service(legs).get_option_transactions("", *OCT, "ALL", realized_gains_only=False)
+    assert [r["date"] for r in both] == ["2026-10-20"]
+
+
 def test_partial_close_realizes_the_closed_part_and_leaves_the_rest_open(make_service):
     legs = [
         option_leg("2026-10-01", "OPENING", -2, 2.00),
