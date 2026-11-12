@@ -33,7 +33,7 @@ def combine_equity_lots(trades: List[Dict]) -> List[Dict]:
         is_equity = trade.get("asset_type") == "EQUITY"
         effect = trade.get("position_effect") if is_equity else None
         price = None if is_equity else trade["price"]
-        key = (trade["date"], trade["symbol"], trade["amount"] > 0, effect, price)
+        key = (trade["date"], trade["symbol"], trade["amount"] > 0, effect, price, trade.get("account"))
         grouped[key].append(trade)
 
     combined = []
@@ -83,14 +83,16 @@ def match_equity_fills(trades: List[Dict]) -> List[Dict]:
     `cost` — this sidesteps ever needing to know the actual per-contract
     multiplier here, since Schwab already baked it into `cost` on each fill.
     """
+    # Per symbol — and per account, when several are read together (All
+    # accounts): a sale in one account never closes a lot in another.
     by_symbol = defaultdict(list)
     for trade in trades:
-        by_symbol[trade["symbol"]].append(trade)
+        by_symbol[(trade.get("account"), trade["symbol"])].append(trade)
 
     matched = []
     unmatched = []
 
-    for symbol, group in by_symbol.items():
+    for (_, symbol), group in by_symbol.items():
         # Within a day, opening fills first, so a same-day close (an assigned
         # put's shares sold the day they arrive) has its open to match.
         fills = sorted(group, key=lambda t: (t["date"], 0 if t.get("position_effect") == "OPENING" else 1))

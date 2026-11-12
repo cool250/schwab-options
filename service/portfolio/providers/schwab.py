@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
+from broker.request_context import all_accounts_selected
 from broker.schwab import Client
 from broker.schwab.data.account_data import Position, SecuritiesAccount
 from service.portfolio.date_windows import split_date_range
@@ -27,6 +28,57 @@ def _weekday_on_or_before(date_str: str) -> str:
     return get_date_string(day - timedelta(days=max(day.weekday() - 4, 0)))
 
 
+def _account_hashes(client) -> list[Optional[str]]:
+    """The accounts a call reads: [None] — the request's selected account,
+    which the client resolves itself — or, with All accounts chosen, every
+    account's hashValue."""
+    if not all_accounts_selected():
+        return [None]
+    return [a["hashValue"] for a in client.list_accounts()] or [None]
+
+
+def _combine_balances(balances: list[Optional[dict]]) -> Optional[dict]:
+    """Every balance added across accounts. net_liquidity too: Schwab's
+    aggregatedBalance is per account (it plus its own futures account), not
+    a total of the login's accounts."""
+    present = [b for b in balances if b]
+    if not present:
+        return None
+    out = {}
+    for key in present[0]:
+        values = [b[key] for b in present if b.get(key) is not None]
+        out[key] = sum(values) if values else None
+    return out
+
+
+def _combine_positions(positions: list[dict]) -> list[dict]:
+    """The same holding in several accounts as one position: quantities,
+    P&L and margin added, prices averaged by quantity."""
+    merged: dict = {}
+    for p in positions:
+        key = (p["asset_type"], p["symbol"])
+        if key not in merged:
+            merged[key] = dict(p)
+            continue
+        m = merged[key]
+        for side, price_keys in (("long_quantity", ("average_price", "tax_lot_long_price")),
+                                 ("short_quantity", ("tax_lot_short_price",))):
+            old_qty, new_qty = m[side] or 0, p[side] or 0
+            for k in price_keys:
+                if p.get(k) is not None and new_qty:
+                    m[k] = p[k] if m.get(k) is None or not old_qty else (m[k] * old_qty + p[k] * new_qty) / (old_qty + new_qty)
+        # average_price covers whichever side is held: a short-only holding
+        # is averaged by its short quantity.
+        if not (m["long_quantity"] or p["long_quantity"]) and p.get("average_price") is not None:
+            old_qty, new_qty = m["short_quantity"] or 0, p["short_quantity"] or 0
+            m["average_price"] = (p["average_price"] if m.get("average_price") is None or not old_qty
+                                  else (m["average_price"] * old_qty + p["average_price"] * new_qty) / (old_qty + new_qty))
+        for k in ("long_quantity", "short_quantity", "long_open_pl", "short_open_pl", "maintenance_requirement"):
+            if p.get(k) is not None:
+                m[k] = (m.get(k) or 0) + p[k]
+    return list(merged.values())
+
+
 class SchwabPositionProvider:
     """Balances, positions, quotes and accounts from Schwab (broker.schwab.Client)."""
 
@@ -34,10 +86,18 @@ class SchwabPositionProvider:
         self.client = client or Client()
 
     def get_account_snapshot(self) -> dict:
-        account: SecuritiesAccount = self.client.fetch_positions()
+        hashes = _account_hashes(self.client)
+        if hashes == [None]:
+            account: SecuritiesAccount = self.client.fetch_positions()
+            return {
+                "balances": self._normalize_balances(account),
+                "positions": self._normalize_positions(account),
+            }
+        # All accounts: each one read, then combined.
+        accounts = [self.client.fetch_positions(account_hash=h) for h in hashes]
         return {
-            "balances": self._normalize_balances(account),
-            "positions": self._normalize_positions(account),
+            "balances": _combine_balances([self._normalize_balances(a) for a in accounts]),
+            "positions": _combine_positions([p for a in accounts for p in self._normalize_positions(a)]),
         }
 
     def _normalize_balances(self, account: SecuritiesAccount) -> Optional[dict]:
@@ -149,15 +209,30 @@ class SchwabTransactionProvider:
         self.client = client or Client()
 
     def fetch_raw_transactions(self, start_date: str, end_date: str) -> list:
+        return [record for _, record in self._account_transactions(start_date, end_date)]
+
+    def _account_transactions(self, start_date: str, end_date: str) -> list[tuple]:
+        """(account, record) for every record in the window. account is
+        None for the request's selected account; with All accounts chosen,
+        each account's opaque hashValue (never its number — legs carry it to
+        the browser), which the matchers keep apart so an open in one
+        account never pairs with a close in another."""
+        out = []
+        for account_hash in _account_hashes(self.client):
+            out += [(account_hash, record) for record in self._fetch_window(start_date, end_date, account_hash)]
+        return out
+
+    def _fetch_window(self, start_date: str, end_date: str, account_hash: Optional[str]) -> list:
         # Schwab rejects a request spanning more than a year, so a longer
         # range (the equity lookback) is fetched a year at a time. A record
         # stamped exactly at a window boundary can come back twice — keep one.
+        account = {"account_hash": account_hash} if account_hash else {}
         windows = split_date_range(start_date, end_date)
         if len(windows) == 1:
-            return self.client.fetch_transactions(start_date=start_date, end_date=end_date)
+            return self.client.fetch_transactions(start_date=start_date, end_date=end_date, **account)
         records, seen = [], set()
         for window_start, window_end in windows:
-            for record in self.client.fetch_transactions(start_date=window_start, end_date=window_end):
+            for record in self.client.fetch_transactions(start_date=window_start, end_date=window_end, **account):
                 activity_id = getattr(record, "activityId", None)
                 if activity_id is not None:
                     if activity_id in seen:
@@ -254,9 +329,8 @@ class SchwabTransactionProvider:
         return None
 
     def fetch_option_legs(self, start_date: str, end_date: str) -> list[dict]:
-        transactions = self.fetch_raw_transactions(start_date, end_date)
         parsed_transactions = []
-        for transaction in transactions:
+        for account, transaction in self._account_transactions(start_date, end_date):
             try:
                 transfer_items = getattr(transaction, "transferItems", [])
                 if transfer_items is None:
@@ -326,6 +400,7 @@ class SchwabTransactionProvider:
                         open_price=price if position_effect == "OPENING" else 0.0,
                         close_price=price if position_effect == "CLOSING" else 0.0,
                         open_type=open_type,
+                        account=account,
                     ).model_dump())
             except Exception as e:
                 logger.error(f"Error processing transaction: {e}")
@@ -375,10 +450,58 @@ class SchwabTransactionProvider:
                 continue
         return rows
 
+    # Schwab's assetType → TransactionProvider.fetch_executions' asset_class.
+    _FILL_ASSET_CLASS = {
+        "OPTION": "OPTION",
+        "FUTURE": "FUTURE",
+        "EQUITY": "STOCK",
+        "COLLECTIVE_INVESTMENT": "ETF",
+        "MUTUAL_FUND": "FUND",
+    }
+
+    def fetch_executions(self, start_date: str, end_date: str) -> list[dict]:
+        executions = []
+        for _, transaction in self._account_transactions(start_date, end_date):
+            # Equity expirations and assignments are RECEIVE_AND_DELIVER, not
+            # executions. Futures-option expiries and exercises, the futures
+            # they deliver, and assigned shares are TRADEs — but with no
+            # order behind them: only a record with an orderId was placed.
+            if getattr(transaction, "type", None) != "TRADE":
+                continue
+            trade_date = getattr(transaction, "tradeDate", None)
+            executed = getattr(transaction, "time", None)
+            order_id = getattr(transaction, "orderId", None)
+            for item in getattr(transaction, "transferItems", []) or []:
+                instrument = getattr(item, "instrument", None)
+                asset = getattr(instrument, "assetType", None)
+                # The cash side and fee lines are CURRENCY items, not executions.
+                if not asset or asset == "CURRENCY":
+                    continue
+                is_option = asset == "OPTION"
+                expiration = getattr(instrument, "expirationDate", None) if is_option else None
+                symbol = getattr(instrument, "symbol", "") or ""
+                executions.append({
+                    "date": get_date_string(trade_date) if trade_date else "",
+                    "time": executed.isoformat() if isinstance(executed, datetime) else None,
+                    "order_id": str(order_id) if order_id is not None else None,
+                    "placed": order_id is not None,
+                    "asset_class": self._FILL_ASSET_CLASS.get(asset, "OTHER"),
+                    "symbol": symbol.split(":")[0],
+                    "underlying": self.normalize_futures_symbol(
+                        getattr(instrument, "underlyingSymbol", None) if is_option else symbol
+                    ) if (is_option or asset == "FUTURE") else symbol,
+                    "expiration": get_date_string(expiration) if expiration else None,
+                    "strike": getattr(instrument, "strikePrice", None) if is_option else None,
+                    "option_type": getattr(instrument, "putCall", None) if is_option else None,
+                    "quantity": float(getattr(item, "amount", 0) or 0),
+                    "price": float(getattr(item, "price", 0) or 0),
+                    "position_effect": getattr(item, "positionEffect", None),
+                })
+        return executions
+
     def fetch_equity_future_legs(self, start_date: str, end_date: str) -> list[dict]:
-        transactions = self.fetch_raw_transactions(start_date, end_date)
         results = []
-        for transaction in transactions:
+        for account, transaction in self._account_transactions(start_date, end_date):
             try:
                 # Only trades (assignments and exercises are trades too): a
                 # transfer in (RECEIVE_AND_DELIVER) carries no price, and
@@ -428,6 +551,7 @@ class SchwabTransactionProvider:
                         # (e.g. $50/point for ES) and is credit-positive / debit-negative.
                         "cost": float(getattr(item, "cost", 0) or 0),
                         "position_effect": getattr(item, "positionEffect", None),
+                        "account": account,
                     })
             except Exception as e:
                 logger.error(f"Error processing equity/future transaction: {e}")

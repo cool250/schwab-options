@@ -10,10 +10,11 @@ from service.shared.contracts import get_contract_multiplier
 class FakeTransactions:
     """A TransactionProvider serving fixed legs, no network."""
 
-    def __init__(self, option_legs=(), equity_legs=(), income_fees=()):
+    def __init__(self, option_legs=(), equity_legs=(), income_fees=(), executions=()):
         self.option_legs = list(option_legs)
         self.equity_legs = list(equity_legs)
         self.income_fees = list(income_fees)
+        self.executions = list(executions)
 
     def fetch_raw_transactions(self, start_date, end_date):
         return []
@@ -27,6 +28,9 @@ class FakeTransactions:
 
     def fetch_income_and_fees(self, start_date, end_date):
         return [dict(row) for row in self.income_fees]
+
+    def fetch_executions(self, start_date, end_date):
+        return [dict(row) for row in self.executions]
 
     def normalize_futures_symbol(self, symbol):
         # '/ESZ26:XCME' -> 'ES' (root before the month code + 2-digit year)

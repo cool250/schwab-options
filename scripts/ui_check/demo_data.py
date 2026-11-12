@@ -369,6 +369,22 @@ class DemoTransactions:
     def fetch_income_and_fees(self, start_date, end_date):
         return self._within(self._income, start_date, end_date)
 
+    def fetch_executions(self, start_date, end_date):
+        # Every leg is an execution; expirations have no order behind them.
+        rows = [{"date": leg["date"], "time": f"{leg['date']}T15:{i % 60:02d}:00+00:00",
+                 "order_id": None if leg["close_event"] else f"D{i // 2}", "placed": leg["close_event"] is None,
+                 "asset_class": "OPTION", "symbol": leg["symbol"], "underlying": leg["underlying_symbol"],
+                 "expiration": leg["expirationDate"], "strike": leg["strike_price"], "option_type": leg["option_type"],
+                 "quantity": leg["amount"], "price": leg["price"], "position_effect": leg["position_effect"]}
+                for i, leg in enumerate(self._options)]
+        rows += [{"date": leg["date"], "time": None, "order_id": f"E{i}", "placed": True,
+                  "asset_class": "FUTURE" if leg["asset_type"] == "FUTURE" else "STOCK",
+                  "symbol": leg["symbol"].split(":")[0], "underlying": self.normalize_futures_symbol(leg["symbol"]),
+                  "expiration": None, "strike": None, "option_type": None,
+                  "quantity": leg["amount"], "price": leg["price"], "position_effect": leg["position_effect"]}
+                 for i, leg in enumerate(self._equity)]
+        return self._within(rows, start_date, end_date)
+
     def normalize_futures_symbol(self, symbol):
         if symbol and symbol.startswith("/"):
             return symbol.split(":")[0][1:-3]

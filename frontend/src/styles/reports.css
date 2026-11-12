@@ -5,6 +5,7 @@
 .report-chart-fill { flex: 1; min-height: 260px; min-width: 0; }
 .report-card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
 .report-card-note { font-size: 0.8rem; color: var(--text-muted); }
+.report-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 /* Source switch above the report cards: sized to its tabs, not stretched like a page-level .tab-row. */
 .report-source-tabs { flex: none; }
 .report-source-bar { display: flex; align-items: center; gap: 10px; }
@@ -152,6 +153,45 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
 .report-ycal-cell { cursor: pointer; }
 .report-ycal-cell:hover, .report-ycal-cell:focus-visible { outline: none; stroke: var(--text); stroke-width: 1.5; }
 
+/* Trade Details (components/TradeDetails.jsx) */
+.report-table th.num { text-align: right; }
+.trade-log-table td.trade-log-order { color: var(--text-muted); font-size: 0.78rem; }
+
+/* ─── Export PDF ─────────────────────────────────────────
+   Reports' Export PDF sets .print-mode on <html> (and the light theme) a
+   moment before window.print(): the page lays out at a landscape sheet's
+   width on screen first, so the charts — which size themselves to their
+   box — are drawn at the width they'll print at. */
+.print-only { display: none; }
+html.print-mode .navbar,
+html.print-mode .copilot-widget,
+html.print-mode .account-picker-inline,
+html.print-mode .no-print { display: none !important; }
+html.print-mode .print-only { display: block; }
+html.print-mode .app-shell { padding-left: 0; }
+html.print-mode .main-content { width: 960px; max-width: none; margin: 0; padding: 0; }
+html.print-mode .report-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+html.print-mode .report-kpis { flex-wrap: nowrap; }
+html.print-mode .report-kpi:not(:first-child) { display: flex; }
+html.print-mode .card { box-shadow: none; }
+/* Wide tables fit the sheet instead of scrolling (a scroll box prints cut off). */
+html.print-mode .report-table-wrap { overflow: visible; }
+html.print-mode .trade-details-table th { white-space: normal; padding: 6px 5px; }
+html.print-mode .trade-details-table td { padding: 6px 5px; font-size: 0.82rem; }
+.report-print-head { display: none; }
+html.print-mode .report-print-head { display: flex; flex-direction: column; gap: 2px; }
+.report-print-title { font-size: 1.3rem; font-weight: 700; color: var(--text); }
+.report-print-meta { font-size: 0.8rem; color: var(--text-muted); }
+@media print {
+  @page { size: landscape; margin: 12mm; }
+  html.print-mode, html.print-mode body { background: #fff; }
+  html.print-mode * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  html.print-mode .card { break-inside: avoid; }
+  html.print-mode .report-table tr { break-inside: avoid; }
+}
+/* Export PDF beside the period filters. */
+.report-export { flex: none; margin-left: auto; }
+
 @media (max-width: 1024px) {
   .report-row { grid-template-columns: minmax(0, 1fr); }
 }
@@ -162,6 +202,8 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
   /* Phones show just the first tile, Total P&L; the rest of the numbers
      are in the views below it. */
   .report-kpi:not(:first-child) { display: none; }
+  /* Trade Details' tiles are its summary — all of them stay. */
+  .report-kpis--all .report-kpi:not(:first-child) { display: flex; }
   .pnl-cal { gap: 3px; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1fr); }
   .pnl-cal--months { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1fr); }
   .pnl-day { min-height: 46px; padding: 4px 5px; }
@@ -184,3 +226,9 @@ button.pnl-day:focus-visible, .pnl-week:focus-visible { outline: 2px solid var(-
   .report-table-wrap--latest > *,
   .report-ycal > * { direction: ltr; }
 }
+
+/* Tax summary: row labels wrap so the amounts stay in view on a phone. */
+.tax-table td:first-child { white-space: normal; }
+.tax-table tr.tax-group-head td { font-weight: 700; padding-top: 14px; }
+.tax-group-note { display: block; font-weight: 400; font-size: 0.78rem; color: var(--text-muted); }
+.tax-table td.tax-line { padding-left: 24px; }

@@ -76,7 +76,7 @@ class Accounts(BaseClient):
             })
         return out
 
-    def fetch_positions(self) -> SecuritiesAccount:
+    def fetch_positions(self, account_hash: Optional[str] = None) -> SecuritiesAccount:
         """
         Retrieve current account positions.
 
@@ -95,7 +95,7 @@ class Accounts(BaseClient):
         BrokerValidationError
             When the response cannot be parsed into :class:`SecuritiesAccount`.
         """
-        url = f"{self.base_url}/accounts/{self._account_hash}"
+        url = f"{self.base_url}/accounts/{account_hash or self._account_hash}"
         response_data = self._fetch_data(url, {"fields": "positions"})
 
         securities_account_data = response_data.get("securitiesAccount")
@@ -119,6 +119,7 @@ class Accounts(BaseClient):
         start_date: str,
         end_date: str,
         symbol: Optional[str] = None,
+        account_hash: Optional[str] = None,
     ) -> list[Activity]:
         """
         Fetch account transactions for a date range.
@@ -131,6 +132,9 @@ class Accounts(BaseClient):
             End date in ``YYYY-MM-DD`` format.
         symbol:
             Optional ticker to narrow results to a single underlying.
+        account_hash:
+            The account to read (a ``hashValue`` from :meth:`list_accounts`);
+            default: the request's selected account.
 
         Returns
         -------
@@ -148,7 +152,7 @@ class Accounts(BaseClient):
         if symbol is not None:
             params["symbol"] = symbol
 
-        url = f"{self.base_url}/accounts/{self._account_hash}/transactions"
+        url = f"{self.base_url}/accounts/{account_hash or self._account_hash}/transactions"
         response_data = self._fetch_data(url, params)
 
         try:

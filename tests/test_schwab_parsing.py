@@ -156,3 +156,93 @@ def test_account_list_asks_for_balances_only():
     assert accounts == [{"accountNumber": "12345678", "hashValue": "H1", "type": "MARGIN", "liquidationValue": 52340.17}]
     # Without fields=positions: the picker doesn't download every holding.
     assert ("/accounts", None) in calls
+
+
+def test_only_executions_with_an_order_behind_them_were_placed():
+    from types import SimpleNamespace
+    when = get_date_object("2026-09-28")
+
+    def leg(asset, effect, **instrument):
+        return SimpleNamespace(instrument=SimpleNamespace(assetType=asset, symbol=instrument.pop("symbol", "X"), **instrument),
+                               positionEffect=effect, amount=-1.0, price=2.5)
+    put = dict(symbol="SPY   261016P00650000", underlyingSymbol="SPY", putCall="PUT", strikePrice=650.0,
+               expirationDate=get_date_object("2026-10-16"))
+    records = [
+        # A two-leg order with its commission line: two placed executions
+        SimpleNamespace(activityId=1, tradeDate=when, time=None, type="TRADE", orderId=77, description=None,
+                        transferItems=[leg("OPTION", "OPENING", **put), leg("OPTION", "OPENING", **put), leg("CURRENCY", None)]),
+        # A futures option's expiry and the shares from an assignment: booked as TRADEs, no order
+        SimpleNamespace(activityId=2, tradeDate=when, time=None, type="TRADE", orderId=None,
+                        description="Removal of option due to expiration of /ESZ26 XCME", transferItems=[leg("OPTION", "CLOSING", **put)]),
+        SimpleNamespace(activityId=3, tradeDate=when, time=None, type="TRADE", orderId=None,
+                        description="INVESCO QQQ TR", transferItems=[leg("COLLECTIVE_INVESTMENT", "OPENING", symbol="QQQ")]),
+        # An equity option's assignment is a transfer, not an execution at all
+        SimpleNamespace(activityId=4, tradeDate=when, time=None, type="RECEIVE_AND_DELIVER", orderId=None,
+                        description="Removed due to Assignment", transferItems=[leg("OPTION", "CLOSING", **put)]),
+    ]
+    rows = SchwabTransactionProvider(client=_FakeClient(records)).fetch_executions("2026-09-01", "2026-09-30")
+    assert [(r["asset_class"], r["placed"], r["order_id"]) for r in rows] == [
+        ("OPTION", True, "77"), ("OPTION", True, "77"), ("OPTION", False, None), ("ETF", False, None),
+    ]
+    assert (rows[0]["underlying"], rows[0]["strike"], rows[0]["expiration"], rows[0]["option_type"]) == ("SPY", 650.0, "2026-10-16", "PUT")
+
+
+class _TwoAccountClient:
+    """Two accounts, each with its own records, served by account hash."""
+
+    def __init__(self, by_hash):
+        self.by_hash = by_hash
+
+    def list_accounts(self):
+        return [{"accountNumber": f"N{h}", "hashValue": h} for h in self.by_hash]
+
+    def fetch_transactions(self, start_date, end_date, account_hash=None):
+        return list(self.by_hash[account_hash or next(iter(self.by_hash))])
+
+
+@pytest.fixture
+def all_accounts():
+    from broker.request_context import ALL_ACCOUNTS, _selected_account
+    token = _selected_account.set(ALL_ACCOUNTS)
+    yield
+    _selected_account.reset(token)
+
+
+def test_all_accounts_reads_every_account_and_matches_within_each(all_accounts):
+    from service.portfolio import TransactionService
+    from service.portfolio.equity_matching import combine_equity_lots, match_equity_fills
+    # SPY bought in account A, sold in account B: two open lots, not a trade.
+    client = _TwoAccountClient({
+        "A": [_activity(1, "2026-09-01", "SPY", "COLLECTIVE_INVESTMENT", 100, 650.0, "OPENING")],
+        "B": [_activity(2, "2026-09-02", "SPY", "COLLECTIVE_INVESTMENT", -100, 660.0, "CLOSING")],
+    })
+    provider = SchwabTransactionProvider(client=client)
+    legs = provider.fetch_equity_future_legs("2026-09-01", "2026-09-30")
+    assert [(leg["account"], leg["amount"]) for leg in legs] == [("A", 100.0), ("B", -100.0)]
+    assert not any(t["closed"] for t in match_equity_fills(combine_equity_lots(legs)))
+    assert len(provider.fetch_raw_transactions("2026-09-01", "2026-09-30")) == 2
+
+
+def test_one_account_chosen_reads_only_it():
+    client = _TwoAccountClient({"A": [_activity(1, "2026-09-01", "SPY", "EQUITY", 100, 650.0, "OPENING")], "B": []})
+    legs = SchwabTransactionProvider(client=client).fetch_equity_future_legs("2026-09-01", "2026-09-30")
+    assert [leg["account"] for leg in legs] == [None]
+
+
+def test_all_accounts_balances_add_up_and_holdings_merge():
+    from service.portfolio.providers.schwab import _combine_balances, _combine_positions
+    balances = _combine_balances([
+        {"cash_balance": 100.0, "net_liquidity": 1_330_093.0, "available_funds": None},
+        {"cash_balance": 50.0, "net_liquidity": 653_047.0, "available_funds": 10.0},
+        None,
+    ])
+    assert balances == {"cash_balance": 150.0, "net_liquidity": 1_983_140.0, "available_funds": 10.0}
+
+    def pos(qty, avg, pl):
+        return {"asset_type": "EQUITY", "symbol": "QQQ", "long_quantity": qty, "short_quantity": 0,
+                "average_price": avg, "tax_lot_long_price": avg, "tax_lot_short_price": None,
+                "long_open_pl": pl, "short_open_pl": 0, "maintenance_requirement": 1.0}
+    [qqq] = _combine_positions([pos(100, 600.0, 10.0), pos(300, 640.0, 20.0)])
+    assert qqq["long_quantity"] == 400
+    assert qqq["average_price"] == pytest.approx(630.0)
+    assert (qqq["long_open_pl"], qqq["maintenance_requirement"]) == (30.0, 2.0)

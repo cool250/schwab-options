@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getAllocations, getEquityTransactions, getIncomeAndFees, getOptionTransactions, getOptionBids, friendlyErrorMessage } from '../api/client'
+import { getAllocations, getEquityTransactions, getIncomeAndFees, getPlacedTrades, getOptionTransactions, getOptionBids, friendlyErrorMessage } from '../api/client'
 import { loadOpenPositionsPl } from '../utils/openPositions'
 import { getMultiplier, isFuturesRoot } from '../utils/contractMultiplier'
 import Spinner from '../components/Spinner'
+import TradeDetails from '../components/TradeDetails'
+import TaxSummary from '../components/TaxSummary'
 import { useMatchMedia } from '../components/DataTable'
 import {
   KpiStrip, MonthCalendar, DailyRunChart, SymbolTable,
@@ -122,24 +124,41 @@ const REALIZED_ONLY = true
 // year), so the two pages agree.
 const OPEN_LOOKBACK_DAYS = 360
 
+const TABS = [
+  { id: 'month', label: 'Month' },
+  { id: 'ytd', label: 'YTD' },
+  { id: 'trades', label: 'Trade Details' },
+  { id: 'tax', label: 'Tax summary' },
+]
+// Trade Details and Tax summary cover the same Jan 1 – today range as YTD.
+const isYearTab = (p) => p === 'ytd' || p === 'trades' || p === 'tax'
+const PRINT_TITLES = { month: 'Monthly report', ytd: 'Year-to-date report', trades: 'Trade Details', tax: 'Tax summary' }
+
+// Wait for layout and paint: the charts resize themselves (ResizeObserver)
+// to the print-mode width before the print dialog snapshots the page.
+const settle = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 350))))
+
 export default function Reports() {
   const [defaults] = useState(reportDefaults)
   const navigate = useNavigate()
-  const [period, setPeriod] = useState(defaults.period) // 'month' | 'ytd'
+  const [period, setPeriod] = useState(defaults.period) // 'month' | 'ytd' | 'trades'
   const [year, setYear] = useState(defaults.year)
   const [month, setMonth] = useState(defaults.month)
   // Per tab: what was last loaded for it — the period plus the raw rows
   // (options, equity/futures, and, for Month, last month's options) —
   // whether it's loading, and its error. Each tab keeps its own, so
-  // switching between Month and YTD doesn't refetch.
-  const [reports, setReports] = useState({ month: null, ytd: null })
-  const [loadingFor, setLoadingFor] = useState({ month: false, ytd: false })
-  const [errors, setErrors] = useState({ month: null, ytd: null })
+  // switching between tabs doesn't refetch.
+  const [reports, setReports] = useState({ month: null, ytd: null, trades: null, tax: null })
+  const [loadingFor, setLoadingFor] = useState({ month: false, ytd: false, trades: false, tax: false })
+  const [errors, setErrors] = useState({ month: null, ytd: null, trades: null, tax: null })
   // Latest request per tab, so a slow earlier response can't overwrite a
   // newer one (e.g. the year changed twice in quick succession).
-  const requestIds = useRef({ month: 0, ytd: 0 })
+  const requestIds = useRef({ month: 0, ytd: 0, trades: 0, tax: 0 })
   // What each tab last asked for (loaded or still loading): { year, month }.
-  const requestedFor = useRef({ month: null, ytd: null })
+  const requestedFor = useRef({ month: null, ytd: null, trades: null, tax: null })
+  // Export PDF: the header printed above the report (title, period, account,
+  // date), set just before printing.
+  const [printHead, setPrintHead] = useState(null)
   const report = reports[period]
   const loading = loadingFor[period]
   const error = errors[period]
@@ -212,7 +231,7 @@ export default function Reports() {
 
   async function load(period, year, month) {
     if (period === 'month') loadOpen(year, month)
-    if (period === 'ytd') loadUnrealized(year)
+    if (period === 'ytd' || period === 'tax') loadUnrealized(year)
     const id = ++requestIds.current[period]
     requestedFor.current[period] = { year, month }
     const current = () => requestIds.current[period] === id
@@ -220,12 +239,12 @@ export default function Reports() {
     setErrors((s) => ({ ...s, [period]: null }))
     setReports((s) => ({ ...s, [period]: null }))
     try {
-      const { start, end } = period === 'ytd' ? ytdRange(year) : monthRange(year, month)
+      const { start, end } = isYearTab(period) ? ytdRange(year) : monthRange(year, month)
       // Month compares against last month; YTD has no comparison.
       const prevMonth = period === 'month' ? previousMonth(year, month) : null
       const prevRange = prevMonth && monthRange(prevMonth.year, prevMonth.month)
       const prevName = prevMonth ? MONTH_NAMES[prevMonth.month - 1] : null
-      const [data, equityData, prevData, prevEquityData, incomeFees, prevIncomeFees] = await Promise.all([
+      const [data, equityData, prevData, prevEquityData, incomeFees, prevIncomeFees, placed] = await Promise.all([
         getAllocations(start, end, REALIZED_ONLY),
         getEquityTransactions('', start, end, 'ALL', REALIZED_ONLY),
         // Only for the "vs last month" comparison — the report still loads
@@ -236,11 +255,15 @@ export default function Reports() {
         // report still loads without them.
         getIncomeAndFees(start, end).catch(() => null),
         prevRange ? getIncomeAndFees(prevRange.start, prevRange.end).catch(() => null) : Promise.resolve(null),
+        // Trade Details: the trades placed (null if they didn't load — the
+        // tab says so).
+        period === 'trades' ? getPlacedTrades(start, end).catch(() => null) : Promise.resolve(null),
       ])
       if (!current()) return
       setReports((s) => ({ ...s, [period]: {
         period, year, month, start, end,
-        label: period === 'ytd' ? `${year} year to date` : `${monthName(month)} ${year}`,
+        label: isYearTab(period) ? `${year} year to date` : `${monthName(month)} ${year}`,
+        placed,
         optionRows: withDay(normalizeOptionRows(data ?? [])),
         equityRows: withDay(normalizeEquityRows(equityData ?? [])),
         prevOptionRows: prevData ? withDay(normalizeOptionRows(prevData)) : null,
@@ -308,7 +331,7 @@ export default function Reports() {
   function selectPeriod(p) {
     setPeriod(p)
     const asked = requestedFor.current[p]
-    const matches = asked && asked.year === year && (p === 'ytd' || asked.month === month)
+    const matches = asked && asked.year === year && (isYearTab(p) || asked.month === month)
     if (!matches || errors[p]) load(p, year, month) // a failed load is retried
   }
 
@@ -393,6 +416,49 @@ export default function Reports() {
   const openSymbol = (ticker) => openTransactions({ ticker, start: report.start, end: report.end, tab: tabFor() })
   const openSymbolMonth = (ticker, m) => openTransactions({ ticker, ...monthBounds(m), tab: tabFor() })
 
+  const openTradesMonth = (m) => openRange(monthBounds(m).start, monthBounds(m).end, false, 'all')
+
+  // Trade Details' holding period: every realized trade with a known open
+  // — options, and equity/futures round trips ($0 ones included).
+  const heldTrades = useMemo(() => (!derived ? [] : [
+    ...derived.optionTrades,
+    ...closedTrades(report.equityRows).filter((t) => t.date && t.open_price != null),
+  ]), [derived, report])
+
+  // ---- Export PDF ----
+  // The browser's print dialog, whose "Save as PDF" writes the file. The
+  // page is laid out for a landscape sheet first (.print-mode in
+  // reports.css) in the light theme, with a header naming the report, its
+  // period and the account; everything goes back once the dialog closes.
+  async function exportPdf() {
+    const html = document.documentElement
+    const theme = html.getAttribute('data-theme')
+    const title = document.title
+    const tab = TABS.find((t) => t.id === period).label
+    const account = document.getElementById('account-picker-inline')?.selectedOptions?.[0]?.text ?? null
+    setPrintHead({
+      title: PRINT_TITLES[period],
+      meta: [report.label, account, `Exported ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`]
+        .filter(Boolean).join(' · '),
+    })
+    document.title = `${tab} ${report.label}` // the PDF's suggested file name
+    html.classList.add('print-mode')
+    html.setAttribute('data-theme', 'light')
+    const restore = () => {
+      html.classList.remove('print-mode')
+      if (theme) html.setAttribute('data-theme', theme)
+      document.title = title
+      setPrintHead(null)
+    }
+    try {
+      await settle()
+      window.addEventListener('afterprint', restore, { once: true })
+      window.print()
+    } catch {
+      restore()
+    }
+  }
+
   const isMonth = report?.period === 'month'
   // Open trades for the month on screen (not a different one still loading).
   const openNow = isMonth && open && open.year === report.year && open.month === report.month ? open : null
@@ -400,29 +466,34 @@ export default function Reports() {
   // The calendar's dashed days are open option legs — not shown under
   // "Equity & futures". (The key numbers' tile shows them either way.)
   const calendarOpenLegs = source === 'equity' ? [] : openLegs
-  const noData = derived && derived.optionTrades.length === 0 && derived.equityTrades.length === 0 && openLegs.length === 0
+  const noData = report?.period === 'trades'
+    ? report.placed != null && report.placed.trades.length === 0
+    : derived && derived.optionTrades.length === 0 && derived.equityTrades.length === 0 && openLegs.length === 0
   const show = derived && !noData && !loading
 
   return (
     <div className="page">
-      <div className="tab-row">
-        <button
-          type="button"
-          className={`tab-item ${period === 'month' ? 'active' : ''}`}
-          onClick={() => selectPeriod('month')}
-        >
-          Month
-        </button>
-        <button
-          type="button"
-          className={`tab-item ${period === 'ytd' ? 'active' : ''}`}
-          onClick={() => selectPeriod('ytd')}
-        >
-          YTD
-        </button>
+      <div className="tab-row no-print">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`tab-item ${period === t.id ? 'active' : ''}`}
+            onClick={() => selectPeriod(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      <div className="card">
+      {printHead && (
+        <div className="report-print-head">
+          <span className="report-print-title">{printHead.title}</span>
+          <span className="report-print-meta">{printHead.meta}</span>
+        </div>
+      )}
+
+      <div className="card no-print">
         <div className="report-filters">
           <div className="form-group">
             <label htmlFor="report-year">Year</label>
@@ -440,6 +511,9 @@ export default function Reports() {
               </select>
             </div>
           )}
+          <button type="button" className="btn btn-secondary report-export" onClick={exportPdf} disabled={!show}>
+            Export PDF
+          </button>
         </div>
       </div>
 
@@ -447,10 +521,34 @@ export default function Reports() {
       {loading && <Spinner />}
 
       {noData && !loading && (
-        <div className="alert warning">No closed trades in {report.label}.</div>
+        <div className="alert warning">No {report.period === 'trades' ? 'trades placed' : 'closed trades'} in {report.label}.</div>
       )}
 
-      {show && (
+      {show && report.period === 'trades' && (
+        <TradeDetails
+          placed={report.placed}
+          closedTrades={heldTrades}
+          start={report.start}
+          end={report.end}
+          lastMonth={derived.lastMonth}
+          label={report.label}
+          onMonth={openTradesMonth}
+        />
+      )}
+
+      {show && report.period === 'tax' && (
+        <TaxSummary
+          optionTrades={derived.optionTrades}
+          equityTrades={derived.equityTrades}
+          unrealized={unrealized && unrealized.year === report.year ? unrealized : null}
+          incomeFees={derived.incomeFees}
+          year={report.year}
+          isCurrentYear={report.year === currentYear()}
+          lastMonth={derived.lastMonth}
+        />
+      )}
+
+      {show && report.period !== 'trades' && report.period !== 'tax' && (
         <>
           {/* 1. Key numbers — compared with last month in the Month view */}
           <KpiStrip

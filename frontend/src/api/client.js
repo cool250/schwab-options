@@ -306,6 +306,11 @@ export function getIncomeAndFees(startDate, endDate) {
   return request(`/portfolio/transactions/income-fees?${p}`)
 }
 
+export function getPlacedTrades(startDate, endDate) {
+  const p = new URLSearchParams({ start_date: startDate, end_date: endDate })
+  return request(`/portfolio/transactions/placed-trades?${p}`)
+}
+
 export function getEquityTransactions(stockTicker, startDate, endDate, assetType, realizedGainsOnly) {
   const p = new URLSearchParams({
     stock_ticker: stockTicker,

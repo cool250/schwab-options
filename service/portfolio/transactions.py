@@ -152,6 +152,20 @@ class TransactionService:
         rows = self.provider.fetch_income_and_fees(start_date, fetch_end)
         return sorted((r for r in rows if start_date <= r["date"] <= end_date), key=lambda r: r["date"])
 
+    def get_placed_trades(self, start_date: str, end_date: str) -> Dict:
+        """The trades the account holder placed, dated start_date..end_date
+        (inclusive), oldest first — what counts toward trading activity (e.g.
+        trader tax status): {trades: [execution, ...], not_placed: n}.
+        Executions are TransactionProvider.fetch_executions rows. Left out,
+        and counted in not_placed: expirations, assignments, exercises and
+        what they deliver; money-market fund buys and sells (cash sweeps)
+        are left out entirely."""
+        fetch_end = (get_date_object(end_date) + timedelta(days=1)).strftime("%Y-%m-%d")
+        executions = [e for e in self.provider.fetch_executions(start_date, fetch_end)
+                      if start_date <= e["date"] <= end_date and e["asset_class"] != "FUND"]
+        trades = sorted((e for e in executions if e["placed"]), key=lambda e: (e["date"], e["time"] or ""))
+        return {"trades": trades, "not_placed": len(executions) - len(trades)}
+
     def get_equity_transactions(self, stock_ticker: str, start_date: str, end_date: str,
                                  asset_type: str = "ALL", realized_gains_only: bool = False,
                                  all_open: bool = False) -> List[Dict]:
@@ -244,3 +258,4 @@ class TransactionService:
     @staticmethod
     def _in_range(date_str: str, start_date: str, end_date: str) -> bool:
         return get_date_object(start_date) <= get_date_object(date_str) <= get_date_object(end_date)
+

@@ -9,7 +9,8 @@ The account a request reads: when a user's broker login covers several
 accounts, api/auth.require_auth sets the one they chose (the full account
 number from PositionProvider.list_accounts, saved per user), and each
 broker's client reads it when resolving which account to call. None = the
-broker's first account.
+broker's first account; ALL_ACCOUNTS = every account the login covers,
+read one by one and combined by the Portfolio provider.
 
 The user a request runs as (their id): set alongside the two above, for
 code that keeps per-user records outside the broker — the copilot's trade
@@ -18,6 +19,9 @@ feedback (copilot/feedback.py). None = no signed-in user.
 
 from contextvars import ContextVar, Token
 from typing import Optional
+
+# The saved choice meaning "every account" — never a real account number.
+ALL_ACCOUNTS = "ALL"
 
 _selected_broker: ContextVar[Optional[str]] = ContextVar("selected_broker", default=None)
 _selected_account: ContextVar[Optional[str]] = ContextVar("selected_account", default=None)
@@ -46,3 +50,7 @@ def set_selected_account(account_number: Optional[str]) -> Token:
 
 def get_selected_account() -> Optional[str]:
     return _selected_account.get()
+
+
+def all_accounts_selected() -> bool:
+    return _selected_account.get() == ALL_ACCOUNTS

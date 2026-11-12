@@ -64,7 +64,8 @@ def match_option_trades(trades: List[Dict]) -> List[Dict]:
             trade["underlying_symbol"], 
             trade["strike_price"], 
             trade["expirationDate"], 
-            trade["option_type"]
+            trade["option_type"],
+            trade.get("account"),  # several accounts read together: each matched on its own
         )
         open_close_trades[key].append(trade)
 
@@ -86,7 +87,8 @@ def combine_common_lots(trades: List[Dict]) -> List[Dict]:
             trade["strike_price"], 
             trade["expirationDate"], 
             trade["position_effect"], 
-            trade["option_type"]
+            trade["option_type"],
+            trade.get("account"),
         )
         position_grouped[key].append(trade)
 
@@ -207,6 +209,7 @@ def match_open_close(contract_trades: Dict) -> List[Dict]:
                 type=trade_type,
                 total_amount=pl_per_contract * abs(amount) * get_contract_multiplier(open_trade.get("underlying_symbol", "")),
                 open_type=open_trade.get("open_type"),
+                account=open_trade.get("account"),
             ).model_dump())
 
         # Add any remaining unmatched trades to the unmatched list

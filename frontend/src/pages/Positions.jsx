@@ -726,7 +726,8 @@ export default function Positions() {
           {data && !loading && (
             <>
               {/* Stocks */}
-              {stocks.length > 0 ? (
+              {/* Each table shows only when there are positions in it */}
+              {stocks.length > 0 && (
                 <div className="card">
                   <h3 className="section-title">Stocks</h3>
                   <p className="summary-line">
@@ -738,19 +739,12 @@ export default function Positions() {
                   </p>
                   <DataTable data={stocks} columns={STOCK_COLUMNS} phone={SYMBOL_PINNED} defaultSortKey="symbol" />
                 </div>
-              ) : (
-                <div className="alert warning">No stocks found.</div>
               )}
-
-              {/* Puts */}
-              {puts.length > 0
-                ? equityOptionCard('Puts', puts, 'PUT')
-                : <div className="alert warning">No PUT option positions found.</div>}
-
-              {/* Calls */}
-              {calls.length > 0
-                ? equityOptionCard('Calls', calls, 'CALL')
-                : <div className="alert warning">No CALL option positions found.</div>}
+              {puts.length > 0 && equityOptionCard('Puts', puts, 'PUT')}
+              {calls.length > 0 && equityOptionCard('Calls', calls, 'CALL')}
+              {stocks.length + puts.length + calls.length === 0 && (
+                <div className="alert warning">No open positions.</div>
+              )}
             </>
           )}
         </>
@@ -764,29 +758,21 @@ export default function Positions() {
           {futuresData && !futuresLoading && (
             <>
               {/* Futures */}
-              {futures.length > 0 ? (
+              {/* Each table shows only when there are positions in it */}
+              {futures.length > 0 && (
                 <div className="card">
                   <h3 className="section-title">Futures</h3>
                   {futuresContractSummary(futures)}
                   <DataTable data={futures} columns={[...futuresColumns(setLotsRow), futuresContractCurrentPriceColumn(), futuresContractPnLColumn()]} phone={SYMBOL_PINNED} defaultSortKey="symbol" />
                 </div>
-              ) : (
-                <div className="alert warning">No open futures positions found.</div>
               )}
-
-              {/* Futures Puts */}
-              {futuresPuts.length > 0
-                ? futuresOptionCard('Puts', futuresPuts, 'PUT')
-                : <div className="alert warning">No open futures PUT positions found.</div>}
-
-              {/* Futures Calls */}
-              {futuresCalls.length > 0
-                ? futuresOptionCard('Calls', futuresCalls, 'CALL')
-                : <div className="alert warning">No open futures CALL positions found.</div>}
-
-              {/* Ratio spreads — only when there are some, unlike the tables above */}
+              {futuresPuts.length > 0 && futuresOptionCard('Puts', futuresPuts, 'PUT')}
+              {futuresCalls.length > 0 && futuresOptionCard('Calls', futuresCalls, 'CALL')}
               {ratioPuts.length > 0 && futuresOptionCard('Ratio Puts', ratioPuts, 'PUT')}
               {ratioCalls.length > 0 && futuresOptionCard('Ratio Calls', ratioCalls, 'CALL')}
+              {futures.length + futuresPuts.length + futuresCalls.length + ratioPuts.length + ratioCalls.length === 0 && (
+                <div className="alert warning">No open futures positions.</div>
+              )}
 
             </>
           )}

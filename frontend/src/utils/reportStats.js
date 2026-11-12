@@ -109,6 +109,55 @@ export function runningTotal(trades) {
   })
 }
 
+/** Trade Details: the trades the account holder placed, month by month —
+ *  trades: GET /portfolio/transactions/placed-trades `trades` (one row per
+ *  executed leg: { date, order_id, asset_class, position_effect }).
+ *  closedTrades: the period's realized trades (an open `date` and a
+ *  `close_date`), for the holding period. marketDays: the period's trading
+ *  days ("YYYY-MM-DD", utils/marketCalendar.js). lastMonth: last month
+ *  shown (0-based).
+ *  → { months: [{ m, label, trades, orders, opening, closing, options,
+ *  futures, stocks, daysTraded, marketDays }], total: same fields,
+ *  holding: { avg, median, n } | null } */
+export function placedTradeStats({ trades = [], closedTrades = [], marketDays = [], lastMonth = 11 }) {
+  const blank = () => ({ trades: 0, orders: new Set(), opening: 0, closing: 0, options: 0, futures: 0, stocks: 0, days: new Set(), marketDays: 0 })
+  const months = MONTH_NAMES.slice(0, lastMonth + 1).map(() => blank())
+  const total = blank()
+  const monthOf = (iso) => months[Number(iso.slice(5, 7)) - 1]
+  for (const t of trades) {
+    const row = monthOf(t.date)
+    if (!row) continue
+    for (const r of [row, total]) {
+      r.trades++
+      // An order's legs share its id; one without an id counts on its own.
+      r.orders.add(t.order_id ?? `${t.date}-${r.trades}`)
+      if (t.position_effect === 'OPENING') r.opening++
+      else if (t.position_effect === 'CLOSING') r.closing++
+      r[t.asset_class === 'OPTION' ? 'options' : t.asset_class === 'FUTURE' ? 'futures' : 'stocks']++
+      r.days.add(t.date)
+    }
+  }
+  for (const d of marketDays) {
+    const row = monthOf(d)
+    if (row) { row.marketDays++; total.marketDays++ }
+  }
+  const flat = (r, extra) => ({
+    ...extra, trades: r.trades, orders: r.orders.size, opening: r.opening, closing: r.closing,
+    options: r.options, futures: r.futures, stocks: r.stocks, daysTraded: r.days.size, marketDays: r.marketDays,
+  })
+  const held = closedTrades
+    .filter((t) => t.date && t.close_date)
+    .map((t) => Math.max(0, Math.round((utcDate(String(t.close_date).slice(0, 10)) - utcDate(String(t.date).slice(0, 10))) / 86400000)))
+    .sort((a, b) => a - b)
+  return {
+    months: months.map((r, m) => flat(r, { m, label: MONTH_NAMES[m] })),
+    total: flat(total),
+    holding: held.length
+      ? { avg: held.reduce((s, d) => s + d, 0) / held.length, median: held[Math.floor((held.length - 1) / 2)], n: held.length }
+      : null,
+  }
+}
+
 /** Diverging step (1-4 per side) by share of the largest magnitude — the
  *  P&L heat colors in tokens.css (--pnl-gain-N / --pnl-loss-N). */
 export function pnlStep(value, maxAbs) {

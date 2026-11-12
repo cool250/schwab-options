@@ -56,6 +56,15 @@ def get_income_and_fees(
     return service.get_income_and_fees(*_range(start_date, end_date))
 
 
+@router.get("/placed-trades", summary="Trades the account holder placed (no expirations, assignments or exercises)")
+def get_placed_trades(
+    start_date: date,
+    end_date: date,
+    service: TransactionService = Depends(get_service),
+):
+    return service.get_placed_trades(*_range(start_date, end_date))
+
+
 @router.get("/equity", summary="FIFO-matched buy/sell round-trips for equities and outright futures")
 def get_equity_transactions(
     start_date: date,

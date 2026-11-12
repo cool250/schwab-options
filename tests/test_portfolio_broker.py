@@ -77,3 +77,26 @@ def test_put_rejects_a_broker_that_isnt_registered(client):
     http, _ = client
     assert http.put("/api/portfolio/positions/broker", json={"name": "tastytrade"}).status_code == 404
 
+
+
+class _TwoAccounts:
+    def list_accounts(self):
+        return [
+            {"id": "h1", "number": "11110785", "type": "MARGIN", "value": 100.0},
+            {"id": "h2", "number": "22220112", "type": "MARGIN", "value": 50.0},
+        ]
+
+
+def test_all_accounts_is_offered_first_and_saved(client, db, monkeypatch):
+    from api.portfolio import positions
+    monkeypatch.setattr(positions, "get_position_provider", lambda: _TwoAccounts())
+    http, user = client
+    rows = http.get("/api/portfolio/positions/accounts").json()
+    assert [(r["id"], r["label"], r["selected"]) for r in rows] == [
+        ("ALL", "All accounts", False), ("h1", "…0785", True), ("h2", "…0112", False),
+    ]
+    assert rows[0]["value"] == 150.0
+    rows = http.put("/api/portfolio/positions/account", json={"id": "ALL"}).json()
+    assert rows[0]["selected"] and db.get_user(user.id).broker_account == "ALL"
+    # No full account number reaches the browser.
+    assert "11110785" not in str(rows)

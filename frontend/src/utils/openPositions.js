@@ -21,11 +21,13 @@ function sumPriced(values) {
 
 /**
  * Unrealized P&L of every open position, loaded fresh (never cached —
- * account data). Resolves to { total, stocks, options, futures, unpriced,
- * futuresMissing }: each part a dollar figure over what could be priced —
- * `options` covers equity and futures options, `futures` the outright
+ * account data). Resolves to { total, stocks, options, futuresOptions,
+ * futures, unpriced, futuresUnpriced, futuresMissing }: each part a dollar
+ * figure over what could be priced — `options` covers equity and futures
+ * options, `futuresOptions` the futures options alone, `futures` the outright
  * contracts only (as the Positions page's Futures table); `unpriced` counts
- * the positions left out for want of a quote; `futuresMissing` is true when
+ * the positions left out for want of a quote (`futuresUnpriced`: of the
+ * futures and futures options); `futuresMissing` is true when
  * the futures or futures-option positions couldn't be loaded, so the total
  * leaves them out.
  */
@@ -45,18 +47,18 @@ export async function loadOpenPositionsPl() {
     roots.length ? getMarketQuotes({ futures: roots }).then((q) => q.futures ?? {}).catch(() => ({})) : {},
     getOptionBids(contracts).catch(() => ({})),
   ])
-  const options = sumPriced([
-    ...[...(positions.puts ?? []), ...(positions.calls ?? [])].map((o) => o.total_value ?? null),
-    ...[...(futuresOptions?.puts ?? []), ...(futuresOptions?.calls ?? [])].map((r) => futuresOptionRowPl(r, bids)),
-  ])
+  const equityOptions = sumPriced([...(positions.puts ?? []), ...(positions.calls ?? [])].map((o) => o.total_value ?? null))
+  const futOptions = sumPriced([...(futuresOptions?.puts ?? []), ...(futuresOptions?.calls ?? [])].map((r) => futuresOptionRowPl(r, bids)))
   const fut = sumPriced((futures ?? []).map((f) => futuresRowPl(f, prices)))
 
   return {
-    total: stocks.pl + options.pl + fut.pl,
+    total: stocks.pl + equityOptions.pl + futOptions.pl + fut.pl,
     stocks: stocks.pl,
-    options: options.pl,
+    options: equityOptions.pl + futOptions.pl,
+    futuresOptions: futOptions.pl,
     futures: fut.pl,
-    unpriced: stocks.unpriced + options.unpriced + fut.unpriced,
+    unpriced: stocks.unpriced + equityOptions.unpriced + futOptions.unpriced + fut.unpriced,
+    futuresUnpriced: futOptions.unpriced + fut.unpriced,
     futuresMissing,
   }
 }

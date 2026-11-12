@@ -85,19 +85,22 @@ class Client:
         """Every account the Schwab login covers (see Accounts.list_accounts)."""
         return self._accounts.list_accounts()
 
-    def fetch_positions(self) -> SecuritiesAccount:
-        """Current account positions and balances."""
-        return self._accounts.fetch_positions()
+    def fetch_positions(self, account_hash: Optional[str] = None) -> SecuritiesAccount:
+        """Current account positions and balances — of *account_hash* when
+        given, else the request's selected account."""
+        return self._accounts.fetch_positions(account_hash)
 
     def fetch_transactions(
         self,
         start_date: str,
         end_date: str,
         symbol: Optional[str] = None,
+        account_hash: Optional[str] = None,
     ) -> list[Activity]:
         """
         Account transactions for *start_date* … *end_date* (``YYYY-MM-DD``).
 
-        Optionally narrow to a single underlying with *symbol*.
+        Optionally narrow to a single underlying with *symbol*, and read
+        *account_hash* instead of the request's selected account.
         """
-        return self._accounts.fetch_transactions(start_date, end_date, symbol)
+        return self._accounts.fetch_transactions(start_date, end_date, symbol, account_hash)

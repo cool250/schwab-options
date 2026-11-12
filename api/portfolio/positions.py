@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from api import users
 from api.auth import require_auth
 from api.users import User
+from broker.request_context import ALL_ACCOUNTS
 from service.portfolio import PositionService
 from service.portfolio.models import (
     FuturesOptionPositions,
@@ -64,10 +65,15 @@ def _accounts_for(user: User) -> list[dict]:
     and the provider's opaque id to choose by."""
     accounts = get_position_provider().list_accounts()
     numbers = [a["number"] for a in accounts]
+    # Several accounts: "All accounts" comes first, reading them together.
+    offer_all = len(accounts) > 1
     # The account Portfolio actually reads: the saved one while still part
     # of the login, else the broker's first (same rule the provider applies).
-    active = user.broker_account if user.broker_account in numbers else (numbers[0] if numbers else None)
-    return [
+    if offer_all and user.broker_account == ALL_ACCOUNTS:
+        active = ALL_ACCOUNTS
+    else:
+        active = user.broker_account if user.broker_account in numbers else (numbers[0] if numbers else None)
+    rows = [
         {
             "id": a["id"],
             "label": f"…{str(a['number'])[-4:]}",
@@ -77,6 +83,16 @@ def _accounts_for(user: User) -> list[dict]:
         }
         for a in accounts
     ]
+    if offer_all:
+        values = [a["value"] for a in accounts if a["value"] is not None]
+        rows.insert(0, {
+            "id": ALL_ACCOUNTS,
+            "label": "All accounts",
+            "type": None,
+            "value": sum(values) if values else None,
+            "selected": active == ALL_ACCOUNTS,
+        })
+    return rows
 
 
 @router.get("/accounts", summary="Accounts the broker login covers, with the one Portfolio reads marked selected")
@@ -90,7 +106,11 @@ class AccountChoice(BaseModel):
 
 @router.put("/account", summary="Choose which account Positions, Transactions and Reports read")
 def set_account(choice: AccountChoice, user: User = Depends(require_auth)):
-    match = next((a for a in get_position_provider().list_accounts() if a["id"] == choice.id), None)
+    accounts = get_position_provider().list_accounts()
+    if choice.id == ALL_ACCOUNTS and len(accounts) > 1:
+        users.set_broker_account(user.id, ALL_ACCOUNTS)
+        return _accounts_for(users.get_user(user.id))
+    match = next((a for a in accounts if a["id"] == choice.id), None)
     if match is None:
         raise HTTPException(status_code=404, detail="That account isn't part of your broker login.")
     users.set_broker_account(user.id, match["number"])

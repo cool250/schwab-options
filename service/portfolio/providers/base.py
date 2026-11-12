@@ -39,6 +39,9 @@ class OptionTransaction(BaseModel):
     close_event: Optional[str] = None
     total_amount: Optional[float] = 0.0
     open_type: Optional[str] = None
+    # Which account the leg is in, when several are read together (All
+    # accounts): an opaque id, kept so trades match within one account.
+    account: Optional[str] = None
 
 
 # ─── The seam ──────────────────────────────────────────────────────────
@@ -146,6 +149,20 @@ class TransactionProvider(Protocol):
         ETFs count as "EQUITY". cost is already multiplier-adjusted,
         credit-positive/debit-negative. The window may be longer than one
         broker request allows; the provider splits it."""
+        ...
+
+    def fetch_executions(self, start_date: str, end_date: str) -> list[dict]:
+        """Every execution in the window, one dict per filled leg (a spread's
+        legs count separately):
+        {date, time: ISO datetime | None, order_id: str | None,
+         placed: bool,   # True only for an order the account holder placed —
+                         # never an expiration, assignment, exercise or what
+                         # one delivers, even where the broker books it as a fill
+         asset_class: "OPTION"|"FUTURE"|"STOCK"|"ETF"|"FUND"|"OTHER",
+         symbol, underlying (futures: the bare root), expiration, strike,
+         option_type: "PUT"|"CALL"|None (options only),
+         quantity (signed: + bought, − sold), price,
+         position_effect: "OPENING" | "CLOSING" | None — the broker's label}."""
         ...
 
     def fetch_income_and_fees(self, start_date: str, end_date: str) -> list[dict]:
