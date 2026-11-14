@@ -156,17 +156,18 @@ export default function TaxSummary({ optionTrades, equityTrades, unrealized, inc
             <div className="report-table-wrap">
               <table className="report-table tax-table">
                 {[
-                  { key: 'deductible', title: 'Deductible expenses', note: 'Schedule C with trader tax status; otherwise investment interest (Form 4952, if you itemize)' },
-                  { key: 'inBasis', title: 'Already in your trade results', note: 'In the 1099-B’s proceeds and cost — not deducted again' },
-                  { key: 'income', title: 'Income', note: '1099-INT / 1099-DIV' },
+                  { key: 'deductible', title: 'Deductible expenses', note: 'Schedule C with trader tax status; otherwise investment interest (Form 4952, if you itemize)', tone: 'pnl-down' },
+                  { key: 'inBasis', title: 'Already in your trade results', note: 'In the 1099-B’s proceeds and cost — not deducted again', tone: 'pnl-down' },
+                  { key: 'income', title: 'Income', note: '1099-INT / 1099-DIV', tone: 'pnl-up' },
                 ].map((g) => (
+                  // Expenses red, income green; a $0 total stays plain.
                   <tbody key={g.key}>
                     <tr className="tax-group-head">
                       <td>{g.title}<span className="tax-group-note">{g.note}</span></td>
-                      <td className="num">{usd(groups[g.key].total)}</td>
+                      <td className={`num ${groups[g.key].total ? g.tone : ''}`}>{usd(groups[g.key].total)}</td>
                     </tr>
                     {groups[g.key].items.map((l) => (
-                      <tr key={l.label}><td className="tax-line">{l.label}</td><td className="num">{usd(l.amount)}</td></tr>
+                      <tr key={l.label}><td className="tax-line">{l.label}</td><td className={`num ${g.tone}`}>{usd(l.amount)}</td></tr>
                     ))}
                   </tbody>
                 ))}

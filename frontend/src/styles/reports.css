@@ -174,8 +174,16 @@ html.print-mode .print-only { display: block; }
 html.print-mode .app-shell { padding-left: 0; }
 html.print-mode .main-content { width: 960px; max-width: none; margin: 0; padding: 0; }
 html.print-mode .report-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-/* A sheet is too narrow for three: two, the last full width below. */
-html.print-mode .report-row--3 > :last-child { grid-column: 1 / -1; }
+/* Three across, as on screen: the last card back in its column, and the Tax
+   summary's tables a little smaller and tighter so Other trades' five
+   columns fit a third of the sheet. */
+html.print-mode .report-row--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+html.print-mode .report-row--3 > :last-child { grid-column: auto; }
+html.print-mode .tax-summary .report-row--3 .card { padding: 14px; }
+html.print-mode .tax-summary .report-table td { font-size: 0.78rem; }
+html.print-mode .tax-summary .report-table th { font-size: 0.62rem; letter-spacing: 0.2px; }
+html.print-mode .tax-summary .report-table :is(th, td) { padding: 6px 4px; }
+html.print-mode .tax-summary .tax-table td.tax-line { padding-left: 14px; }
 /* Tax summary's four tiles at equal widths (a grid, so the first tile's
    missing left padding doesn't make it narrower). */
 html.print-mode .tax-summary .report-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -246,7 +254,8 @@ html.print-mode .report-print-head { display: flex; flex-direction: column; gap:
 .tax-summary .report-table td { font-size: 0.9rem; }
 .tax-summary .report-table :is(th, td) { padding-left: 6px; padding-right: 6px; }
 .tax-summary .report-kpi-value { font-size: 1.125rem; }
-.tax-summary .report-kpi--hero .report-kpi-value { font-size: 1.44rem; }
+/* All four figures the same size, Section 1256's included. */
+.tax-summary .report-kpi--hero .report-kpi-value { font-size: 1.125rem; line-height: normal; }
 /* Row labels wrap so the amounts stay in view on a phone. */
 .tax-table td:first-child { white-space: normal; }
 .tax-table tr.tax-group-head td { font-weight: 700; padding-top: 14px; }
