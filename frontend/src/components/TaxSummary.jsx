@@ -58,7 +58,7 @@ export default function TaxSummary({ optionTrades, equityTrades, unrealized, inc
   ]
 
   return (
-    <>
+    <div className="tax-summary">
       <div className="card">
         <div className="report-kpis report-kpis--all">
           {tiles.map((k) => (
@@ -75,7 +75,7 @@ export default function TaxSummary({ optionTrades, equityTrades, unrealized, inc
         </p>
       </div>
 
-      <div className="report-row">
+      <div className="report-row report-row--3">
         <div className="card">
           <div className="report-card-head">
             <h3 className="section-title">Section 1256 contracts</h3>
@@ -144,6 +144,41 @@ export default function TaxSummary({ optionTrades, equityTrades, unrealized, inc
             Wash sales aren&apos;t applied.
           </p>
         </div>
+
+        <div className="card">
+          <div className="report-card-head">
+            <h3 className="section-title">Expenses and income</h3>
+            <span className="report-card-note">From your Schwab activity in {year}</span>
+          </div>
+          {!groups ? (
+            <p className="summary-line">Interest, dividends and fees couldn&apos;t be loaded.</p>
+          ) : (
+            <div className="report-table-wrap">
+              <table className="report-table tax-table">
+                {[
+                  { key: 'deductible', title: 'Deductible expenses', note: 'Schedule C with trader tax status; otherwise investment interest (Form 4952, if you itemize)' },
+                  { key: 'inBasis', title: 'Already in your trade results', note: 'In the 1099-B’s proceeds and cost — not deducted again' },
+                  { key: 'income', title: 'Income', note: '1099-INT / 1099-DIV' },
+                ].map((g) => (
+                  <tbody key={g.key}>
+                    <tr className="tax-group-head">
+                      <td>{g.title}<span className="tax-group-note">{g.note}</span></td>
+                      <td className="num">{usd(groups[g.key].total)}</td>
+                    </tr>
+                    {groups[g.key].items.map((l) => (
+                      <tr key={l.label}><td className="tax-line">{l.label}</td><td className="num">{usd(l.amount)}</td></tr>
+                    ))}
+                  </tbody>
+                ))}
+              </table>
+            </div>
+          )}
+          <p className="report-footnote">
+            Other trading costs — data feeds, software, equipment, a home office — aren&apos;t in your Schwab activity;
+            with trader tax status they&apos;re Schedule C expenses too. Without it, investment expenses other than
+            interest aren&apos;t deductible.
+          </p>
+        </div>
       </div>
 
       <div className="card">
@@ -176,40 +211,6 @@ export default function TaxSummary({ optionTrades, equityTrades, unrealized, inc
           uses, which lowers early payments when gains come late in the year. Open 1256 positions count in the last period.
         </p>
       </div>
-      <div className="card">
-        <div className="report-card-head">
-          <h3 className="section-title">Expenses and income</h3>
-          <span className="report-card-note">From your Schwab activity in {year}</span>
-        </div>
-        {!groups ? (
-          <p className="summary-line">Interest, dividends and fees couldn&apos;t be loaded.</p>
-        ) : (
-          <div className="report-table-wrap">
-            <table className="report-table tax-table">
-              {[
-                { key: 'deductible', title: 'Deductible expenses', note: 'Schedule C with trader tax status; otherwise investment interest (Form 4952, if you itemize)' },
-                { key: 'inBasis', title: 'Already in your trade results', note: 'In the 1099-B’s proceeds and cost — not deducted again' },
-                { key: 'income', title: 'Income', note: '1099-INT / 1099-DIV' },
-              ].map((g) => (
-                <tbody key={g.key}>
-                  <tr className="tax-group-head">
-                    <td>{g.title}<span className="tax-group-note">{g.note}</span></td>
-                    <td className="num">{usd(groups[g.key].total)}</td>
-                  </tr>
-                  {groups[g.key].items.map((l) => (
-                    <tr key={l.label}><td className="tax-line">{l.label}</td><td className="num">{usd(l.amount)}</td></tr>
-                  ))}
-                </tbody>
-              ))}
-            </table>
-          </div>
-        )}
-        <p className="report-footnote">
-          Other trading costs — data feeds, software, equipment, a home office — aren&apos;t in your Schwab activity;
-          with trader tax status they&apos;re Schedule C expenses too. Without it, investment expenses other than
-          interest aren&apos;t deductible.
-        </p>
-      </div>
-    </>
+    </div>
   )
 }

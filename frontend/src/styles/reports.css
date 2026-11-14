@@ -1,6 +1,9 @@
 /* ─── Reports page (pages/Reports.jsx, components/ReportViews.jsx) ─── */
 
 .report-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+/* Three cards side by side (Tax summary); two with the last full width
+   below on narrower screens (see the max-width: 1399px rule). */
+.report-row--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 /* A chart that fills whatever height its card has left (see CHART_MIN_HEIGHT). */
 .report-chart-fill { flex: 1; min-height: 260px; min-width: 0; }
 .report-card-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
@@ -171,6 +174,11 @@ html.print-mode .print-only { display: block; }
 html.print-mode .app-shell { padding-left: 0; }
 html.print-mode .main-content { width: 960px; max-width: none; margin: 0; padding: 0; }
 html.print-mode .report-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+/* A sheet is too narrow for three: two, the last full width below. */
+html.print-mode .report-row--3 > :last-child { grid-column: 1 / -1; }
+/* Tax summary's four tiles at equal widths (a grid, so the first tile's
+   missing left padding doesn't make it narrower). */
+html.print-mode .tax-summary .report-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 html.print-mode .report-kpis { flex-wrap: nowrap; }
 html.print-mode .report-kpi:not(:first-child) { display: flex; }
 html.print-mode .card { box-shadow: none; }
@@ -192,6 +200,10 @@ html.print-mode .report-print-head { display: flex; flex-direction: column; gap:
 /* Export PDF beside the period filters. */
 .report-export { flex: none; margin-left: auto; }
 
+@media (max-width: 1399px) {
+  .report-row--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-row--3 > :last-child { grid-column: 1 / -1; }
+}
 @media (max-width: 1024px) {
   .report-row { grid-template-columns: minmax(0, 1fr); }
 }
@@ -227,7 +239,15 @@ html.print-mode .report-print-head { display: flex; flex-direction: column; gap:
   .report-ycal > * { direction: ltr; }
 }
 
-/* Tax summary: row labels wrap so the amounts stay in view on a phone. */
+/* Tax summary: its larger text 10% smaller (table rows, the tiles' figures),
+   so three cards fit side by side; the small notes and labels stay as they
+   are. display: contents keeps its cards in the page's own layout. */
+.tax-summary { display: contents; }
+.tax-summary .report-table td { font-size: 0.9rem; }
+.tax-summary .report-table :is(th, td) { padding-left: 6px; padding-right: 6px; }
+.tax-summary .report-kpi-value { font-size: 1.125rem; }
+.tax-summary .report-kpi--hero .report-kpi-value { font-size: 1.44rem; }
+/* Row labels wrap so the amounts stay in view on a phone. */
 .tax-table td:first-child { white-space: normal; }
 .tax-table tr.tax-group-head td { font-weight: 700; padding-top: 14px; }
 .tax-group-note { display: block; font-weight: 400; font-size: 0.78rem; color: var(--text-muted); }
