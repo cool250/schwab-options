@@ -31,6 +31,9 @@
   align-items: baseline;
   gap: 24px;
 }
+/* Transactions' Status filter: pushed right, with the CSV button beside it. */
+.section-header > .status-filter { margin-left: auto; width: auto; align-self: center; }
+.section-header > .status-filter + .icon-btn { margin-left: 0; }
 
 /* ─── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
@@ -38,6 +41,10 @@
      the summary numbers take a full line beneath. */
   .section-header { flex-wrap: wrap; align-items: center; gap: 6px 12px; }
   .section-header > .summary-line { order: 1; flex-basis: 100%; }
+  /* With a Status filter: the title on its own line, then the filter and
+     CSV button sharing the next. */
+  .section-header:has(> .status-filter) > .section-title { flex-basis: 100%; }
+  .section-header > .status-filter { flex: 1; margin-left: 0; }
   /* Bottom padding clears the tab bar (navbar.css) and the home bar. */
   .main-content   { padding: 20px max(16px, env(safe-area-inset-right, 0px)) calc(20px + var(--tabbar-height) + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
   .page           { gap: 14px; }

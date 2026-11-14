@@ -11,13 +11,15 @@
    (pointer: coarse), not a width, so a narrow desktop window keeps them off. */
 :root {
   /* Brand */
-  --primary:       #2563eb;
-  --primary-hover: #1d4ed8;
-  --primary-light: #eff6ff;
-  --primary-ring:  rgba(37, 99, 235, 0.15);
+  /* Indigo: apart from the green/red P&L colors and the orange accent, and
+     6.3:1 for white text (the old blue #2563eb was 5.2:1). */
+  --primary:       #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-light: #eef2ff;
+  --primary-ring:  rgba(79, 70, 229, 0.15);
 
   /* Claude's brand orange (Crail), used for selection-style highlights that
-     should read as distinct from the primary blue used for actions/links. */
+     should read as distinct from the primary indigo used for actions/links. */
   --accent:       #d97757;
   --accent-light: #fdf1ec;
 
@@ -33,14 +35,14 @@
   --text-faint: #94a3b8;
   --text-inverse: #ffffff;
 
-  /* Table/chain header row background — same blue as --primary rather than
+  /* Table/chain header row background — same color as --primary rather than
      a near-black navy, so every table header reads as an accent band
      instead of "dark UI". */
   --header-bg: var(--primary);
 
   /* Sidebar navbar + docked Copilot titlebar (one shared "chrome" color so
      the two read as a single frame). A dark slate rather than --primary:
-     keeps blue for actions/active state instead of competing with every
+     keeps indigo for actions/active state instead of competing with every
      button, and white text on it is 14.6:1 vs 5.2:1 on the old blue. */
   --nav-bg: #1e293b;
   --nav-border: transparent;
@@ -84,7 +86,7 @@
   /* Categorical series for stacked charts (Reports' Trade Details), in
      order — distinct from the gain/loss pair so a category never reads as
      a result. */
-  --series-1: #2563eb; --series-2: #0d9488; --series-3: #d97706; --series-4: #9333ea; --series-5: #64748b;
+  --series-1: #4f46e5; --series-2: #0d9488; --series-3: #d97706; --series-4: #9333ea; --series-5: #64748b;
 
   /* Shape */
   --radius-sm: 6px;
@@ -103,10 +105,11 @@
    prefers-color-scheme media query, since the toggle is explicit and its
    choice is persisted, overriding whatever the OS prefers. */
 :root[data-theme="dark"] {
-  --primary:       #3b82f6;
-  --primary-hover: #60a5fa;
-  --primary-light: rgba(59, 130, 246, 0.15);
-  --primary-ring:  rgba(59, 130, 246, 0.25);
+  /* 4.5:1 for white text (the old blue #3b82f6 was 3.7:1). */
+  --primary:       #6366f1;
+  --primary-hover: #818cf8;
+  --primary-light: rgba(99, 102, 241, 0.15);
+  --primary-ring:  rgba(99, 102, 241, 0.25);
 
   --accent:       #e08a6c;
   --accent-light: rgba(224, 138, 108, 0.15);
@@ -124,8 +127,8 @@
   --text-faint: #737373;
   --text-inverse: #ffffff;
 
-  /* Same blue as --primary (see the light-mode block above) rather than a
-     dark neutral, so table headers stay recognizably blue in dark mode too. */
+  /* Same color as --primary (see the light-mode block above) rather than a
+     dark neutral, so table headers stay recognizably indigo in dark mode too. */
   --header-bg: var(--primary);
 
   /* Near-black neutral, a step darker than --bg, to match this theme's
@@ -157,7 +160,7 @@
   --pnl-loss-1: #3d2424; --pnl-loss-2: #6e2c2c; --pnl-loss-3: #b53d3d; --pnl-loss-4: #fb8a8a;
   --pnl-on-1: #f5f5f5; --pnl-on-2: #f5f5f5; --pnl-on-3: #ffffff; --pnl-on-4: #171717;
 
-  --series-1: #60a5fa; --series-2: #2dd4bf; --series-3: #fbbf24; --series-4: #c084fc; --series-5: #94a3b8;
+  --series-1: #818cf8; --series-2: #2dd4bf; --series-3: #fbbf24; --series-4: #c084fc; --series-5: #94a3b8;
 
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25);

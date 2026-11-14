@@ -87,7 +87,7 @@
 .pl-strike { color: var(--text); font-weight: 700; background: var(--bg); }
 .pl-value { font-weight: 600; color: var(--text); }
 .pl-spotrow.pl-strike { outline: 2px solid var(--primary); color: var(--primary); }
-.pl-spotrow.pl-value { box-shadow: inset 0 0 0 1px rgba(37,99,235,0.4); }
+.pl-spotrow.pl-value { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 40%, transparent); }
 
 /* ─── StrikeLab: option chain ──────────────────────────── */
 /* Caps how tall the chain gets before it scrolls internally — a wide range

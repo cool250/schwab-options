@@ -37,9 +37,9 @@ function stockTradePriceColumn() {
 
 // Positions arrive as plain numbers; prices/strikes/quantities are formatted
 // here (P&L and exposure keep DataTable's own number formatting + coloring).
-const quantityColumn = { key: 'quantity', label: 'Quantity', align: 'right', render: (row) => count(row.quantity) }
+const quantityColumn = { key: 'quantity', label: 'QTY', align: 'right', render: (row) => count(row.quantity) }
 const tradePriceColumn = { key: 'trade_price', label: 'Trade Price', align: 'right', render: (row) => money(row.trade_price) }
-const currentPriceColumn = { key: 'current_price', label: 'Current Price', align: 'right', render: (row) => money(row.current_price, 3) }
+const currentPriceColumn = { key: 'current_price', label: 'Last Price', align: 'right', render: (row) => money(row.current_price, 3) }
 
 // Schwab's margin requirement per position (stocks and equity options only —
 // Schwab doesn't report futures margin).
@@ -128,11 +128,11 @@ function thetaTotalText(rows, thetas, loading, multiplierOf) {
   return text
 }
 
-// Initial premium: the dollars taken in (short, positive) or paid (long,
+// Premium: the dollars taken in (short, positive) or paid (long,
 // negative) when the position opened — trade price x contracts x
 // multiplier. Futures-option rows already carry it as total_value (a
 // spread's net); equity rows get it added as initial_premium (withPremium).
-const initialPremiumColumn = (key) => ({ key, label: 'Initial Premium', align: 'right', render: (row) => money(row[key]) })
+const initialPremiumColumn = (key) => ({ key, label: 'Premium', align: 'right', render: (row) => money(row[key]) })
 const withPremium = (rows) => rows.map((row) => ({
   ...row,
   initial_premium: row.trade_price == null ? null : row.trade_price * -row.quantity * EQUITY_OPTION_MULTIPLIER,
@@ -158,7 +158,7 @@ function optionColumns(optionType, theta) {
 // current_price isn't part of this — get_futures_position() doesn't return
 // it (see the futuresContractQuotes lazy-load below), so it's added as its
 // own render-based column (futuresContractCurrentPriceColumn) instead of a
-// plain key, same pattern as the futures-option tables' Current Price.
+// plain key, same pattern as the futures-option tables' Last Price.
 // On a phone the name stays fixed, with the other columns scrolling sideways
 // beneath it; option tables leave out the checkbox.
 const SYMBOL_PINNED = { pinned: 'symbol' }
@@ -181,8 +181,8 @@ function futuresColumns(onShowLots) {
 }
 
 // Same column set, order, and labels as optionColumns() above minus
-// Exposure (Ticker, Strike, DTE, Quantity, Trade Price, [Current Price],
-// [P&L], [Theta], Symbol) — Current Price, P&L and Theta aren't included here since they
+// Exposure (Ticker, Strike, DTE, Quantity, Trade Price, [Last Price],
+// [P&L], [Theta], Symbol) — Last Price, P&L and Theta aren't included here since they
 // depend on futuresQuotes (component state) and have to be composed in at
 // the call site, same as futuresCurrentPriceColumn/futuresPnLColumn already
 // were; Symbol is split out the same way, via futuresSymbolColumn below, so
@@ -467,7 +467,7 @@ export default function Positions() {
   function futuresContractCurrentPriceColumn() {
     return {
       key: 'current_price',
-      label: 'Current Price',
+      label: 'Last Price',
       align: 'right',
       render: (row) => {
         const price = futuresContractQuotes[row.symbol]
@@ -522,7 +522,7 @@ export default function Positions() {
   function futuresCurrentPriceColumn() {
     return {
       key: 'current_price',
-      label: 'Current Price',
+      label: 'Last Price',
       align: 'right',
       render: (row) => {
         if (row.long_leg && row.short_leg) {
@@ -543,7 +543,7 @@ export default function Positions() {
 
   // Unrealized P&L: total_value (trade_price-based cost basis, computed on
   // the backend) minus the same position re-priced at the live quote — so it
-  // needs futuresQuotes the same way Current Price does, and can't be a plain
+  // needs futuresQuotes the same way Last Price does, and can't be a plain
   // data key. Null until that row's quote(s) are in. Shared with Reports'
   // unrealized total (utils/openPositions.js).
   function futuresRowPL(row) {

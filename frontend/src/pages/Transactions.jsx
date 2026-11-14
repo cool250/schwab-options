@@ -31,17 +31,24 @@ const OPTION_COLUMNS = [
   { key: 'strike_price', label: 'Strike', align: 'right' },
   dateColumn('date', 'Open'),
   dateColumn('close_date', 'Closed'),
-  { key: 'open_type',     label: 'Opened As' },
-  { key: 'qty',           label: 'Quantity',     align: 'right' },
+  { key: 'open_type',     label: 'Type' },
+  { key: 'qty',           label: 'QTY',     align: 'right' },
   { key: 'open_price',     label: 'Trade Price', align: 'right' },
-  { key: 'initial_premium', label: 'Initial Premium', align: 'right', render: (row) => money(row.initial_premium) },
-  { key: 'close_price',   label: 'Closing Price',  align: 'right' },
-  { key: 'total_amount',     label: 'Total Gain/Loss ($)',  align: 'right' },
-  { key: 'type',     label: 'Status' },
+  { key: 'initial_premium', label: 'Premium', align: 'right', render: (row) => money(row.initial_premium) },
+  { key: 'close_price',   label: 'Last Price',  align: 'right' },
+  { key: 'total_amount',     label: 'P&L',  align: 'right' },
+  { key: 'type',     label: 'Status', render: (row) => optionStatus(row) },
 ]
 
-// The dollars a leg opened for, credit positive — as Positions' Initial
-// Premium. A still-open leg's amount is signed (short negative); a matched
+// "TRADE" is the still-open marker the rest of the code checks for; it's
+// shown as OPEN, as the All tab does.
+function optionStatus(t) {
+  return t.type === 'TRADE' ? 'OPEN' : t.type
+}
+const rowStatus = (t) => t.status
+
+// The dollars a leg opened for, credit positive — as Positions' Premium
+// column. A still-open leg's amount is signed (short negative); a matched
 // one's is a plain count, its direction in open_type. A grouped ratio spread's
 // open_price is already the net over both sides (short minus long), and a
 // close whose opening fill isn't on record has no premium to show.
@@ -60,7 +67,7 @@ const EQUITY_COLUMNS = [
   dateColumn('date', 'Open'),
   dateColumn('close_date', 'Closed'),
   { key: 'asset_type',   label: 'Asset Type' },
-  { key: 'quantity',     label: 'Quantity',    align: 'right' },
+  { key: 'quantity',     label: 'QTY',    align: 'right' },
   { key: 'open_price',   label: 'Trade Price', align: 'right' },
   { key: 'close_price',  label: 'Close Price', align: 'right' },
   { key: 'total_amount', label: 'Total',       align: 'right' },
@@ -75,10 +82,10 @@ const ALL_COLUMNS = [
   dateColumn('close_date', 'Closed'),
   { key: 'kind',         label: 'Type' },
   { key: 'label',        label: 'Contract / Symbol' },
-  { key: 'qty',          label: 'Quantity',    align: 'right' },
+  { key: 'qty',          label: 'QTY',    align: 'right' },
   { key: 'open_price',   label: 'Trade Price', align: 'right' },
   { key: 'close_price',  label: 'Close Price', align: 'right' },
-  { key: 'total_amount', label: 'Total Gain/Loss ($)', align: 'right' },
+  { key: 'total_amount', label: 'P&L', align: 'right' },
   { key: 'status',       label: 'Status' },
 ]
 // On a phone the closed date stays fixed, with the other columns scrolling
@@ -109,7 +116,7 @@ function todayStr() {
 }
 
 // Exports exactly what's on screen — same columns (in the same order,
-// including a render column like Current Price, which returns a plain
+// including a render column like Last Price, which returns a plain
 // string here) and the same row data DataTable is currently showing.
 function downloadCsv(filename, columns, rows) {
   const escape = (val) => {
@@ -139,6 +146,34 @@ function DownloadIcon() {
       <path d="M7.5 10.5 12 15l4.5-4.5" />
       <path d="M4 19h16" />
     </svg>
+  )
+}
+
+// The Status filter beside a table's CSV button: the statuses in the loaded
+// rows, with counts. It narrows what's already loaded rather than searching
+// again, and a choice that isn't among the rows (after a new search) shows
+// them all.
+function byStatus(rows, statusOf, value) {
+  if (value === 'ALL' || !rows.some((r) => statusOf(r) === value)) return rows
+  return rows.filter((r) => statusOf(r) === value)
+}
+
+function StatusFilter({ rows, statusOf, value, onChange }) {
+  const counts = new Map()
+  for (const r of rows) counts.set(statusOf(r), (counts.get(statusOf(r)) ?? 0) + 1)
+  if (counts.size < 2) return null
+  return (
+    <select
+      className="input status-filter"
+      aria-label="Filter by status"
+      value={counts.has(value) ? value : 'ALL'}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="ALL">All statuses ({rows.length})</option>
+      {[...counts].sort(([a], [b]) => String(a).localeCompare(String(b))).map(([s, n]) => (
+        <option key={s} value={s}>{s} ({n})</option>
+      ))}
+    </select>
   )
 }
 
@@ -320,7 +355,9 @@ export default function Transactions() {
   // grouped ratio-spread row) as `qty` for the Quantity column: DataTable
   // auto-colors any field whose name contains "amount" as a gain/loss, and
   // a quantity isn't one.
-  const optionRows = (transactions ?? []).map((raw) => {
+  const [optionStatusFilter, setOptionStatusFilter] = useState('ALL')
+  const shownTransactions = byStatus(transactions ?? [], optionStatus, optionStatusFilter)
+  const optionRows = shownTransactions.map((raw) => {
     const t = { ...raw, qty: raw.amount, initial_premium: initialPremium(raw) }
     if (t.type !== 'TRADE') return t
     const price = optionQuotes[t.symbol]
@@ -331,7 +368,7 @@ export default function Transactions() {
   // The summary line's realized "Total" stays realized-only — computed from
   // the raw transactions (not optionRows, whose total_amount now mixes in
   // unrealized figures for open rows) so it isn't diluted by unrealized P&L.
-  const totalAmount = (transactions ?? []).reduce((s, t) => s + (t.type === 'TRADE' ? 0 : (t.total_amount ?? 0)), 0)
+  const totalAmount = shownTransactions.reduce((s, t) => s + (t.type === 'TRADE' ? 0 : (t.total_amount ?? 0)), 0)
 
   // Still-open rows' total_amount is null until optionQuotes loads (see
   // optionRows above) — a render column so it can show "Loading..." instead
@@ -341,7 +378,7 @@ export default function Transactions() {
   function totalAmountColumn() {
     return {
       key: 'total_amount',
-      label: 'Total Gain/Loss ($)',
+      label: 'P&L',
       align: 'right',
       render: (row) => {
         const val = row.total_amount
@@ -352,7 +389,7 @@ export default function Transactions() {
     }
   }
 
-  // A still-open row has no close_price yet — reuses the same Closing Price
+  // A still-open row has no close_price yet — reuses the same Last Price
   // column to show its live current price instead of a separate column, the
   // same one-column-covers-both approach as totalAmountColumn above. Live
   // current price isn't a field on the row itself; it depends on the quote
@@ -360,7 +397,7 @@ export default function Transactions() {
   function closePriceColumn() {
     return {
       key: 'close_price',
-      label: 'Closing Price',
+      label: 'Last Price',
       align: 'right',
       render: (row) => {
         if (row.type !== 'TRADE') {
@@ -387,7 +424,7 @@ export default function Transactions() {
     : OPTION_COLUMNS
 
   const totalUnrealizedGain = showLivePricing
-    ? (transactions ?? []).reduce((s, t) => {
+    ? shownTransactions.reduce((s, t) => {
         const price = optionQuotes[t.symbol]
         return price == null ? s : s + t.amount * getMultiplier(t.underlying_symbol) * (price - t.open_price)
       }, 0)
@@ -424,7 +461,9 @@ export default function Transactions() {
   // Either way — an open lot (no close yet) or a close with no open on
   // record — there's no way to compute a real gain/loss without both legs,
   // so Total shows 0 until a full round-trip is on record.
-  const equityRows = (equityTransactions ?? []).map(normalizeEquityRow)
+  const [equityStatusFilter, setEquityStatusFilter] = useState('ALL')
+  const allEquityLoaded = (equityTransactions ?? []).map(normalizeEquityRow)
+  const equityRows = byStatus(allEquityLoaded, rowStatus, equityStatusFilter)
   const equityTotalAmount = equityRows.reduce((s, t) => s + (t.total_amount ?? 0), 0)
 
   // ---- All: options + equity & futures (+ income and fees) ----
@@ -490,10 +529,11 @@ export default function Transactions() {
 
   // One row shape for all three. An open option leg is priced at its live
   // bid (its unrealized gain), as on the Options tab.
-  const allOptionRows = (allData?.options ?? []).map((t) => {
+  const [allStatusFilter, setAllStatusFilter] = useState('ALL')
+  const allOptionRowsLoaded = (allData?.options ?? []).map((t) => {
     const base = {
       ...t, kind: 'Option', label: optionSymbolCell(t), qty: t.amount,
-      status: t.type === 'TRADE' ? 'OPEN' : t.type,
+      status: optionStatus(t),
     }
     if (t.type !== 'TRADE') return base
     const price = allQuotes[t.symbol]
@@ -503,14 +543,21 @@ export default function Transactions() {
       total_amount: price == null ? null : t.amount * getMultiplier(t.underlying_symbol) * (price - t.open_price),
     }
   })
-  const allEquityRows = (allData?.equity ?? []).map(normalizeEquityRow).map((t) => ({
+  const allEquityRowsLoaded = (allData?.equity ?? []).map(normalizeEquityRow).map((t) => ({
     ...t, kind: ASSET_KIND[t.asset_type] ?? t.asset_type, label: t.symbol, qty: t.quantity,
   }))
-  const allIncomeRows = (allData?.income ?? []).map((r) => ({
+  const allIncomeRowsLoaded = (allData?.income ?? []).map((r) => ({
     close_date: r.date, date: null, kind: r.kind === 'FEE' ? 'Fee' : 'Income',
     label: r.kind === 'FEE' ? r.description || r.category : INCOME_LABEL[r.category] ?? r.category,
     total_amount: r.amount, status: r.category,
   }))
+  const allRowsLoaded = [...allOptionRowsLoaded, ...allEquityRowsLoaded, ...allIncomeRowsLoaded]
+  // Applied to each part, so the per-part totals follow the filter too.
+  const allStatusShown = allRowsLoaded.some((r) => r.status === allStatusFilter) ? allStatusFilter : 'ALL'
+  const keepStatus = (r) => allStatusShown === 'ALL' || r.status === allStatusShown
+  const allOptionRows = allOptionRowsLoaded.filter(keepStatus)
+  const allEquityRows = allEquityRowsLoaded.filter(keepStatus)
+  const allIncomeRows = allIncomeRowsLoaded.filter(keepStatus)
   const allRows = [...allOptionRows, ...allEquityRows, ...allIncomeRows]
   const sumRealized = (rows) => rows.reduce((s, t) => s + (t.status === 'OPEN' ? 0 : (t.total_amount ?? 0)), 0)
   const allTotals = {
@@ -639,7 +686,7 @@ export default function Transactions() {
           {allLoading && <Spinner />}
 
           {allData && !allLoading && (
-            allRows.length === 0 ? (
+            allRowsLoaded.length === 0 ? (
               <div className="alert warning">No transactions found for the given criteria.</div>
             ) : (
               <div className="card">
@@ -651,6 +698,7 @@ export default function Transactions() {
                     {allIncomeRows.length > 0 && <> · Income &amp; fees {usd(allTotals.income)}</>})
                     {allShowUnrealized && <>&nbsp;|&nbsp; Unrealized Gain: {usd(allUnrealized)}</>}
                   </span>
+                  <StatusFilter rows={allRowsLoaded} statusOf={rowStatus} value={allStatusFilter} onChange={setAllStatusFilter} />
                   <DownloadCsvButton
                     onClick={() => downloadCsv(`all-transactions_${startDate}_to_${endDate}.csv`, ALL_COLUMNS, allRows)}
                   />
@@ -751,13 +799,14 @@ export default function Transactions() {
                   <div className="section-header">
                     <h3 className="section-title">Transactions</h3>
                     <span className="summary-line">
-                      {transactions.length} records &nbsp;|&nbsp; Total: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      {shownTransactions.length} records &nbsp;|&nbsp; Total: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       {showLivePricing && (
                         <>
                           &nbsp;|&nbsp; Unrealized Gain: ${totalUnrealizedGain.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </>
                       )}
                     </span>
+                    <StatusFilter rows={transactions} statusOf={optionStatus} value={optionStatusFilter} onChange={setOptionStatusFilter} />
                     <DownloadCsvButton
                       onClick={() => downloadCsv(`option-transactions_${startDate}_to_${endDate}.csv`, optionColumns, optionRows)}
                     />
@@ -823,7 +872,7 @@ export default function Transactions() {
 
           {equityTransactions && !equityLoading && (
             <>
-              {equityRows.length === 0 ? (
+              {allEquityLoaded.length === 0 ? (
                 <div className="alert warning">No transactions found for the given criteria.</div>
               ) : (
                 <div className="card">
@@ -832,6 +881,7 @@ export default function Transactions() {
                     <span className="summary-line">
                       {equityRows.length} records &nbsp;|&nbsp; Total: ${equityTotalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
+                    <StatusFilter rows={allEquityLoaded} statusOf={rowStatus} value={equityStatusFilter} onChange={setEquityStatusFilter} />
                     <DownloadCsvButton
                       onClick={() => downloadCsv(`equity-transactions_${startDate}_to_${endDate}.csv`, EQUITY_COLUMNS, equityRows)}
                     />
