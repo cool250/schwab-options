@@ -77,6 +77,48 @@ export function incomeExpenseGroups(incomeBy = {}, feesBy = {}) {
   }
 }
 
+// Top marginal rates for 2026: federal 37% on ordinary income and short-term
+// gains, 20% on long-term gains, the 3.8% net investment income tax, and
+// California's 13.3% (12.3% plus the 1% mental health services tax over $1M),
+// which taxes every gain as ordinary income.
+export const TOP_TAX_RATES = { federalOrdinary: 0.37, federalLongTerm: 0.2, niit: 0.038, california: 0.133 }
+
+/**
+ * Estimated tax on the year's trading as if all of it fell in the top
+ * brackets — no other income, deductions or credits.
+ *   s1256, other   taxSummary()'s, with 1256 already split 60/40
+ *   income         interest and dividends received (taxed as ordinary —
+ *                  qualified dividends would be 20%)
+ *   deductible     margin interest and short dividends, taken from ordinary
+ *                  income (investment interest only up to that income)
+ *   fees           commissions and fees, which the 1099-B takes out of
+ *                  proceeds and cost: taken from the short-term gains
+ * Short- and long-term gains net against each other first; a net capital
+ * loss is taxed at nothing and returned as capitalLoss (negative — only
+ * $3,000 of it is deductible a year, the rest carries forward).
+ * → { shortTerm, longTerm, ordinary, taxable, capitalLoss,
+ *     federal: { ordinary, longTerm, niit, total }, state, total, effective }
+ */
+export function estimatedTax({ s1256, other, income = 0, deductible = 0, fees = 0 }, rates = TOP_TAX_RATES) {
+  let st = s1256.shortTerm + other.shortTerm - fees
+  let lt = s1256.longTerm + other.longTerm
+  if (st < 0 && lt > 0) { lt += st; st = 0 } else if (lt < 0 && st > 0) { st += lt; lt = 0 }
+  const capitalLoss = Math.min(0, st) + Math.min(0, lt)
+  st = Math.max(0, st)
+  lt = Math.max(0, lt)
+  const ordinary = Math.max(0, st + income - deductible)
+  const taxable = ordinary + lt
+  const federal = {
+    ordinary: ordinary * rates.federalOrdinary,
+    longTerm: lt * rates.federalLongTerm,
+    niit: taxable * rates.niit,
+  }
+  federal.total = federal.ordinary + federal.longTerm + federal.niit
+  const state = taxable * rates.california
+  const total = federal.total + state
+  return { shortTerm: st, longTerm: lt, ordinary, taxable, capitalLoss, federal, state, total, effective: taxable ? total / taxable : 0 }
+}
+
 /**
  * optionTrades / equityTrades: the year's closed trades. open1256: unrealized
  * P&L of the 1256 positions open now (futures and futures options), or null

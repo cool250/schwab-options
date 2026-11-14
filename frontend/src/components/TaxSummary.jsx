@@ -1,15 +1,18 @@
 import { useMemo } from 'react'
-import { taxSummary, incomeExpenseGroups } from '../utils/taxSummary'
+import { taxSummary, incomeExpenseGroups, estimatedTax, TOP_TAX_RATES } from '../utils/taxSummary'
 import { usd, signClass } from '../utils/reportStats'
+
+const pct = (r) => `${(r * 100).toFixed(1).replace(/\.0$/, '')}%`
 
 /*
  * Reports' Tax summary tab: the year's realized P&L split the way the tax
  * forms split it — Section 1256 contracts (Form 6781, 60/40 and marked to
  * market at year end) apart from everything else (Form 8949 / Schedule D,
- * short- or long-term by holding period) — by estimated-tax period, and the
- * year's interest, dividends and fees grouped by how a return treats them.
+ * short- or long-term by holding period) — by estimated-tax period, the
+ * year's interest, dividends and fees grouped by how a return treats them,
+ * and the tax on it all at the top federal and California rates.
  * A check against the 1099-B, not a replacement for it. The math is
- * taxSummary() and incomeExpenseGroups() in utils/taxSummary.js.
+ * taxSummary(), incomeExpenseGroups() and estimatedTax() in utils/taxSummary.js.
  */
 
 function Money({ v, strong }) {
@@ -35,6 +38,12 @@ export default function TaxSummary({ optionTrades, equityTrades, unrealized, inc
   const { s1256, other, periods } = t
   const fees = incomeFees?.fees ?? null
   const groups = useMemo(() => incomeFees && incomeExpenseGroups(incomeFees.incomeBy, incomeFees.feesBy), [incomeFees])
+  const est = estimatedTax({
+    s1256, other,
+    income: groups?.income.total ?? 0,
+    deductible: groups?.deductible.total ?? 0,
+    fees: groups?.inBasis.total ?? 0,
+  })
 
   const openCell = !isCurrentYear ? <td className="num">See 1099-B</td>
     : unrealized?.loading ? <td className="num">Loading…</td>
@@ -180,6 +189,57 @@ export default function TaxSummary({ optionTrades, equityTrades, unrealized, inc
             interest aren&apos;t deductible.
           </p>
         </div>
+      </div>
+
+      <div className="card">
+        <div className="report-card-head">
+          <h3 className="section-title">Estimated tax</h3>
+          <span className="report-card-note">Top federal brackets and California, on this year&apos;s trading</span>
+        </div>
+        <div className="report-table-wrap">
+          <table className="report-table tax-table">
+            <thead>
+              <tr><th /><th className="num">Taxed</th><th className="num">Rate</th><th className="num">Tax</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Federal: short-term gains and ordinary income</td>
+                <td className="num">{usd(est.ordinary)}</td><td className="num">{pct(TOP_TAX_RATES.federalOrdinary)}</td>
+                <td className="num pnl-down">{usd(est.federal.ordinary)}</td>
+              </tr>
+              <tr>
+                <td>Federal: long-term gains</td>
+                <td className="num">{usd(est.longTerm)}</td><td className="num">{pct(TOP_TAX_RATES.federalLongTerm)}</td>
+                <td className="num pnl-down">{usd(est.federal.longTerm)}</td>
+              </tr>
+              <tr>
+                <td>Net investment income tax</td>
+                <td className="num">{usd(est.taxable)}</td><td className="num">{pct(TOP_TAX_RATES.niit)}</td>
+                <td className="num pnl-down">{usd(est.federal.niit)}</td>
+              </tr>
+              <tr>
+                <td>California</td>
+                <td className="num">{usd(est.taxable)}</td><td className="num">{pct(TOP_TAX_RATES.california)}</td>
+                <td className="num pnl-down">{usd(est.state)}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                <td className="num">{usd(est.taxable)}</td><td className="num">{pct(est.effective)}</td>
+                <td className={`num ${est.total ? 'pnl-down' : ''}`}>{usd(est.total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p className="report-footnote">
+          {est.capitalLoss < 0 && <>A net capital loss of {usd(-est.capitalLoss)}: up to $3,000 of it comes off other income this year, the rest carries forward. </>}
+          As if all of it fell in the top brackets, with nothing else on the return. Section 1256 gains are 60% long-term;
+          short- and long-term net against each other first. Commissions and fees come off short-term gains, margin
+          interest off ordinary income, and dividends are taxed as ordinary (qualified ones would be 20%).
+          {isCurrentYear && ' Open 1256 positions are counted at today’s prices.'}
+          {!groups && ' Interest, dividends and fees couldn’t be loaded, so they’re left out.'}
+        </p>
       </div>
 
       <div className="card">

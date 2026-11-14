@@ -1,6 +1,33 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { taxSummary, isLongTerm, incomeExpenseGroups } from "./taxSummary.js";
+import { taxSummary, isLongTerm, incomeExpenseGroups, estimatedTax } from "./taxSummary.js";
+
+const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-6, `${a} != ${b}`);
+
+test("estimated tax at the top rates: 1256 60/40, fees off short-term, margin interest off ordinary", () => {
+  const e = estimatedTax({
+    s1256: { shortTerm: 4000, longTerm: 6000 },
+    other: { shortTerm: 2000, longTerm: 1000 },
+    income: 500, deductible: 300, fees: 200,
+  });
+  // short-term 4000 + 2000 - 200 = 5800; ordinary 5800 + 500 - 300 = 6000; long-term 7000
+  assert.deepEqual([e.shortTerm, e.longTerm, e.ordinary, e.taxable, e.capitalLoss], [5800, 7000, 6000, 13000, 0]);
+  close(e.federal.ordinary, 2220);
+  close(e.federal.longTerm, 1400);
+  close(e.federal.niit, 494);
+  close(e.state, 1729);
+  close(e.total, 2220 + 1400 + 494 + 1729);
+  close(e.effective, e.total / 13000);
+});
+
+test("estimated tax: a short-term loss offsets long-term gains, a net loss owes nothing", () => {
+  const offset = estimatedTax({ s1256: { shortTerm: 0, longTerm: 0 }, other: { shortTerm: -3000, longTerm: 5000 } });
+  assert.deepEqual([offset.shortTerm, offset.longTerm, offset.capitalLoss], [0, 2000, 0]);
+  close(offset.federal.longTerm, 400);
+  const loss = estimatedTax({ s1256: { shortTerm: -400, longTerm: -600 }, other: { shortTerm: 200, longTerm: 0 }, income: 100 });
+  assert.deepEqual([loss.shortTerm, loss.longTerm, loss.capitalLoss, loss.ordinary], [0, 0, -800, 100]);
+  close(loss.total, 100 * (0.37 + 0.038 + 0.133));
+});
 
 test("expenses, fees already in the 1099-B, and income are kept apart", () => {
   const g = incomeExpenseGroups(
